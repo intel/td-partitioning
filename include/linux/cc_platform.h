@@ -129,6 +129,17 @@ enum cc_attr {
 	 * Examples include TDX guest.
 	 */
 	CC_ATTR_GUEST_RAND_LOOP,
+
+	/**
+	 * @CC_ATTR_GUEST_DEVICE_FILTER: Filter device enumeration as per
+	 * platform specific allow list.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and allows or
+	 * dis-allows device enumeration as per platform specific allow list.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_DEVICE_FILTER,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM
