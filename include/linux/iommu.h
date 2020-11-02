@@ -243,6 +243,7 @@ union iommu_domain_user_data {
 	__u64 test[2];
 #endif
 	struct iommu_hwpt_vtd_s1 vtd;
+	struct iommu_hwpt_arm_smmuv3 smmuv3;
 };
 
 /**
