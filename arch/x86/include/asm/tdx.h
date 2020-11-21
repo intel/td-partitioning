@@ -66,6 +66,8 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+typedef int (*tdx_event_irq_cb_t)(void *);
+
 void __init tdx_early_init(void);
 bool tdx_debug_enabled(void);
 
@@ -88,6 +90,10 @@ u64 tdx_mcall_verify_report(u8 *reportmac);
 int tdx_mcall_extend_rtmr(u8 *data, u8 index);
 
 bool tdx_allowed_port(short int port);
+
+int tdx_register_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
+
+int tdx_unregister_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
 #else
 
