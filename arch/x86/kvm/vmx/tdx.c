@@ -1529,6 +1529,16 @@ static int tdx_complete_vp_vmcall(struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx_vmcall *tdx_vmcall = &vcpu->run->tdx.u.vmcall;
 	__u64 reg_mask = kvm_rcx_read(vcpu);
+	int r;
+
+	if (unlikely(vcpu->arch.complete_tdx_vp_vmcall)) {
+		int (*ctvv)(struct kvm_vcpu *) = vcpu->arch.complete_tdx_vp_vmcall;
+
+		vcpu->arch.complete_tdx_vp_vmcall = NULL;
+		r = ctvv(vcpu);
+		if (r <= 0)
+			return r;
+	}
 
 #define COPY_REG(MASK, REG)							\
 	do {									\
@@ -1844,8 +1854,80 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+/* used for both shared EPT and security EPT */
+#define TDX_EPT_PFERR (PFERR_WRITE_MASK | PFERR_USER_MASK)
+
+static int tdx_complete_map_gpa(struct kvm_vcpu *vcpu)
+{
+	gpa_t gpa = tdvmcall_a0_read(vcpu);
+	gpa_t size = tdvmcall_a1_read(vcpu);
+	bool prefault = tdvmcall_a2_read(vcpu);
+	u64 error_code = TDX_EPT_PFERR;
+
+	WARN_ON(!prefault);
+
+	if (kvm_is_private_gpa(vcpu->kvm, gpa))
+		error_code |= PFERR_GUEST_ENC_MASK;
+
+	while (size) {
+		int ret;
+
+		ret = kvm_mmu_map_tdp_page(vcpu, gpa, error_code,
+					   PG_LEVEL_4K, false);
+		if (ret && ret != -EAGAIN)
+			pr_err("failed to pin shared pages %llx, ret=%d\n", gpa, ret);
+
+		size -= PAGE_SIZE;
+		gpa += PAGE_SIZE;
+	}
+
+	return 1;
+}
+
 static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 {
+	struct kvm *kvm = vcpu->kvm;
+	gpa_t gpa = tdvmcall_a0_read(vcpu);
+	gpa_t size = tdvmcall_a1_read(vcpu);
+	bool prefault = tdvmcall_a2_read(vcpu);
+	gpa_t end = gpa + size;
+	gfn_t s = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(kvm);
+	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
+	int i;
+
+	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
+	    end < gpa ||
+	    end > kvm_gfn_shared_mask(kvm) << (PAGE_SHIFT + 1) ||
+	    kvm_is_private_gpa(kvm, gpa) != kvm_is_private_gpa(kvm, end)) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	/*
+	 * Check how the requested region overlaps with the KVM memory slots.
+	 * For simplicity, prefault require that it must be contained within
+	 * a memslot or it must not overlap with any memslots (MMIO). Prefault
+	 * an emulated MMIO region makes no sense.
+	 */
+	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
+		struct kvm_memslots *slots = __kvm_memslots(kvm, i);
+		struct kvm_memslot_iter iter;
+
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, s, e) {
+			struct kvm_memory_slot *slot = iter.slot;
+			gfn_t slot_s = slot->base_gfn;
+			gfn_t slot_e = slot->base_gfn + slot->npages;
+
+			/* contained in slot */
+			if (slot_s <= s && e <= slot_e) {
+				if (prefault)
+					vcpu->arch.complete_tdx_vp_vmcall = tdx_complete_map_gpa;
+
+				break;
+			}
+		}
+	}
+
 	return tdx_vp_vmcall_to_user(vcpu);
 }
 

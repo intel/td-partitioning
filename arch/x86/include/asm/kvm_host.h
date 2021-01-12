@@ -1069,6 +1069,9 @@ struct kvm_vcpu_arch {
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
 #endif
+
+	/* TDX VP VMCALL post handling after userspace work completion*/
+	int (*complete_tdx_vp_vmcall)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_lpage_info {
