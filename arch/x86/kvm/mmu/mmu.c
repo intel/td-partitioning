@@ -1490,7 +1490,8 @@ static bool __kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 	sp = sptep_to_sp(sptep);
 	gfn = kvm_mmu_page_get_gfn(sp, sptep - sp->spt);
 
-	static_call(kvm_x86_zap_private_spte)(kvm, gfn, sp->role.level);
+	if (static_call(kvm_x86_zap_private_spte)(kvm, gfn, sp->role.level))
+		return false;
 
 	return true;
 }
