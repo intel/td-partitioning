@@ -12,6 +12,7 @@
 #include <linux/iommu.h>
 #include <linux/mm.h>
 #include <linux/workqueue.h>
+#include <linux/pci.h>
 #include <linux/poll.h>
 #include <linux/cdev.h>
 #include <uapi/linux/vfio.h>
@@ -33,6 +34,24 @@ struct vfio_device_set {
 	struct list_head device_list;
 	unsigned int device_count;
 };
+
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+/*
+ * Interrupt Message Store (IMS) data
+ * @ctx:		IMS interrupt context storage.
+ * @ctx_mutex:		Protects the interrupt context storage.
+ * @pdev:		PCI device owning the IMS domain from where
+ *			interrupts are allocated.
+ * @default_cookie:	Default cookie used for IMS interrupts without unique
+ *			cookie.
+ */
+struct vfio_pci_ims {
+	struct xarray			ctx;
+	struct mutex			ctx_mutex;
+	struct pci_dev			*pdev;
+	union msi_instance_cookie	default_cookie;
+};
+#endif
 
 struct vfio_device {
 	struct device *dev;
@@ -70,6 +89,9 @@ struct vfio_device {
 	u8 iommufd_attached:1;
 #endif
 	u8 cdev_opened:1;
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+	struct vfio_pci_ims ims;
+#endif
 };
 
 /**
@@ -372,5 +394,43 @@ int vfio_virqfd_enable(void *opaque, int (*handler)(void *, void *),
 		       void (*thread)(void *, void *), void *data,
 		       struct virqfd **pvirqfd, int fd);
 void vfio_virqfd_disable(struct virqfd **pvirqfd);
+
+/*
+ * Interrupt Message Store (IMS)
+ */
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+int vfio_pci_set_ims_trigger(struct vfio_device *vdev, unsigned int index,
+			     unsigned int start, unsigned int count, u32 flags,
+			     void *data);
+void vfio_pci_ims_init(struct vfio_device *vdev, struct pci_dev *pdev,
+		       union msi_instance_cookie *default_cookie);
+void vfio_pci_ims_free(struct vfio_device *vdev);
+int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
+			    union msi_instance_cookie *icookie);
+#else
+static inline int vfio_pci_set_ims_trigger(struct vfio_device *vdev,
+					   unsigned int index,
+					   unsigned int start,
+					   unsigned int count, u32 flags,
+					   void *data)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void vfio_pci_ims_init(struct vfio_device *vdev,
+				     struct pci_dev *pdev,
+				     union msi_instance_cookie *default_cookie)
+{}
+
+static inline void vfio_pci_ims_free(struct vfio_device *vdev) {}
+
+static inline int vfio_pci_ims_set_cookie(struct vfio_device *vdev,
+					  unsigned int vector,
+					  union msi_instance_cookie *icookie)
+{
+	return -EOPNOTSUPP;
+}
+
+#endif /* CONFIG_VFIO_PCI_IMS */
 
 #endif /* VFIO_H */
