@@ -92,6 +92,7 @@ struct vfio_device {
 #if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
 	struct vfio_pci_ims ims;
 #endif
+	struct eventfd_ctx *req_trigger;
 };
 
 /**
@@ -354,6 +355,15 @@ int vfio_pin_pages(struct vfio_device *device, dma_addr_t iova,
 void vfio_unpin_pages(struct vfio_device *device, dma_addr_t iova, int npage);
 int vfio_dma_rw(struct vfio_device *device, dma_addr_t iova,
 		void *data, size_t len, bool write);
+
+/* common lib functions */
+extern int vfio_set_ctx_trigger_single(struct eventfd_ctx **ctx,
+				       unsigned int count, u32 flags,
+				       void *data);
+extern int vfio_set_req_trigger(struct vfio_device *vdev, unsigned int index,
+				unsigned int start, unsigned int count, u32 flags,
+				void *data);
+extern void vfio_device_request(struct vfio_device *vdev, unsigned int count);
 
 /*
  * Sub-module helpers

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-obj-$(CONFIG_VFIO) += vfio.o
+obj-$(CONFIG_VFIO) += vfio.o vfio_common.o
 
 vfio-y += vfio_main.o \
 	  iova_bitmap.o
