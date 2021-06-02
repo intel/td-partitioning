@@ -787,6 +787,7 @@ struct device {
 	void	(*release)(struct device *dev);
 	struct iommu_group	*iommu_group;
 	struct dev_iommu	*iommu;
+	u32			pasid;
 
 	struct device_physical_location *physical_location;
 
@@ -1254,5 +1255,15 @@ void device_links_supplier_sync_state_resume(void);
 	MODULE_ALIAS("char-major-" __stringify(major) "-" __stringify(minor))
 #define MODULE_ALIAS_CHARDEV_MAJOR(major) \
 	MODULE_ALIAS("char-major-" __stringify(major) "-*")
+
+static inline u32 dev_get_pasid(struct device *dev)
+{
+	return dev->pasid;
+}
+
+static inline void dev_set_pasid(struct device *dev, u32 pasid)
+{
+	dev->pasid = pasid;
+}
 
 #endif /* _DEVICE_H_ */
