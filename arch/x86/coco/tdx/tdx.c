@@ -7,6 +7,7 @@
 #include <linux/cpufeature.h>
 #include <linux/export.h>
 #include <linux/io.h>
+#include <linux/pci.h>
 #include <linux/random.h>
 #include <linux/virtio_anchor.h>
 #include <asm/coco.h>
@@ -1123,6 +1124,8 @@ void __init tdx_early_init(void)
 	x86_platform.guest.enc_status_change_finish = tdx_enc_status_changed;
 
 	legacy_pic = &null_legacy_pic;
+
+	pci_disable_early();
 
 	pr_info("Guest detected\n");
 }
