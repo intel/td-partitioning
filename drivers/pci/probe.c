@@ -22,6 +22,7 @@
 #include <linux/bitfield.h>
 #include <linux/cc_platform.h>
 #include <linux/device.h>
+
 #include "pci.h"
 
 #define CARDBUS_LATENCY_TIMER	176	/* secondary latency timer */
