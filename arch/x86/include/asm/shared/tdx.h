@@ -93,6 +93,8 @@ struct tdx_module_output {
 u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 		      struct tdx_module_output *out);
 
+void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
+
 bool early_is_tdx_guest(void);
 
 #endif /* !__ASSEMBLY__ */
