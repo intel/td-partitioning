@@ -822,6 +822,11 @@ struct zone {
 	/* free areas of different sizes */
 	struct free_area	free_area[MAX_ORDER];
 
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	/* pages to be accepted */
+	struct list_head	unaccepted_pages;
+#endif
+
 	/* zone flags, see below */
 	unsigned long		flags;
 
