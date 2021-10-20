@@ -572,6 +572,9 @@ static void __iomem *msix_map_region(struct pci_dev *dev,
 
 	phys_addr = pci_resource_start(dev, bir) + table_offset;
 
+	if (dev->dev.authorized)
+		return ioremap_driver_hardened(phys_addr, table_size);
+
 	return ioremap(phys_addr, table_size);
 }
 
