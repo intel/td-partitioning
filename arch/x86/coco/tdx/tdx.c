@@ -46,6 +46,7 @@
 
 /* Caches TD Attributes from TDG.VP.INFO TDCALL */
 static u64 td_attr;
+static u64 cc_mask;
 
 /* Traced version of __tdx_hypercall */
 static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args,
@@ -499,6 +500,10 @@ static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	if (WARN_ON_ONCE(user_mode(regs)))
 		return -EFAULT;
 
+	if (!(ve->gpa & cc_mask)) {
+		panic("#VE due to access to unaccepted memory. GPA: %#llx\n", ve->gpa);
+	}
+
 	if (copy_from_kernel_nofault(buffer, (void *)regs->ip, MAX_INSN_SIZE))
 		return -EFAULT;
 
@@ -947,7 +952,6 @@ static bool tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
 
 void __init tdx_early_init(void)
 {
-	u64 cc_mask;
 	u32 eax, sig[3];
 
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
