@@ -1844,6 +1844,11 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_map_gpa(struct kvm_vcpu *vcpu)
+{
+	return tdx_vp_vmcall_to_user(vcpu);
+}
+
 static struct tdvmcall_service *tdvmcall_servbuf_alloc(struct kvm_vcpu *vcpu,
 						       gpa_t gpa)
 {
@@ -2321,6 +2326,9 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	case TDG_VP_VMCALL_SERVICE:
 		r = tdx_handle_service(vcpu);
+		break;
+	case TDG_VP_VMCALL_MAP_GPA:
+		r = tdx_map_gpa(vcpu);
 		break;
 	default:
 		/*
