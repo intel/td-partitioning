@@ -216,6 +216,7 @@ static struct work_struct ecclog_work;
 
 /* Compute die IDs for Tiger Lake with IBECC */
 #define DID_TGL_SKU	0x9a14
+#define DID_TGL_SKU2	0x9a04
 
 /* Compute die IDs for Alder Lake with IBECC */
 #define DID_ADL_SKU1	0x4601
@@ -422,6 +423,7 @@ static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU11), (kernel_ulong_t)&icl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU12), (kernel_ulong_t)&icl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_TGL_SKU), (kernel_ulong_t)&tgl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_TGL_SKU2), (kernel_ulong_t)&tgl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU1), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU2), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU3), (kernel_ulong_t)&adl_cfg },
