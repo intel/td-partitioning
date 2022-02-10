@@ -328,8 +328,9 @@ enum {
 	PERF_TXN_CONFLICT       = (1 << 5), /* Conflict abort */
 	PERF_TXN_CAPACITY_WRITE = (1 << 6), /* Capacity write abort */
 	PERF_TXN_CAPACITY_READ  = (1 << 7), /* Capacity read abort */
+	PERF_TXN_INSUSPEND      = (1 << 8), /* While in a suspend region abort */
 
-	PERF_TXN_MAX	        = (1 << 8), /* non-ABI */
+	PERF_TXN_MAX	        = (1 << 9), /* non-ABI */
 
 	/* bits 32..63 are reserved for the abort code */
 

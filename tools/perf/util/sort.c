@@ -1969,6 +1969,7 @@ static struct txbit {
 	{ PERF_TXN_CONFLICT,       "CON ",       0 },
 	{ PERF_TXN_CAPACITY_WRITE, "CAP-WRITE ", 1 },
 	{ PERF_TXN_CAPACITY_READ,  "CAP-READ ",  0 },
+	{ PERF_TXN_INSUSPEND,      "INSUSPEND ", 0 },
 	{ 0, NULL, 0 }
 };
 
