@@ -332,7 +332,7 @@ struct kvm_run {
 		/* KVM_EXIT_MMIO */
 		struct {
 			__u64 phys_addr;
-			__u8  data[8];
+			__u8  data[64];
 			__u32 len;
 			__u8  is_write;
 		} mmio;
@@ -551,7 +551,7 @@ struct kvm_coalesced_mmio {
 		__u32 pad;
 		__u32 pio;
 	};
-	__u8  data[8];
+	__u8  data[64];
 };
 
 struct kvm_coalesced_mmio_ring {
