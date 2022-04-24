@@ -26,6 +26,9 @@
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 
+/* P-SEAMLDR SEAMCALL leaf function */
+#define P_SEAMLDR_SEAMCALL_BASE		BIT_ULL(63)
+
 struct cmr_info {
 	u64	base;
 	u64	size;

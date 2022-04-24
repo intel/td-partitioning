@@ -262,6 +262,77 @@ bool platform_tdx_enabled(void)
 	return !!nr_tdx_keyids;
 }
 
+static int vmcs_load(u64 vmcs_pa)
+{
+	asm_volatile_goto("1: vmptrld %0\n\t"
+			  ".byte 0x2e\n\t" /* branch not taken hint */
+			  "jna %l[error]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : : "m" (vmcs_pa) : "cc" : error, fault);
+	return 0;
+
+error:
+	pr_err("vmptrld failed: %llx\n", vmcs_pa);
+	return -EIO;
+fault:
+	pr_err("vmptrld faulted\n");
+	return -EIO;
+}
+
+static int vmcs_store(u64 *vmcs_pa)
+{
+	int ret = -EIO;
+
+	asm volatile("1: vmptrst %0\n\t"
+		     "mov $0, %1\n\t"
+		     "2:\n\t"
+		     _ASM_EXTABLE(1b, 2b)
+		     : "=m" (*vmcs_pa), "+r" (ret) : :);
+
+	if (ret)
+		pr_err("vmptrst faulted\n");
+
+	return ret;
+}
+
+#define INVALID_VMCS	-1ULL
+/*
+ * Invoke a SEAMLDR seamcall
+ *
+ * Return 0 on success. SEAMCALL completion status is passed to callers
+ * via @sret. @sret may be invalid if the return value isn't 0.
+ */
+static int __seamldr_seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			      struct tdx_module_output *out, u64 *sret)
+{
+	int ret;
+	u64 vmcs;
+	unsigned long flags;
+
+	/*
+	 * SEAMRET from P-SEAMLDR invalidates the current-VMCS pointer.
+	 * Save/restore it across P-SEAMLDR seamcalls so that other VMX
+	 * instructions won't fail due to an invalid current-VMCS.
+	 *
+	 * Disable interrupt to prevent SMP call functions from seeing the
+	 * invalid current-VMCS.
+	 */
+	local_irq_save(flags);
+	ret = vmcs_store(&vmcs);
+	if (ret)
+		goto out;
+
+	*sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+
+	/* Restore current-VMCS pointer */
+	if (vmcs != INVALID_VMCS)
+		ret = vmcs_load(vmcs);
+
+out:
+	local_irq_restore(flags);
+	return ret;
+}
+
 /*
  * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
  * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
@@ -272,8 +343,15 @@ static int seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 		    u64 *seamcall_ret, struct tdx_module_output *out)
 {
 	u64 sret;
+	int err;
 
-	sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+	if (fn & P_SEAMLDR_SEAMCALL_BASE) {
+		err = __seamldr_seamcall(fn, rcx, rdx, r8, r9, out, &sret);
+		if (err)
+			return err;
+	} else {
+		sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+	}
 
 	/* Save SEAMCALL return code if the caller wants it */
 	if (seamcall_ret)
