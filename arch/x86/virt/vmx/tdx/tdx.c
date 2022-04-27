@@ -1598,3 +1598,11 @@ static int tdx_module_sysfs_init(void)
 	return ret;
 }
 #endif
+
+#ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+int tdx_module_update(void)
+{
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_module_update);
+#endif /* CONFIG_INTEL_TDX_MODULE_UPDATE */

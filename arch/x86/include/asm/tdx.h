@@ -184,5 +184,14 @@ static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
+#ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+int tdx_module_update(void);
+#else /* !CONFIG_INTEL_TDX_MODULE_UPDATE */
+static inline int tdx_module_update(void)
+{
+	return -EOPNOTSUPP;
+}
+#endif /* CONFIG_INTEL_TDX_MODULE_UPDATE */
+
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_TDX_H */
