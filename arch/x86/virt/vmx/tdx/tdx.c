@@ -1317,7 +1317,7 @@ static int allocate_and_construct_tdmrs(struct list_head *tmb_list,
 	return construct_tdmrs(tmb_list, tdmr_list, sysinfo);
 }
 
-static int init_tdx_module(void)
+static int init_tdx_module_common(void)
 {
 	/*
 	 * @tdsysinfo and @cmr_array are used in TDH.SYS.INFO SEAMCALL ABI.
@@ -1335,7 +1335,7 @@ static int init_tdx_module(void)
 	tsx_ctrl_restore(tsx_ctrl);
 	preempt_enable();
 	if (ret)
-		goto out;
+		return ret;
 
 	if (trace_boot_seamcalls)
 		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
@@ -1345,9 +1345,17 @@ static int init_tdx_module(void)
 	/* Logical-cpu scope initialization */
 	ret = tdx_module_init_cpus();
 	if (ret)
-		goto out;
+		return ret;
 
-	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
+	return __tdx_get_sysinfo(sysinfo, cmr_array);
+}
+
+static int init_tdx_module(void)
+{
+	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
+	int ret;
+
+	ret = init_tdx_module_common();
 	if (ret)
 		goto out;
 
