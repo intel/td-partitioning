@@ -21,6 +21,7 @@
  */
 #define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_INFO		32
+#define TDH_SYS_RD		34
 #define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_CONFIG		45
 #define TDH_SYS_INIT		33
@@ -135,6 +136,32 @@ struct seamldr_params {
 	u64	num_module_pages;
 	u64	mod_pages_pa_list[SEAMLDR_MAX_NR_MODULE_PAGES];
 } __packed;
+
+#define P_SEAMLDR_INFO_ALIGNMENT	256
+
+struct p_seamldr_info {
+	u32	version;
+	u32	attributes;
+	u32	vendor_id;
+	u32	build_date;
+	u16	build_num;
+	u16	minor;
+	u16	major;
+	u8	reserved0[2];
+	u32	acm_x2apicid;
+	u32	num_remaining_updates;
+	u8	seaminfo[128];
+	u8	seam_ready;
+	u8	seam_debug;
+	u8	p_seamldr_ready;
+	u8	reserved2[88];
+} __packed __aligned(P_SEAMLDR_INFO_ALIGNMENT);
+
+/*
+ * TDX module metadata identifiers
+ */
+#define TDX_MD_FEATURES0		0x0A00000300000008
+#define		TDX_FEATURES0_TD_PRES	BIT(1)
 
 /*
  * Do not put any hardware-defined TDX structure representations below

@@ -48,6 +48,7 @@ struct tdx_memblock {
 
 static u32 tdx_keyid_start __ro_after_init;
 static u32 nr_tdx_keyids __ro_after_init;
+static u64 tdx_features0;
 
 static enum tdx_module_status_t tdx_module_status;
 /* Prevent concurrent attempts on TDX detection and initialization */
@@ -453,6 +454,14 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 		sysinfo->attributes,	sysinfo->vendor_id,
 		sysinfo->major_version, sysinfo->minor_version,
 		sysinfo->build_date,	sysinfo->build_num);
+
+	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_FEATURES0, 0, 0, NULL, &out);
+	if (!ret)
+		tdx_features0 = out.r8;
+	else
+		tdx_features0 = 0;
+	pr_info("TDX module: features0: %llx\n", tdx_features0);
+
 	tdx_module_sysfs_init();
 
 	/* R9 contains the actual entries written to the CMR array. */
@@ -1628,6 +1637,43 @@ static int tdx_module_sysfs_init(void)
 #endif
 
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+static struct p_seamldr_info p_seamldr_info;
+
+static bool can_preserve_td(void)
+{
+	u64 ret;
+
+	lockdep_assert_held(&tdx_module_lock);
+
+	ret = seamcall(P_SEAMCALL_SEAMLDR_INFO, __pa(&p_seamldr_info), 0, 0, 0,
+		       NULL, NULL);
+	if (ret) {
+		pr_err("Failed to get p_seamldr_info\n");
+		return false;
+	}
+
+	if (!p_seamldr_info.num_remaining_updates) {
+		pr_err("TD-preserving: No remaining update slot\n");
+		return false;
+	}
+
+	if (!(tdx_features0 & TDX_FEATURES0_TD_PRES)) {
+		pr_err("TD-preserving: TDX module doesn't support\n");
+		return false;
+	}
+
+	/*
+	 * Cannot create handoff data if the existing module hasn't
+	 * been initialized.
+	 */
+	if (tdx_module_status != TDX_MODULE_INITIALIZED) {
+		pr_err("TD-preserving: TDX module hasn't been initialized\n");
+		return false;
+	}
+
+	return true;
+}
+
 static inline int get_pamt_entry_size(const struct seam_sigstruct *sig)
 {
 	WARN_ON_ONCE(sig->pamt_entry_size_4K != sig->pamt_entry_size_2M ||
@@ -1833,6 +1879,12 @@ int tdx_module_update(bool live_update)
 	cpus_read_lock();
 	if (disabled_cpus || num_online_cpus() != num_processors) {
 		ret = -EPERM;
+		goto unlock;
+	}
+
+	/* Check if TD-preserving is supported */
+	if (live_update && !can_preserve_td()) {
+		ret = -EINVAL;
 		goto unlock;
 	}
 
