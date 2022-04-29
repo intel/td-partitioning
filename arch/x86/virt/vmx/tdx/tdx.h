@@ -26,6 +26,7 @@
 #define TDH_SYS_CONFIG		45
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
+#define TDH_SYS_SHUTDOWN	52
 
 /* P-SEAMLDR SEAMCALL leaf function */
 #define P_SEAMLDR_SEAMCALL_BASE		BIT_ULL(63)
