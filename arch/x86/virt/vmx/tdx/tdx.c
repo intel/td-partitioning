@@ -1459,11 +1459,15 @@ out:
 	return ret;
 }
 
-static int __tdx_enable(void)
+static int init_tdx_module_via_handoff_data(void);
+static int __tdx_enable(bool preserving)
 {
 	int ret;
 
-	ret = init_tdx_module();
+	if (preserving)
+		ret = init_tdx_module_via_handoff_data();
+	else
+		ret = init_tdx_module();
 	if (ret) {
 		pr_err_once("initialization failed (%d)\n", ret);
 		tdx_module_status = TDX_MODULE_ERROR;
@@ -1505,7 +1509,7 @@ int tdx_enable(void)
 
 	switch (tdx_module_status) {
 	case TDX_MODULE_UNKNOWN:
-		ret = __tdx_enable();
+		ret = __tdx_enable(false);
 		break;
 	case TDX_MODULE_INITIALIZED:
 		/* Already initialized, great, tell the caller. */
@@ -1847,6 +1851,21 @@ static int tdx_prepare_handoff_data(u16 req_hv)
 	return seamcall(TDH_SYS_SHUTDOWN, req_hv, 0, 0, 0, NULL, NULL);
 }
 
+static int init_tdx_module_via_handoff_data(void)
+{
+	int ret;
+
+	ret = init_tdx_module_common();
+	if (ret)
+		return ret;
+
+	ret = seamcall(TDH_SYS_UPDATE, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		pr_info("Failed to load handoff data");
+
+	return ret;
+}
+
 int tdx_module_update(bool live_update)
 {
 	int ret;
@@ -1910,7 +1929,7 @@ int tdx_module_update(bool live_update)
 	/* Initialize TDX module after a successful update */
 	if (!ret) {
 		tdx_module_status = TDX_MODULE_UNKNOWN;
-		ret = __tdx_enable();
+		ret = __tdx_enable(live_update);
 	}
 
 unlock:
@@ -1928,4 +1947,9 @@ unregister:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_module_update);
+#else /* CONFIG_INTEL_TDX_MODULE_UPDATE */
+static int init_tdx_module_via_handoff_data(void)
+{
+	return -EOPNOTSUPP;
+}
 #endif /* CONFIG_INTEL_TDX_MODULE_UPDATE */
