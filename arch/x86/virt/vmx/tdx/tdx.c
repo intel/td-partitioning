@@ -1659,6 +1659,59 @@ free:
 	return ERR_PTR(-ENOMEM);
 }
 
+static bool seamldr_recoverable_error(u64 sret)
+{
+	return sret == P_SEAMCALL_NO_ENTROPY;
+}
+
+struct install_args {
+	const struct seamldr_params *params;
+	u64 sret;
+};
+
+static void do_seamldr_install(void *data)
+{
+	struct install_args *args = data;
+	int ret;
+
+	ret = __seamldr_seamcall(P_SEAMCALL_SEAMLDR_INSTALL, __pa(args->params),
+				 0, 0, 0, NULL, &args->sret);
+	if (ret)
+		args->sret = ret;
+}
+
+/*
+ * Load a TDX module into SEAM range.
+ *
+ * TDX module loading may fail due to no enough entropy to generate random
+ * number. Retry can solve the problem.
+ */
+static int seamldr_install(const struct seamldr_params *params)
+{
+	int cpu, retry = 3;
+	struct install_args args = { .params = params };
+
+retry:
+	/*
+	 * Don't use on_each_cpu() since P-SEAMLDR seamcalls can be invoked
+	 * by only one CPU at a time.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, do_seamldr_install, &args, true);
+		if (args.sret)
+			break;
+	}
+
+	if (seamldr_recoverable_error(args.sret) && retry--)
+		goto retry;
+
+	if (args.sret) {
+		pr_err("SEAMLDR.INSTALL failed. Error %llx\n", args.sret);
+		return -EIO;
+	}
+	return 0;
+}
+
 int tdx_module_update(void)
 {
 	int ret;
@@ -1687,6 +1740,28 @@ int tdx_module_update(void)
 		goto release_sig;
 	}
 
+	/* Prevent TDX module initialization */
+	mutex_lock(&tdx_module_lock);
+	/*
+	 * Loading TDX module requires invoking SEAMCALLs on all CPUs.
+	 * Bail out if some CPUs are offline.
+	 */
+	cpus_read_lock();
+	if (disabled_cpus || num_online_cpus() != num_processors) {
+		ret = -EPERM;
+		goto unlock;
+	}
+
+	ret = seamldr_install(params);
+	/* Initialize TDX module after a successful update */
+	if (!ret) {
+		tdx_module_status = TDX_MODULE_UNKNOWN;
+		ret = __tdx_enable();
+	}
+
+unlock:
+	cpus_read_unlock();
+	mutex_unlock(&tdx_module_lock);
 	free_seamldr_params(params);
 
 release_sig:
