@@ -71,6 +71,23 @@ struct tdmr_info {
 	DECLARE_FLEX_ARRAY(struct tdmr_reserved_area, reserved_areas);
 } __packed __aligned(TDMR_INFO_ALIGNMENT);
 
+#define SEAMLDR_MAX_NR_MODULE_PAGES	496
+
+#define SEAMLDR_SIGSTRUCT_SIZE		2048
+
+#define SEAMLDR_SCENARIO_LOAD		0
+#define SEAMLDR_SCENARIO_UPDATE		1
+
+/* Passed to P-SEAMLDR to describe information about the TDX module to load */
+struct seamldr_params {
+	u32	version;
+	u32	scenario; /* SEAMLDR_SCENARIO_LOAD/UPDATE */
+	u64	sigstruct_pa;
+	u8	reserved[104];
+	u64	num_module_pages;
+	u64	mod_pages_pa_list[SEAMLDR_MAX_NR_MODULE_PAGES];
+} __packed;
+
 /*
  * Do not put any hardware-defined TDX structure representations below
  * this comment!

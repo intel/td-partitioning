@@ -22,6 +22,8 @@
 #include <linux/pfn.h>
 #include <linux/align.h>
 #include <linux/sort.h>
+#include <linux/firmware.h>
+#include <linux/platform_device.h>
 #include <asm/pgtable_types.h>
 #include <asm/msr.h>
 #include <asm/cpu.h>
@@ -1600,9 +1602,100 @@ static int tdx_module_sysfs_init(void)
 #endif
 
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+static void free_seamldr_params(struct seamldr_params *params)
+{
+	int i;
+
+	for (i = 0; i < params->num_module_pages; i++)
+		free_page((unsigned long)__va(params->mod_pages_pa_list[i]));
+	free_page((unsigned long)__va(params->sigstruct_pa));
+	free_page((unsigned long)params);
+}
+
+/* Allocate and populate a seamldr_params */
+static struct seamldr_params *alloc_seamldr_params(const void *module, int module_size,
+						   const void *sig, int sig_size)
+{
+	struct seamldr_params *params;
+	unsigned long page;
+	int i;
+
+	BUILD_BUG_ON(sizeof(struct seamldr_params) != PAGE_SIZE);
+	if ((module_size >> PAGE_SHIFT) > SEAMLDR_MAX_NR_MODULE_PAGES ||
+	    sig_size != SEAMLDR_SIGSTRUCT_SIZE)
+		return ERR_PTR(-EINVAL);
+
+	params = (struct seamldr_params *)get_zeroed_page(GFP_KERNEL);
+	if (!params)
+		return ERR_PTR(-ENOMEM);
+
+	params->scenario = SEAMLDR_SCENARIO_LOAD;
+	params->num_module_pages = module_size >> PAGE_SHIFT;
+
+	/*
+	 * Module binary can take up to 496 pages. These pages needn't be
+	 * contiguous. Allocate pages one-by-one to reduce the possibility
+	 * of failure. Note that this allocation is very rare and so
+	 * performance isn't critical.
+	 */
+	for (i = 0; i < params->num_module_pages; i++) {
+		page = __get_free_page(GFP_KERNEL);
+		if (!page)
+			goto free;
+		memcpy((void *)page, module + (i << PAGE_SHIFT),
+		       min((int)PAGE_SIZE, module_size - (i << PAGE_SHIFT)));
+		params->mod_pages_pa_list[i] = __pa(page);
+	}
+
+	page = __get_free_page(GFP_KERNEL);
+	if (!page)
+		goto free;
+	memcpy((void *)page, sig, sig_size);
+	params->sigstruct_pa = __pa(page);
+
+	return params;
+free:
+	free_seamldr_params(params);
+	return ERR_PTR(-ENOMEM);
+}
+
 int tdx_module_update(void)
 {
-	return 0;
+	int ret;
+	struct seamldr_params *params;
+	/* Fake device for request_firmware */
+	struct platform_device *tdx_pdev;
+	const struct firmware *module, *sig;
+
+	tdx_pdev = platform_device_register_simple("tdx", -1, NULL, 0);
+	if (IS_ERR(tdx_pdev))
+		return PTR_ERR(tdx_pdev);
+
+	ret = request_firmware_direct(&module, "intel-seam/libtdx.bin",
+				      &tdx_pdev->dev);
+	if (ret)
+		goto unregister;
+
+	ret = request_firmware_direct(&sig, "intel-seam/libtdx.bin.sigstruct",
+				      &tdx_pdev->dev);
+	if (ret)
+		goto release_module;
+
+	params = alloc_seamldr_params(module->data, module->size, sig->data, sig->size);
+	if (IS_ERR(params)) {
+		ret = PTR_ERR(params);
+		goto release_sig;
+	}
+
+	free_seamldr_params(params);
+
+release_sig:
+	release_firmware(sig);
+release_module:
+	release_firmware(module);
+unregister:
+	platform_device_unregister(tdx_pdev);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_module_update);
 #endif /* CONFIG_INTEL_TDX_MODULE_UPDATE */
