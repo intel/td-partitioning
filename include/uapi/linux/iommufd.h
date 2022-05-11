@@ -55,6 +55,7 @@ enum {
 	IOMMUFD_CMD_UNSET_DEV_DATA,
 	IOMMUFD_CMD_HWPT_SET_DIRTY,
 	IOMMUFD_CMD_HWPT_GET_DIRTY_IOVA,
+	IOMMUFD_CMD_DEVICE_GET_CAPS,
 };
 
 /**
@@ -884,5 +885,27 @@ struct iommu_hwpt_get_dirty_iova {
 	struct iommufd_dirty_data bitmap;
 };
 #define IOMMU_HWPT_GET_DIRTY_IOVA _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_GET_DIRTY_IOVA)
+
+
+/**
+ * enum iommufd_device_caps
+ * @IOMMU_CAP_DIRTY_TRACKING: IOMMU device support for dirty tracking
+ */
+enum iommufd_device_caps {
+	IOMMUFD_CAP_DIRTY_TRACKING = 1 << 0,
+};
+
+/*
+ * struct iommu_device_caps - ioctl(IOMMU_DEVICE_GET_CAPS)
+ * @size: sizeof(struct iommu_device_caps)
+ * @dev_id: the device to query
+ * @caps: IOMMU capabilities of the device
+ */
+struct iommu_device_get_caps {
+	__u32 size;
+	__u32 dev_id;
+	__aligned_u64 out_caps;
+};
+#define IOMMU_DEVICE_GET_CAPS _IO(IOMMUFD_TYPE, IOMMUFD_CMD_DEVICE_GET_CAPS)
 
 #endif
