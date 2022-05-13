@@ -55,8 +55,10 @@ static enum tdx_module_status_t tdx_module_status;
 static DEFINE_MUTEX(tdx_module_lock);
 
 #ifdef CONFIG_SYSFS
+static bool sysfs_registered;
 static int tdx_module_sysfs_init(void);
 #else
+#define sysfs_registered 0
 static inline int tdx_module_sysfs_init(void) { return 0; }
 #endif
 
@@ -1633,9 +1635,13 @@ static int tdx_module_sysfs_init(void)
 	if (!tdx_module_kobj)
 		return -EINVAL;
 
+	if (sysfs_registered)
+		return 0;
+
 	ret = sysfs_create_group(tdx_module_kobj, &tdx_module_attr_group);
 	if (ret)
 		pr_err("Sysfs exporting tdx module attributes failed %d\n", ret);
+	sysfs_registered = true;
 	return ret;
 }
 #endif
