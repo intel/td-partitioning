@@ -99,6 +99,9 @@ struct opcap {
 
 #define IDXD_MAX_OPCAP_BITS		256U
 
+#define OPCAP_OFS(op)	(op - (0x40 * (op >> 6)))
+#define OPCAP_BIT(op)	(BIT_ULL(OPCAP_OFS(op)))
+
 #define IDXD_OPCAP_OFFSET		0x40
 
 #define IDXD_TABLE_OFFSET		0x60
