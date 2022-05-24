@@ -999,7 +999,7 @@ static int idxd_wq_config_write(struct idxd_wq *wq)
 
 	/* byte 8-11 */
 	if (wq_dedicated(wq))
-		wq->wqcfg->mode = 1;
+		wq->wqcfg->mode = WQCFG_MODE_DEDICATED;
 
 	/*
 	 * The WQ priv bit is set depending on the WQ type. priv = 1 if the
@@ -1204,7 +1204,7 @@ static int idxd_wq_load_config(struct idxd_wq *wq)
 	wq->threshold = wq->wqcfg->wq_thresh;
 
 	/* The driver does not support shared WQ mode in read-only config yet */
-	if (wq->wqcfg->mode == 0 || wq->wqcfg->pasid_en)
+	if (wq->wqcfg->mode == WQCFG_MODE_SHARED || wq->wqcfg->pasid_en)
 		return -EOPNOTSUPP;
 
 	set_bit(WQ_FLAG_DEDICATED, &wq->flags);

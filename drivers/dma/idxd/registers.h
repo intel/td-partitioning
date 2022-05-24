@@ -416,6 +416,11 @@ union wqcfg {
 
 #define WQCFG_OCCUP_MASK	0xffff
 
+enum {
+	WQCFG_MODE_SHARED = 0,
+	WQCFG_MODE_DEDICATED = 1
+};
+
 /*
  * This macro calculates the offset into the WQCFG register
  * idxd - struct idxd *
