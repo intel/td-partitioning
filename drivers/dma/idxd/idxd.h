@@ -705,6 +705,7 @@ void idxd_wq_drain(struct idxd_wq *wq);
 void idxd_wq_reset(struct idxd_wq *wq);
 void idxd_wq_setup_pasid(struct idxd_wq *wq, int pasid);
 void idxd_wq_clear_pasid(struct idxd_wq *wq);
+void idxd_wq_setup_priv(struct idxd_wq *wq, int priv);
 int idxd_wq_map_portal(struct idxd_wq *wq);
 void idxd_wq_unmap_portal(struct idxd_wq *wq);
 int idxd_wq_set_pasid(struct idxd_wq *wq, int pasid);
