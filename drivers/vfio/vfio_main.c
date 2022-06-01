@@ -57,6 +57,18 @@ MODULE_PARM_DESC(enable_unsafe_noiommu_mode, "Enable UNSAFE, no-IOMMU mode.  Thi
 
 static DEFINE_XARRAY(vfio_device_set_xa);
 
+void vfio_device_set_pasid(struct vfio_device *device, u32 pasid)
+{
+	dev_set_pasid(&device->device, pasid);
+}
+EXPORT_SYMBOL_GPL(vfio_device_set_pasid);
+
+u32 vfio_device_get_pasid(struct vfio_device *device)
+{
+	return dev_get_pasid(&device->device);
+}
+EXPORT_SYMBOL_GPL(vfio_device_get_pasid);
+
 int vfio_assign_device_set(struct vfio_device *device, void *set_id)
 {
 	unsigned long idx = (unsigned long)set_id;
