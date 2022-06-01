@@ -369,6 +369,8 @@ struct idxd_device {
 
 	struct dentry *dbgfs_dir;
 	struct dentry *dbgfs_evl_file;
+
+	struct irq_domain *ims_domain;
 };
 
 static inline unsigned int evl_ent_size(struct idxd_device *idxd)
