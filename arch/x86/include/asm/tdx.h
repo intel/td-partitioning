@@ -55,6 +55,8 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
 bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc);
 
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
 bool tdx_allowed_port(short int port);
 
 #else
