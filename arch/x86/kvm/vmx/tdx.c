@@ -4285,7 +4285,8 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 	mce_register_decode_chain(&tdx_mce_nb);
-	return 0;
+
+	return tdx_module_update_init();
 }
 
 void tdx_hardware_unsetup(void)
@@ -4295,6 +4296,7 @@ void tdx_hardware_unsetup(void)
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 	kvm_set_tdx_guest_pmi_handler(NULL);
+	tdx_module_update_destroy();
 }
 
 int tdx_offline_cpu(void)
@@ -4339,3 +4341,47 @@ int __init tdx_init(void)
 		INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, cpu));
 	return 0;
 }
+
+#ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+static int tdx_update_fw(void)
+{
+	return -EINVAL;
+}
+
+static ssize_t reload_store(struct device *dev,
+			    struct device_attribute *attr,
+			    const char *buf, size_t size)
+{
+	if (!sysfs_streq(buf, "update"))
+		return -EINVAL;
+
+	return tdx_update_fw() ? : size;
+}
+static DEVICE_ATTR_WO(reload);
+
+static struct attribute *cpu_root_tdx_attrs[] = {
+	&dev_attr_reload.attr,
+	NULL
+};
+
+static const struct attribute_group cpu_root_tdx_group = {
+	.name  = "tdx",
+	.attrs = cpu_root_tdx_attrs,
+};
+
+int __init tdx_module_update_init(void)
+{
+	int ret;
+
+	ret = sysfs_create_group(&cpu_subsys.dev_root->kobj, &cpu_root_tdx_group);
+	if (ret)
+		pr_err("Fail to create tdx group\n");
+
+	return ret;
+}
+
+void tdx_module_update_destroy(void)
+{
+	sysfs_remove_group(&cpu_subsys.dev_root->kobj, &cpu_root_tdx_group);
+}
+#endif

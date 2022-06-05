@@ -1976,6 +1976,7 @@ config INTEL_TDX_MODULE_UPDATE
 	depends on INTEL_TDX_HOST
 	depends on CRYPTO=y
 	depends on CRYPTO_SHA512=y
+	depends on SYSFS
 	help
 	  Intel TDX module provides interfaces for VMM to manage TDs. It acts
 	  as the trust intermediary to help implement security policies,
