@@ -296,4 +296,12 @@ static inline int tdx_leave_smm(struct kvm_vcpu *vcpu, const union kvm_smram *sm
 static inline void tdx_enable_smi_window(struct kvm_vcpu *vcpu) {}
 #endif
 
+#ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+int __init tdx_module_update_init(void);
+void tdx_module_update_destroy(void);
+#else
+static inline int __init tdx_module_update_init(void) { return 0; }
+static inline void tdx_module_update_destroy(void) {}
+#endif
+
 #endif /* __KVM_X86_VMX_X86_OPS_H */
