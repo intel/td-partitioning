@@ -1974,6 +1974,8 @@ config INTEL_TDX_HOST
 config INTEL_TDX_MODULE_UPDATE
 	bool "TDX module loading support"
 	depends on INTEL_TDX_HOST
+	depends on CRYPTO=y
+	depends on CRYPTO_SHA512=y
 	help
 	  Intel TDX module provides interfaces for VMM to manage TDs. It acts
 	  as the trust intermediary to help implement security policies,
