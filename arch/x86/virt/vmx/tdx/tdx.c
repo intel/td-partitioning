@@ -7,6 +7,7 @@
 
 #define pr_fmt(fmt)	"tdx: " fmt
 
+#include <crypto/hash.h>
 #include <linux/types.h>
 #include <linux/cache.h>
 #include <linux/init.h>
@@ -1745,6 +1746,37 @@ retry:
 	return 0;
 }
 
+static int verify_hash(const void *module, int module_size,
+		       const void *expected_hash)
+{
+	SHASH_DESC_ON_STACK(shash, tfm);
+	struct crypto_shash *tfm;
+	u8 hash[48];
+	int ret;
+
+	tfm = crypto_alloc_shash("sha384", 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(tfm)) {
+		pr_err("No tfm created\n");
+		return PTR_ERR(tfm);
+	}
+
+	shash->tfm = tfm;
+	ret = crypto_shash_digest(shash, module, module_size, hash);
+	if (ret) {
+		pr_err("cannot generate digest %d\n", ret);
+		crypto_free_shash(tfm);
+		return ret;
+	}
+
+	if (memcmp(hash, expected_hash, 48)) {
+		pr_err("Hash verification failed\n");
+		ret = -EINVAL;
+	}
+
+	crypto_free_shash(tfm);
+	return ret;
+}
+
 int tdx_module_update(void)
 {
 	int ret;
@@ -1752,6 +1784,7 @@ int tdx_module_update(void)
 	/* Fake device for request_firmware */
 	struct platform_device *tdx_pdev;
 	const struct firmware *module, *sig;
+	const struct seam_sigstruct *seam_sig;
 
 	tdx_pdev = platform_device_register_simple("tdx", -1, NULL, 0);
 	if (IS_ERR(tdx_pdev))
@@ -1767,11 +1800,16 @@ int tdx_module_update(void)
 	if (ret)
 		goto release_module;
 
+	seam_sig = (void *)sig->data;
 	params = alloc_seamldr_params(module->data, module->size, sig->data, sig->size);
 	if (IS_ERR(params)) {
 		ret = PTR_ERR(params);
 		goto release_sig;
 	}
+
+	ret = verify_hash(module->data, module->size, seam_sig->seamhash);
+	if (ret)
+		goto free;
 
 	/* Prevent TDX module initialization */
 	mutex_lock(&tdx_module_lock);
@@ -1795,6 +1833,7 @@ int tdx_module_update(void)
 unlock:
 	cpus_read_unlock();
 	mutex_unlock(&tdx_module_lock);
+free:
 	free_seamldr_params(params);
 
 release_sig:
