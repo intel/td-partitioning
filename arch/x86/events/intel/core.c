@@ -6167,7 +6167,7 @@ __init int intel_pmu_init(void)
 	case INTEL_FAM6_ATOM_TREMONT_D:
 	case INTEL_FAM6_ATOM_TREMONT:
 	case INTEL_FAM6_ATOM_TREMONT_L:
-		x86_pmu.late_ack = true;
+		x86_pmu.mid_ack = true;
 		memcpy(hw_cache_event_ids, glp_hw_cache_event_ids,
 		       sizeof(hw_cache_event_ids));
 		memcpy(hw_cache_extra_regs, tnt_hw_cache_extra_regs,
