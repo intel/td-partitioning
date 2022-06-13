@@ -562,6 +562,9 @@ static struct idxd_device *idxd_alloc(struct pci_dev *pdev, struct idxd_driver_d
 
 	spin_lock_init(&idxd->dev_lock);
 	spin_lock_init(&idxd->cmd_lock);
+	mutex_init(&idxd->vdev_lock);
+	INIT_LIST_HEAD(&idxd->vdev_list);
+	ida_init(&idxd->vdev_ida);
 
 	return idxd;
 }

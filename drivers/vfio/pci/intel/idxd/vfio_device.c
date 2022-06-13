@@ -9,6 +9,98 @@
 #include "registers.h"
 #include "idxd.h"
 
+enum {
+	IDXD_VDEV_TYPE_1DWQ = 0,
+	IDXD_VDEV_TYPE_MAX
+};
+
+static void idxd_vdev_release(struct device *dev)
+{
+	struct idxd_dev *idev = container_of(dev, struct idxd_dev, conf_dev);
+
+	kfree(idev);
+}
+
+struct device_type idxd_vdev_device_type = {
+	.name = "vdev",
+	.release = idxd_vdev_release,
+};
+
+static int vdev_device_create(struct idxd_device *idxd, u32 type)
+{
+	struct device *dev, *dev_found;
+	struct idxd_dev *parent;
+	char vdev_name[32];
+	int rc;
+
+	lockdep_assert_held(&idxd->vdev_lock);
+
+	if (type >= IDXD_VDEV_TYPE_MAX)
+		return -EINVAL;
+
+	parent = kzalloc(sizeof(*parent), GFP_KERNEL);
+	if (!parent)
+		return -ENOMEM;
+
+	idxd_dev_set_type(parent, IDXD_DEV_VDEV);
+	dev = &parent->conf_dev;
+	device_initialize(dev);
+	dev->parent = idxd_confdev(idxd);
+	dev->bus = &dsa_bus_type;
+	dev->type = &idxd_vdev_device_type;
+
+	parent->id = ida_alloc(&idxd->vdev_ida, GFP_KERNEL);
+	sprintf(vdev_name, "vdev%u.%u", idxd->id, parent->id);
+	dev_found = device_find_child_by_name(dev->parent, vdev_name);
+	if (dev_found) {
+		put_device(dev);
+		return -EEXIST;
+	}
+	rc = dev_set_name(dev, "%s", vdev_name);
+	if (rc < 0) {
+		put_device(dev);
+		return rc;
+	}
+	parent->vdev_type = type;
+	parent->idxd = idxd;
+
+	rc = device_add(dev);
+	if (rc < 0) {
+		put_device(dev);
+		return rc;
+	}
+
+	list_add_tail(&parent->list, &idxd->vdev_list);
+
+	return 0;
+}
+
+static int vdev_device_remove(struct idxd_device *idxd, char *vdev_name)
+{
+	struct idxd_dev *pos, *n;
+
+	lockdep_assert_held(&idxd->vdev_lock);
+
+	list_for_each_entry_safe(pos, n, &idxd->vdev_list, list) {
+		struct device *dev = &pos->conf_dev;
+
+		if (!strcmp(dev_name(dev), vdev_name)) {
+			list_del(&pos->list);
+			device_unregister(dev);
+			ida_free(&idxd->vdev_ida, pos->id);
+
+			return 0;
+		}
+	}
+
+	return -ENODEV;
+}
+
+struct vdev_device_ops vidxd_device_ops = {
+	.device_create = vdev_device_create,
+	.device_remove = vdev_device_remove,
+};
+
 static int idxd_vdev_drv_probe(struct idxd_dev *idxd_dev)
 {
 	struct device *dev = &idxd_dev->conf_dev;
@@ -40,6 +132,11 @@ static int idxd_vdev_drv_probe(struct idxd_dev *idxd_dev)
 		goto err;
 
 	idxd->cmd_status = 0;
+
+	mutex_lock(&idxd->vdev_lock);
+	idxd->vdev_ops = &vidxd_device_ops;
+	mutex_unlock(&idxd->vdev_lock);
+
 	mutex_unlock(&wq->wq_lock);
 
 	return 0;

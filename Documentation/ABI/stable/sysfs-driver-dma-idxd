@@ -158,6 +158,19 @@ KernelVersion:	5.21.0
 Contact:	dmaengine@vger.kernel.org
 Description:	The total number of vectors available for Interrupt Message Store.
 
+What:		/sys/bus/dsa/devices/dsa<m>/vdev_create
+Date:		Jun 13, 2022
+KernelVersion:	5.21.0
+Contact:	dmaengine@vger.kernel.org
+Description:	Write virtual device type to create virtual devices.
+		0: 1dwq
+
+What:		/sys/bus/dsa/devices/dsa<m>/vdev_remove
+Date:		Jun 13, 2022
+KernelVersion:	5.21.0
+Contact:	dmaengine@vger.kernel.org
+Description:	Write virtual device id number (i.e. 0 for vdev0) to remove device.
+
 What:		/sys/bus/dsa/devices/wq<m>.<n>/block_on_fault
 Date:		Oct 27, 2020
 KernelVersion:	5.11.0
