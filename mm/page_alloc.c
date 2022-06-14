@@ -1771,6 +1771,7 @@ static bool try_to_accept_memory(struct zone *zone)
 
 	migratetype = get_pfnblock_migratetype(page, page_to_pfn(page));
 	__mod_zone_freepage_state(zone, -1 << order, migratetype);
+	__mod_node_page_state(page_pgdat(page), NR_UNACCEPTED, -1 << order);
 	spin_unlock_irqrestore(&zone->lock, flags);
 
 	if (last)
@@ -1799,6 +1800,7 @@ static void __free_unaccepted(struct page *page, unsigned int order)
 	migratetype = get_pfnblock_migratetype(page, page_to_pfn(page));
 	list_add_tail(&page->lru, &zone->unaccepted_pages);
 	__mod_zone_freepage_state(zone, 1 << order, migratetype);
+	__mod_node_page_state(page_pgdat(page), NR_UNACCEPTED, 1 << order);
 	spin_unlock_irqrestore(&zone->lock, flags);
 
 	if (first)
