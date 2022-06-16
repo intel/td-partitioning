@@ -1124,4 +1124,6 @@ extern long sysfs_deprecated;
 #define sysfs_deprecated 0
 #endif
 
+bool arch_dev_authorized(struct device *dev);
+
 #endif /* _DEVICE_H_ */
