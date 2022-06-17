@@ -1648,7 +1648,8 @@ static void free_seamldr_params(struct seamldr_params *params)
 
 /* Allocate and populate a seamldr_params */
 static struct seamldr_params *alloc_seamldr_params(const void *module, int module_size,
-						   const void *sig, int sig_size)
+						   const void *sig, int sig_size,
+						   bool live_update)
 {
 	struct seamldr_params *params;
 	unsigned long page;
@@ -1671,7 +1672,10 @@ static struct seamldr_params *alloc_seamldr_params(const void *module, int modul
 	if (!params)
 		return ERR_PTR(-ENOMEM);
 
-	params->scenario = SEAMLDR_SCENARIO_LOAD;
+	if (live_update)
+		params->scenario = SEAMLDR_SCENARIO_UPDATE;
+	else
+		params->scenario = SEAMLDR_SCENARIO_LOAD;
 	params->num_module_pages = module_size >> PAGE_SHIFT;
 
 	/*
@@ -1785,7 +1789,7 @@ static int verify_hash(const void *module, int module_size,
 	return ret;
 }
 
-int tdx_module_update(void)
+int tdx_module_update(bool live_update)
 {
 	int ret;
 	struct seamldr_params *params;
@@ -1809,7 +1813,8 @@ int tdx_module_update(void)
 		goto release_module;
 
 	seam_sig = (void *)sig->data;
-	params = alloc_seamldr_params(module->data, module->size, sig->data, sig->size);
+	params = alloc_seamldr_params(module->data, module->size, sig->data, sig->size,
+				      live_update);
 	if (IS_ERR(params)) {
 		ret = PTR_ERR(params);
 		goto release_sig;
