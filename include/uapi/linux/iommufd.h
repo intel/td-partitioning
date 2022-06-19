@@ -383,13 +383,50 @@ struct iommu_hwpt_vtd_s1 {
 };
 
 /**
+ * struct iommu_hwpt_arm_smmuv3 - ARM SMMUv3 specific translation table info
+ *                                (IOMMU_HWPT_TYPE_ARM_SMMUV3)
+ *
+ * @flags: Translation table entry attributes
+ * @ste_len: Length of the user Stream Table Entry
+ * @ste_uptr: User pointer to a user Stream Table Entry
+ * @event_len: Length of the returning event
+ * @out_event_uptr: User pointer to a returning event, to report a C_BAD_STE
+ *                  upon an STE configuration failure
+ *
+ * ARM SMMUv3 specific data to create page tables for a nested configuration.
+ *
+ * For a nested stage-1 translation table allocation, kernel will read all the
+ * information of a user space stage-1 Context Descriptor table from the given
+ * user space Stream Table Entry pointed by @ste_uptr. The @event_len and the
+ * @out_event_uptr in pair are optional. If they are both provided, kernel will
+ * report an STE error to the memory location pointed by @out_event_uptr, when
+ * the allocation fails due to some problem in the user space STE.
+ *
+ * As long as the SMMUv3 hardware supports a stage-1 page table, the default
+ * allocation of a page table in the kernel is always for a stage-1 type. So,
+ * this data structure can be also used to allocate a kernel-managed stage-2
+ * translation table, by setting IOMMU_SMMUV3_FLAG_S2 in the @flags, in which
+ * case only this flag matters and the kernel will ignore all other inputs.
+ */
+struct iommu_hwpt_arm_smmuv3 {
+#define IOMMU_SMMUV3_FLAG_S2	(1 << 0) /* if unset, stage-1 */
+	__aligned_u64 flags;
+	__aligned_u64 ste_len;
+	__aligned_u64 ste_uptr;
+	__aligned_u64 event_len;
+	__aligned_u64 out_event_uptr;
+};
+
+/**
  * enum iommu_hwpt_type - IOMMU HWPT Type
  * @IOMMU_HWPT_TYPE_DEFAULT: default
  * @IOMMU_HWPT_TYPE_VTD_S1: Intel VT-d stage-1 page table
+ * @IOMMU_HWPT_TYPE_ARM_SMMUV3: ARM SMMUv3 Translation table
  */
 enum iommu_hwpt_type {
 	IOMMU_HWPT_TYPE_DEFAULT,
 	IOMMU_HWPT_TYPE_VTD_S1,
+	IOMMU_HWPT_TYPE_ARM_SMMUV3,
 };
 
 /**
@@ -471,10 +508,12 @@ struct iommu_hw_info_vtd {
  * @IOMMU_HW_INFO_TYPE_NONE: Used by the drivers that do not report hardware
  *                           info
  * @IOMMU_HW_INFO_TYPE_INTEL_VTD: Intel VT-d iommu info type
+ * @IOMMU_HW_INFO_TYPE_ARM_SMMUV3: ARM SMMUv3 iommu info type
  */
 enum iommu_hw_info_type {
 	IOMMU_HW_INFO_TYPE_NONE,
 	IOMMU_HW_INFO_TYPE_INTEL_VTD,
+	IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
 };
 
 /**
@@ -616,6 +655,37 @@ struct iommu_hwpt_vtd_s1_invalidate {
 	__u32 entry_size;
 	__aligned_u64 entry_nr_uptr;
 	__aligned_u64 inv_data_uptr;
+};
+
+/**
+ * struct iommu_hwpt_arm_smmuv3_invalidate - ARM SMMUv3 cahce invalidation
+ *                                           (IOMMU_HWPT_TYPE_ARM_SMMUV3)
+ * @cmdq_uptr: User pointer to a user command queue
+ * @cmdq_cons_uptr: User pointer to the consumer index of a user command queue,
+ *                  allowing kernel to read and also update the consumer index
+ *                  for a successful call or a failure with a CERROR_ILL code.
+ *                  This pointer must point to a __u32 type of memory location.
+ * @cmdq_prod: Producer index of user command queues
+ * @cmdq_entry_size: Entry size of a user command queue
+ * @cmdq_log2size: Queue size as log2(entries). Refer to 6.3.25 SMMU_CMDQ_BASE
+ * @__reserved: Must be 0
+ *
+ * The ARM SMMUv3 specific invalidation data, in form of a user space command
+ * queue. Kernel will read the user space CMDQ, and execute all supported cache
+ * invalidation commands in the CMDQ, and then update its consumer index pointed
+ * by @cmdq_cons_uptr.
+ *
+ * Both the consumer index and the producer index should be in their raw forms,
+ * i.e. the raw values out of the SMMU_CMDQ_PROD and SMMU_CMDQ_CONS registers,
+ * which include the WRAP bits also instead of simply the two index values.
+ */
+struct iommu_hwpt_arm_smmuv3_invalidate {
+	__aligned_u64 cmdq_uptr;
+	__aligned_u64 cmdq_cons_uptr;
+	__u32 cmdq_prod;
+	__u32 cmdq_entry_size;
+	__u32 cmdq_log2size;
+	__u32 __reserved;
 };
 
 /**

@@ -459,6 +459,7 @@ union ucmd_buffer {
 	 */
 	struct iommu_hwpt_vtd_s1_invalidate vtd;
 	struct iommu_hwpt_vtd_s1_invalidate_desc req_vtd;
+	struct iommu_hwpt_arm_smmuv3_invalidate smmuv3;
 };
 
 struct iommufd_ioctl_op {
