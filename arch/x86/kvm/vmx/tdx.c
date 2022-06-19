@@ -217,17 +217,6 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 }
 
-void tdx_hardware_disable(void)
-{
-	int cpu = raw_smp_processor_id();
-	struct list_head *tdvcpus = &per_cpu(associated_tdvcpus, cpu);
-	struct vcpu_tdx *tdx, *tmp;
-
-	/* Safe variant needed as tdx_disassociate_vp() deletes the entry. */
-	list_for_each_entry_safe(tdx, tmp, tdvcpus, cpu_list)
-		tdx_disassociate_vp(&tdx->vcpu);
-}
-
 static void tdx_clear_page(unsigned long page_pa, int size)
 {
 	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
@@ -379,6 +368,23 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 		pr_err("cpu: %d ", cpu);
 		pr_tdx_error(TDH_VP_FLUSH, arg.err, NULL);
 	}
+}
+
+void tdx_hardware_disable(void)
+{
+	int cpu = raw_smp_processor_id();
+	struct list_head *tdvcpus = &per_cpu(associated_tdvcpus, cpu);
+	struct tdx_flush_vp_arg arg;
+	struct vcpu_tdx *tdx, *tmp;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	/* Safe variant needed as tdx_disassociate_vp() deletes the entry. */
+	list_for_each_entry_safe(tdx, tmp, tdvcpus, cpu_list) {
+		arg.vcpu = &tdx->vcpu;
+		tdx_flush_vp(&arg);
+	}
+	local_irq_restore(flags);
 }
 
 static int tdx_do_tdh_phymem_cache_wb(void *param)
