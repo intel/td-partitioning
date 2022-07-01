@@ -18,6 +18,7 @@
 #define TDX_GUEST_DEVNAME "/dev/tdx_guest"
 #define HEX_DUMP_SIZE 8
 #define DEBUG 0
+#define QUOTE_SIZE 8192
 
 /**
  * struct tdreport_type - Type header of TDREPORT_STRUCT.
@@ -217,4 +218,43 @@ TEST(verify_rtmr_extend)
 	ASSERT_EQ(0, close(devfd));
 }
 
+TEST(verify_quote)
+{
+	struct tdx_quote_buf *quote_buf;
+	struct tdx_report_req rep_req;
+	struct tdx_quote_req req;
+	__u64 quote_buf_size;
+	int devfd;
+
+	/* Open attestation device */
+	/* Add size for quote header */
+	quote_buf_size = sizeof(*quote_buf) + QUOTE_SIZE;
+
+	/* Allocate quote buffer */
+	quote_buf = (struct tdx_quote_buf *)malloc(quote_buf_size);
+	ASSERT_NE(NULL, quote_buf);
+
+	/* Initialize GetQuote header */
+	quote_buf->version = 1;
+	quote_buf->status  = GET_QUOTE_SUCCESS;
+	quote_buf->in_len  = TDX_REPORT_LEN;
+	quote_buf->out_len = 0;
+
+	/* Get TDREPORT data */
+	ASSERT_EQ(0, get_tdreport0(devfd, &rep_req));
+
+	/* Fill GetQuote request */
+	memcpy(quote_buf->data, rep_req.tdreport, TDX_REPORT_LEN);
+	req.buf	  = (__u64)quote_buf;
+	req.len	  = quote_buf_size;
+
+	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_GET_QUOTE, &req));
+
+	/* Check whether GetQuote request is successful */
+	EXPECT_EQ(0, quote_buf->status);
+
+	free(quote_buf);
+
+	ASSERT_EQ(0, close(devfd));
+}
 TEST_HARNESS_MAIN
