@@ -106,6 +106,7 @@ bool kvm_is_mmio_pfn(kvm_pfn_t pfn)
 				     pfn_to_hpa(pfn + 1) - 1,
 				     E820_TYPE_RAM);
 }
+EXPORT_SYMBOL_GPL(kvm_is_mmio_pfn);
 
 /*
  * Returns true if the SPTE has bits that may be set without holding mmu_lock.

@@ -128,6 +128,7 @@ void kvm_mmu_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, const u8 *new,
 			 int bytes);
 int kvm_mmu_move_private_pages_from(struct kvm_vcpu *vcpu,
 				    struct kvm_vcpu *src_vcpu);
+bool kvm_is_mmio_pfn(kvm_pfn_t pfn);
 
 static inline int kvm_mmu_reload(struct kvm_vcpu *vcpu)
 {
