@@ -232,6 +232,34 @@ void tdx_reclaim_td_page(unsigned long td_page_pa);
 #define TDH_PHYMEM_PAGE_WBINVD		41
 #define TDH_IOMMU_SETREG		128
 #define TDH_IOMMU_GETREG		129
+#define TDH_SPDM_CREATE			130
+#define TDH_SPDM_DELETE			131
+#define TDH_IDE_STREAM_CREATE		132
+#define TDH_IDE_STREAM_BLOCK		133
+#define TDH_IDE_STREAM_DELETE		134
+#define TDH_IDE_STREAM_IDEKMREQ		135
+#define TDH_IDE_STREAM_IDEKMRSP		136
+#define TDH_DEVIF_CREATE		137
+#define TDH_DEVIF_REMOVE		138
+#define TDH_DEVIF_REQUEST		139
+#define TDH_DEVIF_RESPONSE		140
+#define TDH_DMAR_ADD			150
+#define TDH_DMAR_BLOCK			151
+#define TDH_DMAR_READ			152
+#define TDH_DMAR_REMOVE			153
+#define TDH_MMIOMT_ADD			154
+#define TDH_MMIOMT_SET			155
+#define TDH_MMIOMT_RD			156
+#define TDH_MMIOMT_REMOVE		157
+#define TDH_MMIO_MAP			158
+#define TDH_MMIO_BLOCK			159
+#define TDH_MMIO_UNMAP			160
+#define TDH_IQINV_REQ			161
+#define TDH_IQINV_PROC			162
+#define TDH_MEM_SHARED_SEPT_WR		163
+#define TDH_DEVIFMT_ADD			164
+#define TDH_DEVIFMT_REMOVE		165
+#define TDH_DEVIFMT_RD			166
 
 /* Temp solution, copied from tdx_error.h */
 #define TDX_INTERRUPTED_RESUMABLE		0x8000000300000000ULL
@@ -380,6 +408,595 @@ static inline u64 tdh_iommu_getreg(u64 iommu_id, u64 reg, u64 *val)
         return ret;
 }
 
+static inline u64 tdh_spdm_create(u64 iommu_id, u64 spdm_session_idx, u64 spdm_info_pa)
+{
+	u64 ret;
+
+	/*
+	 * TDH.SPDM.CREATE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - SPDM session index of device connected to stream
+	 * Input: R8  - Physical address of page a free page in PAMT to
+	 * hold SPDM session information
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 */
+
+	ret = seamcall_retry(TDH_SPDM_CREATE, iommu_id, spdm_session_idx,
+			     spdm_info_pa, 0, 0, 0, NULL);
+	pr_info("%s: iommu_id 0x%llx spdm_session_idx 0x%llx spdm_info_pa 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, spdm_session_idx, spdm_info_pa, ret);
+
+	return ret;
+}
+
+static inline u64 tdh_spdm_delete(u64 iommu_id, u64 spdm_session_idx, u64 *spdm_info_pa)
+{
+	struct tdx_module_args out;
+	u64 ret;
+
+	/*
+	 * TDH.SPDM.DELETE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - SPDM session index of device connected to stream
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 * Output: RCX - Physical address of the freed SPDM session information page
+	 */
+
+	ret = seamcall_retry(TDH_SPDM_DELETE, iommu_id, spdm_session_idx,
+			     0, 0, 0, 0, &out);
+	pr_info("%s: iommu_id 0x%llx spdm_session_idx 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, spdm_session_idx, ret);
+
+	if (!ret && spdm_info_pa)
+		*spdm_info_pa = out.rcx;
+
+	return ret;
+}
+
+static inline u64 tdh_ide_stream_create(u64 iommu_id,
+					u64 spdm_session_idx,
+					u64 stream_cfg_reg,
+					u64 stream_ctrl_reg,
+					u64 rid_assoc1_reg,
+					u64 rid_assoc2_reg,
+					u64 addr_assoc1_reg,
+					u64 addr_assoc2_reg,
+					u64 addr_assoc3_reg,
+					u64 stream_exinfo_pa)
+{
+	u64 ret;
+
+	/*
+	 * TDH.IDE.STREAM.CREATE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - SPDM session index of device connected to stream
+	 * Input: R8  - Stream configuration information   Type: IDE_STREAM_CONFIG_T
+	 * Input: R9  - Stream Control register configurations   Type: IDE_STREAM_CONTROL_T
+	 * Input: R10 - RID association register 1   Type: IDE_RID_ASSOC_REG_1_T
+	 * Input: R11 - RID association register 2   Type: IDE_RID_ASSOC_REG_2_T
+	 * Input: R12 - Address association register 1   Type: IDE_ADDR_ASSOC_REG_1_T
+	 * Input: R13 - Address association register 2   Type: IDE_ADDR_ASSOC_REG_2_T
+	 * Input: R14 - Address association register 3   Type: IDE_ADDR_ASSOC_REG_3_T
+	 * Input: R15 - Physical address of a free page in PAMT to
+	 * hold stream extended information
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 */
+
+	ret = seamcall_retry_saved(TDH_IDE_STREAM_CREATE, iommu_id, spdm_session_idx,
+				   stream_cfg_reg, stream_ctrl_reg, rid_assoc1_reg,
+				   rid_assoc2_reg, addr_assoc1_reg, addr_assoc2_reg,
+				   addr_assoc3_reg, stream_exinfo_pa, NULL);
+	pr_info("%s: iommu_id 0x%llx spdm_session_idx 0x%llx stream_cfg 0x%llx stream_ctrl_reg 0x%llx rid_assoc1_reg 0x%llx rid_assoc2_reg 0x%llx addr_assoc1_reg 0x%llx addr_assoc2_reg 0x%llx addr_assoc3_reg 0x%llx stream_exinfo_pa 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, spdm_session_idx, stream_cfg_reg, stream_ctrl_reg,
+		rid_assoc1_reg, rid_assoc2_reg, addr_assoc1_reg, addr_assoc2_reg,
+		addr_assoc3_reg, stream_exinfo_pa, ret);
+
+	return ret;
+}
+
+static inline u64 tdh_ide_stream_block(u64 iommu_id, u64 stream_id)
+{
+	u64 ret;
+
+	/*
+	 * TDH.IDE.STREAM.BLOCK
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - Stream ID of stream to delete
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 */
+
+	ret = seamcall_retry(TDH_IDE_STREAM_BLOCK, iommu_id, stream_id,
+			     0, 0, 0, 0, NULL);
+	pr_info("%s: iommu_id 0x%llx stream_id 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, stream_id, ret);
+
+	return ret;
+}
+
+static inline u64 tdh_ide_stream_delete(u64 iommu_id, u64 stream_id)
+{
+	u64 ret;
+
+	/*
+	 * TDH.IDE.STREAM.DELETE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - Stream ID of stream to delete
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 */
+
+	ret = seamcall_retry(TDH_IDE_STREAM_DELETE, iommu_id, stream_id,
+			     0, 0, 0, 0, NULL);
+
+	pr_info("%s: iommu_id 0x%llx stream_id 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, stream_id, ret);
+
+	return ret;
+}
+
+static inline u64 tdh_ide_stream_idekmreq(u64 iommu_id,
+					  u64 stream_id,
+					  u64 object_id,
+					  u64 ide_km_param,
+					  u64 slot_id,
+					  u64 message_pa)
+{
+	u64 ret;
+
+	/*
+	 * TDH.IDE.STREAM.IDEKMREQ
+	 *
+	 * Input: RAX - SEAMCALL ins]truction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - Stream ID of stream to generate key management request message for
+	 * Input: R8  - Object ID of message to generate
+	 * Input: R9  - IDE Key Management message parameters - Type: IDE_KM_PARAM_T
+	 * Input: R10 - Key Slot ID to configure if needed in the root port
+	 * Input: R11 - Physical address of a shared memory buffer in which to
+	 * emit the key management protocol message
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 */
+
+	ret = seamcall_retry(TDH_IDE_STREAM_IDEKMREQ, iommu_id, stream_id,
+			     object_id, ide_km_param, slot_id, message_pa,
+			     NULL);
+
+	pr_info("%s: iommu_id 0x%llx stream_id 0x%llx object_id 0x%llx ide_km_param 0x%llx slot_id 0x%llx message_pa 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, stream_id, object_id,
+		ide_km_param, slot_id, message_pa, ret);
+
+	return ret;
+}
+
+static inline u64 tdh_ide_stream_idekmrsp(u64 iommu_id,
+					  u64 stream_id,
+					  u64 message_pa,
+					  u64 *resp_data)
+{
+	struct tdx_module_args out;
+	u64 ret;
+
+	/*
+	 * TDH.IDE.STREAM.IDEKMRSP
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU hosting the stream
+	 * Input: RDX - Stream ID of stream to generate key management request message for
+	 * Input: R8  - Physical address of a shared memory buffer holding the response message
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 * Output: RCX - Returns 8 bytes of the IDE Key management response
+	 * if authentication successful
+	 */
+
+	ret = seamcall_retry(TDH_IDE_STREAM_IDEKMRSP, iommu_id, stream_id,
+			     message_pa, 0, 0, 0, &out);
+	pr_info("%s: iommu_id 0x%llx stream_id 0x%llx message_pa 0x%llx ret 0x%llx\n",
+		__func__, iommu_id, stream_id, message_pa, ret);
+
+	if (!ret && resp_data)
+		*resp_data = out.rcx;
+
+	return ret;
+}
+
+static inline u64 tdh_mmiomt_add(u64 mmiomt_idx, u64 mmiomt_pa)
+{
+	u64 ret;
+	/*
+	 * TDH.MMIOMT.ADD
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - MMIOMT index (level + PA)
+	 * Input: RDX - MMIOMT PA of new page
+	 *
+	 */
+	ret =  seamcall_retry(TDH_MMIOMT_ADD, mmiomt_idx, mmiomt_pa,
+			      0, 0, 0, 0, NULL);
+	pr_debug("%s: ret %llx, mmiomt_idx %llx, mmiomt_pa %llx\n",
+		 __func__, ret, mmiomt_idx, mmiomt_pa);
+
+	return ret;
+}
+
+static inline u64 tdh_mmiomt_set(u64 mmiomt_idx, u64 mmiomt_info)
+{
+	u64 ret;
+	/*
+	 * TDH.MMIOMT.SET
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - MMIOMT index (level + PA)
+	 * Input: RDX - MMIOMT INFO: devifcs PA and DATA type
+	 *
+	 */
+	ret = seamcall_retry(TDH_MMIOMT_SET, mmiomt_idx, mmiomt_info,
+			     0, 0, 0, 0, NULL);
+
+	pr_debug("%s: ret %llx, mmiomt_idx %llx, mmiomt_info %llx\n",
+		 __func__, ret, mmiomt_idx, mmiomt_info);
+
+	return ret;
+}
+
+static inline u64 tdh_mmiomt_read(u64 mmiomt_idx, struct tdx_module_args *out)
+{
+	/*
+	 * TDH.MMIOMT.READ
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - MMIOMT index (level + PA)
+	 *
+	 * Output: Entry Value - RCX, RDX, R8, R9
+	 */
+	return seamcall_retry(TDH_MMIOMT_RD, mmiomt_idx,
+			      0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_mmiomt_remove(u64 mmiomt_idx)
+{
+	u64 ret;
+	/*
+	 * TDH.MMIOMT.REMOVE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX -  MMIOMT index
+	 *
+	 */
+	ret = seamcall_retry(TDH_MMIOMT_REMOVE, mmiomt_idx,
+			     0, 0, 0, 0, 0, NULL);
+
+	pr_debug("%s: ret %llx, mmiomt_idx %llx\n",
+		 __func__, ret, mmiomt_idx);
+
+	return ret;
+}
+
+static inline u64 tdh_mmio_map(u64 gpa_page_info, u64 tdr_pa, u64 mmio_pa)
+{
+	/*
+	 * TDH.MMIO.MAP
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX -  GPA PAGE INFO
+	 * Input: RDX - TDR PA
+	 * Input: R8 - MMIO PA
+	 */
+	return seamcall_retry(TDH_MMIO_MAP, gpa_page_info, tdr_pa, mmio_pa,
+			      0, 0, 0, NULL);
+}
+
+static inline u64 tdh_mmio_block(u64 gpa_page_info, u64 tdr_pa)
+{
+	/*
+	 * TDH.MMIO.BLOCK
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX -  GPA PAGE INFO
+	 * Input: RDX - TDR PA
+	 */
+	return seamcall_retry(TDH_MMIO_BLOCK, gpa_page_info, tdr_pa,
+			      0, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_mmio_unmap(u64 gpa_page_info, u64 tdr_pa)
+{
+	/*
+	 * TDH.MMIO.UNMAP
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX -  GPA PAGE INFO
+	 * Input: RDX - TDR PA
+	 */
+	return seamcall_retry(TDH_MMIO_UNMAP, gpa_page_info, tdr_pa,
+			      0, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_dmar_add(u64 index, u64 tdr_pa, u64 entry0, u64 entry1,
+			       u64 entry2, u64 entry3, u64 entry4, u64 entry5,
+			       u64 entry6, u64 entry7)
+{
+	/*
+	 * TDH.DMAR.ADD
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - Index to locate the DMAR entry
+	 * Input: RDX - TDR, valid for PASIDTE only
+	 * Input: R8-R15 - parameters
+	 *   RTE: R8 R9
+	 *   CTE: R8 R9 R10 R11
+	 *   PASIDDE: R8
+	 *   PASIDTE: R8 R9 R10 R11 R12 R13 R14 R15
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 */
+	return seamcall_retry_saved(TDH_DMAR_ADD, index, tdr_pa,
+				    entry0, entry1, entry2, entry3,
+				    entry4, entry5, entry6, entry7, NULL);
+}
+
+static inline u64 tdh_dmar_block(u64 index)
+{
+	/*
+	 * TDH.DMAR.BLOCK
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - Index to locate the DMAR entry
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 */
+	return seamcall_retry(TDH_DMAR_BLOCK, index,
+			      0, 0, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_dmar_read(u64 index, struct tdx_module_args *out)
+{
+	/*
+	 * TDH.DMAR.READ
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - Index to locate the DMAR entry
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 * Output: R8-R15
+	 */
+	return seamcall_retry_saved(TDH_DMAR_READ, index,
+				    0, 0, 0, 0, 0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_dmar_remove(u64 index)
+{
+	/*
+	 * TDH.DMAR.REMOVE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - Index to locate the DMAR entry
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 */
+	return seamcall_retry(TDH_DMAR_REMOVE, index,
+			      0, 0, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_iqinv_req(u64 iommu_id, u64 inv_type, u64 inv_target,
+				u64 wait_desc_1, u64 wait_desc_2,
+				u64 wait_desc_3, u64 wait_desc_4)
+{
+	/*
+	 * TDH.IQ.INV.REQUEST
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU ID
+	 * Input: RDX - INVALIDATION TYPE
+	 * Input: R8  - RID, PASID and TDR PA
+	 * Input: R9 - Invalidation Wait Descriptor bits 63:0
+	 * Input: R10 - Invalidation Wait Descriptor bits 127:64
+	 * Input: R11 - Invalidation Wait Descriptor bits 128:191
+	 * Input: R12 - Invalidation Wait Descriptor bits 192:255
+	 */
+	return seamcall_retry_saved(TDH_IQINV_REQ, iommu_id, inv_type,
+				    inv_target, wait_desc_1, wait_desc_2,
+				    wait_desc_3, wait_desc_4, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_iqinv_process(u64 iommu_id)
+{
+	/*
+	 * TDH.IQ.INV.PROCESS
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - IOMMU ID
+	 */
+	return seamcall_retry(TDH_IQINV_PROC, iommu_id,
+			      0, 0, 0, 0, 0, NULL);
+}
+
+static inline u64 tdh_mem_shared_sept_wr(u64 gpa_info, u64 tdr_pa, u64 entry,
+					 struct tdx_module_args *out)
+{
+	/*
+	 * TDH.MEM.SHARED.SEPT.WR
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - GPA [51:12] + Level [2:0] - must be GPAW + 3
+	 * Input: RDX - TDR page
+	 * Input: R8 - EPT entry value
+	 *
+	 * Output: RAX - SEAMCALL instruction return code
+	 * Output: RCX - Secure EPT entry architectural content
+	 */
+	return seamcall_retry(TDH_MEM_SHARED_SEPT_WR, gpa_info, tdr_pa, entry,
+			      0, 0, 0, out);
+}
+
+static inline u64 tdh_devifmt_add(u64 devifmt_idx, u64 devifmt_pa)
+{
+	u64 ret;
+	/*
+	 * TDH.DEVIFMT.ADD
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - DEVIFMT index (level + function id)
+	 * Input: RDX - DEVIFMT PA of new page
+	 */
+	ret = seamcall_retry(TDH_DEVIFMT_ADD, devifmt_idx, devifmt_pa,
+			     0, 0, 0, 0, NULL);
+	pr_debug("%s: ret %llx, devifmt_idx %llx, devifmt_pa %llx\n",
+		 __func__, ret, devifmt_idx, devifmt_pa);
+
+	return ret;
+}
+
+static inline u64 tdh_devifmt_remove(u64 devifmt_idx)
+{
+	u64 ret;
+	/*
+	 * TDH.DEVIFMT.REMOVE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - DEVIFMT index (level + function id)
+	 */
+	ret = seamcall_retry(TDH_DEVIFMT_REMOVE, devifmt_idx,
+			     0, 0, 0, 0, 0, NULL);
+
+	pr_debug("%s: ret %llx, devifmt_idx %llx\n",
+		 __func__, ret, devifmt_idx);
+
+	return ret;
+}
+
+static inline u64 tdh_devifmt_read(u64 devifmt_idx, struct tdx_module_args *out)
+{
+	/*
+	 * TDH.DEVIFMT.READ
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - DEVIFMT index (level + function id)
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 * Output: RCX - DEVIFMT entry data
+	 */
+	return seamcall_retry(TDH_DEVIFMT_RD, devifmt_idx,
+			      0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_devif_create(u64 devif_id, u64 tdr_pa, u64 devifcs_pa,
+				   u64 td_tdisp_msg_pa, u64 vmm_tdisp_msg_pa)
+{
+	u64 ret;
+
+	/*
+	 * TDH.DEVIF.CREATE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - DEVIF_ID (tdx_devif_id)
+	 * Input: RDX - TDR PA
+	 * Input: R8 - DEVIFCS pa
+	 * Input: R9 - TD_TDISP_MSG buffer pa
+	 * Input: R10 - VMM_TDISP_MSG buffer pa
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 */
+	ret = seamcall_retry(TDH_DEVIF_CREATE, devif_id, tdr_pa, devifcs_pa,
+			     td_tdisp_msg_pa, vmm_tdisp_msg_pa,
+			     0, NULL);
+
+	pr_debug("%s: ret %llx, devif_id %llx tdr_pa %llx devifcs %llx, td_buf %llx vm_buf %llx\n",
+		 __func__, ret, devif_id, tdr_pa, devifcs_pa,
+		 td_tdisp_msg_pa, vmm_tdisp_msg_pa);
+
+	return ret;
+}
+
+static inline u64 tdh_devif_remove(u32 func_id, struct tdx_module_args *out)
+{
+	u64 ret;
+
+	/*
+	 * TDH.DEVIF.REMOVE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - func_id
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 * Output: RCX - TD_TDISP_MSG buffer pa
+	 * Output: RDX - VMM_TDISP_MSG buffer pa
+	 */
+
+	ret = seamcall_retry(TDH_DEVIF_REMOVE, func_id,
+			     0, 0, 0, 0, 0, out);
+
+	pr_debug("%s: ret %llx, func_id %x td_tdisp_buf %llx vmm_tdisp_buf %llx\n",
+		 __func__, ret, func_id, out->rcx, out->rdx);
+
+	return ret;
+}
+
+static inline u64 tdh_devif_request(u32 func_id, u64 payload, u64 req_out_pa,
+				    struct tdx_module_args *out)
+{
+	u64 ret;
+
+	/*
+	 * TDH.DEVIF.REQUEST
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - func_id
+	 * Input: RDX - payload parm (request)
+	 * Input: R8  - pa target of TDISP request message output
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 * Output: RCX - message code of generated TDISP request message
+	 */
+	ret = seamcall_retry(TDH_DEVIF_REQUEST, func_id, payload,
+			     req_out_pa, 0, 0, 0, out);
+
+	pr_debug("%s: ret %llx, func_id %x payload %llx req_out_pa %llx msg_cde %llx\n",
+		 __func__, ret, func_id, payload, req_out_pa, out->rcx);
+
+	return ret;
+}
+
+static inline u64 tdh_devif_response(u32 func_id, u64 payload, u64 rsp_out_pa,
+				     struct tdx_module_args *out)
+{
+	u64 ret;
+
+	/*
+	 * TDH.DEVIF.RESPONSE
+	 *
+	 * Input: RAX - SEAMCALL instruction leaf number
+	 * Input: RCX - func_id
+	 * Input: RDX - payload parm (response)
+	 * Input: R8  - pa of TDISP response message output
+	 *
+	 * Output: RAX - SEAMCALL return code
+	 * Output: RDX - TDISP payload size
+	 */
+	ret = seamcall_retry(TDH_DEVIF_RESPONSE, func_id, payload,
+			     rsp_out_pa, 0, 0, 0, out);
+
+	pr_debug("%s: ret %llx, func_id %x payload %llx rsp_out_pa %llx payload_size %llx\n",
+		 __func__, ret, func_id, payload, rsp_out_pa, out->rdx);
+
+	return ret;
+}
+
 /* tdxio related end */
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
@@ -426,6 +1043,80 @@ static inline u64 tdh_phymem_page_reclaim(u64 page,
 static inline u64 tdh_phymem_page_wbinvd(u64 page) { return -EOPNOTSUPP; }
 static inline u64 tdh_iommu_setreg(u64 iommu_id, u64 reg, u64 val) { return 0; }
 static inline u64 tdh_iommu_getreg(u64 iommu_id, u64 reg, u64 *val) { return 0; }
+static inline u64 tdh_spdm_create(u64 iommu_id, u64 spdm_session_idx,
+				  u64 spdm_info_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_spdm_delete(u64 iommu_id, u64 spdm_session_idx,
+				  u64 *spdm_info_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_ide_stream_create(u64 iommu_id,
+					u64 spdm_session_idx,
+					u64 stream_cfg_reg,
+					u64 stream_ctrl_reg,
+					u64 rid_assoc1_reg,
+					u64 rid_assoc2_reg,
+					u64 addr_assoc1_reg,
+					u64 addr_assoc2_reg,
+					u64 addr_assoc3_reg,
+					u64 stream_exinfo_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_ide_stream_block(u64 iommu_id, u64 stream_id) { return -EOPNOTSUPP; }
+static inline u64 tdh_ide_stream_delete(u64 iommu_id, u64 stream_id) { return -EOPNOTSUPP; }
+static inline u64 tdh_ide_stream_idekmreq(u64 iommu_id,
+					  u64 stream_id,
+					  u64 object_id,
+					  u64 ide_km_param,
+					  u64 slot_id,
+					  u64 message_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_ide_stream_idekmrsp(u64 iommu_id,
+					  u64 stream_id,
+					  u64 message_pa,
+					  u64 *resp_data) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmiomt_add(u64 mmiomt_idx,
+				 u64 mmiomt_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmiomt_set(u64 mmiomt_idx,
+				 u64 mmiomt_info) { return -EOPNOTSUPP; }
+static inline u64
+tdh_mmiomt_read(u64 mmiomt_idx,
+		struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmiomt_remove(u64 mmiomt_idx) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmio_map(u64 gpa_page_info, u64 tdr_pa,
+			       u64 mmio_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmio_block(u64 gpa_page_info,
+				 u64 tdr_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_mmio_unmap(u64 gpa_page_info,
+				 u64 tdr_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_dmar_add(u64 index, u64 tdr_pa, u64 entry0, u64 entry1,
+			       u64 entry2, u64 entry3, u64 entry4, u64 entry5,
+			       u64 entry6, u64 entry7) { return -EOPNOTSUPP; }
+static inline u64 tdh_dmar_block(u64 index) { return -EOPNOTSUPP; }
+static inline u64
+tdh_dmar_read(u64 index, struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64 tdh_dmar_remove(u64 index) { return -EOPNOTSUPP; }
+static inline u64 tdh_iqinv_req(u64 iommu_id, u64 inv_type, u64 inv_target,
+				u64 wait_desc_1, u64 wait_desc_2,
+				u64 wait_desc_3,
+				u64 wait_desc_4) { return -EOPNOTSUPP; }
+static inline u64 tdh_iqinv_process(u64 iommu_id) { return -EOPNOTSUPP; }
+static inline u64
+tdh_mem_shared_sept_wr(u64 gpa_info, u64 tdr_pa, u64 entry,
+		       struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64 tdh_devifmt_add(u64 devifmt_idx,
+				  u64 devifmt_pa) { return -EOPNOTSUPP; }
+static inline u64 tdh_devifmt_remove(u64 devifmt_idx) { return -EOPNOTSUPP; }
+static inline u64
+tdh_devifmt_read(u64 devifmt_idx,
+		 struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64
+tdh_devif_create(u64 devif_id, u64 tdr_pa, u64 devifcs_pa,
+		 u64 td_tdisp_msg_pa,
+		 u64 vmm_tdisp_msg_pa) { return -EOPNOTSUPP; }
+static inline u64
+tdh_devif_remove(u32 func_id,
+		 struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64
+tdh_devif_request(u32 func_id, u64 payload, u64 req_out_pa,
+		  struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64
+tdh_devif_response(u32 func_id, u64 payload, u64 rsp_out_pa,
+		   struct tdx_module_args *out) { return -EOPNOTSUPP; }
 /* tdxio related end */
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
