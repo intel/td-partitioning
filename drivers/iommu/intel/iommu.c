@@ -4989,6 +4989,7 @@ static void *intel_iommu_hw_info(struct device *dev, u32 *length, u32 *type)
 
 	vtd->cap_reg = iommu->cap;
 	vtd->ecap_reg = iommu->ecap;
+	vtd->id = iommu->id;
 	*length = sizeof(*vtd);
 	*type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
 	return vtd;

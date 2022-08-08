@@ -382,6 +382,7 @@ struct iommu_hwpt_alloc {
  *           section 11.4.2 Capability Register.
  * @ecap_reg: Value of Intel VT-d capability register defined in VT-d spec
  *            section 11.4.3 Extended Capability Register.
+ * @id: iommu_id, only for TEE-IO (tdxio) mode.
  *
  * User needs to understand the Intel VT-d specification to decode the
  * register value.
@@ -391,6 +392,7 @@ struct iommu_hw_info_vtd {
 	__u32 __reserved;
 	__aligned_u64 cap_reg;
 	__aligned_u64 ecap_reg;
+	__aligned_u64 id;
 };
 
 /**
