@@ -3538,3 +3538,9 @@ void iommu_free_global_pasid(ioasid_t pasid)
 	ida_free(&iommu_global_pasid_ida, pasid);
 }
 EXPORT_SYMBOL_GPL(iommu_free_global_pasid);
+
+int iommu_domain_set_trusted(struct iommu_domain *domain)
+{
+	return domain->ops->set_trusted(domain);
+}
+EXPORT_SYMBOL_GPL(iommu_domain_set_trusted);
