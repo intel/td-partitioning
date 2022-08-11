@@ -2159,4 +2159,110 @@ bool tdx_io_support(void)
 	return !!(tdx_features0 & TDX_FEATURES0_IO);
 }
 EXPORT_SYMBOL_GPL(tdx_io_support);
+
+#include <asm/kvm_host.h>
+void tdx_clear_page(unsigned long page_pa, int size)
+{
+	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
+	void *page = __va(page_pa);
+	unsigned long i;
+
+	WARN_ON_ONCE(size % PAGE_SIZE);
+	/*
+	 * When re-assign one page from old keyid to a new keyid, MOVDIR64B is
+	 * required to clear/write the page with new keyid to prevent integrity
+	 * error when read on the page with new keyid.
+	 *
+	 * clflush doesn't flush cache with HKID set.  The cache line could be
+	 * poisoned (even without MKTME-i), clear the poison bit.
+	 */
+	for (i = 0; i < size; i += 64)
+		movdir64b(page + i, zero_page);
+	/*
+	 * MOVDIR64B store uses WC buffer.  Prevent following memory reads
+	 * from seeing potentially poisoned cache.
+	 */
+	__mb();
+}
+EXPORT_SYMBOL_GPL(tdx_clear_page);
+
+void tdx_set_page_present_level(unsigned long addr, enum pg_level pg_level)
+{
+	int i;
+
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		return;
+
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(pg_level); i++)
+		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
+}
+EXPORT_SYMBOL_GPL(tdx_set_page_present_level);
+
+int __tdx_reclaim_page(unsigned long pa, enum pg_level level,
+			      bool do_wb, u16 hkid)
+{
+	struct tdx_module_args out;
+	u64 err;
+
+	err = tdh_phymem_page_reclaim(pa, &out);
+	if (err & TDX_SEAMCALL_STATUS_MASK)
+		return -EIO;
+
+	/* out.r8 == tdx sept page level */
+	WARN_ON_ONCE(out.r8 != pg_level_to_tdx_sept_level(level));
+
+	if (do_wb && level == PG_LEVEL_4K) {
+		/*
+		 * Only TDR page gets into this path.  No contention is expected
+		 * because of the last page of TD.
+		 */
+		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(pa, hkid));
+		if (WARN_ON_ONCE(err)) {
+			pr_err("%s:%d:%s pa 0x%lx level %d hkid 0x%x do_wb %d err 0x%llx\n",
+			       __FILE__, __LINE__, __func__,
+			       pa, level, hkid, do_wb, err);
+			return -EIO;
+		}
+	}
+
+	tdx_set_page_present_level(pa, level);
+	tdx_clear_page(pa, KVM_HPAGE_SIZE(level));
+	return 0;
+}
+EXPORT_SYMBOL_GPL(__tdx_reclaim_page);
+
+int tdx_reclaim_page(unsigned long pa, bool do_wb, u16 hkid)
+{
+	int r = __tdx_reclaim_page(pa, PG_LEVEL_4K, do_wb, hkid);
+
+	tdx_set_page_present_level(pa, PG_LEVEL_4K);
+	tdx_clear_page(pa, PAGE_SIZE);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_reclaim_page);
+
+void tdx_reclaim_td_page(unsigned long td_page_pa)
+{
+	WARN_ON_ONCE(!td_page_pa);
+
+	/*
+	 * TDCX are being reclaimed.  TDX module maps TDCX with HKID
+	 * assigned to the TD.  Here the cache associated to the TD
+	 * was already flushed by TDH.PHYMEM.CACHE.WB before here, So
+	 * cache doesn't need to be flushed again.
+	 */
+	if (tdx_reclaim_page(td_page_pa, false, 0))
+		/*
+		 * Leak the page on failure:
+		 * tdx_reclaim_page() returns an error if and only if there's an
+		 * unexpected, fatal error, e.g. a SEAMCALL with bad params,
+		 * incorrect concurrency in KVM, a TDX Module bug, etc.
+		 * Retrying at a later point is highly unlikely to be
+		 * successful.
+		 * No log here as tdx_reclaim_page() already did.
+		 */
+		return;
+	free_page((unsigned long)__va(td_page_pa));
+}
+EXPORT_SYMBOL_GPL(tdx_reclaim_td_page);
 /* tdxio end */

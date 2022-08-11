@@ -189,6 +189,19 @@ struct tdsysinfo_struct {
 	DECLARE_FLEX_ARRAY(struct tdx_cpuid_config, cpuid_configs);
 } __packed;
 
+#include <linux/bug.h>
+static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
+{
+	WARN_ON_ONCE(level == PG_LEVEL_NONE);
+	return level - 1;
+}
+
+#include <asm/processor.h>
+static __always_inline u64 set_hkid_to_hpa(u64 pa, u16 hkid)
+{
+	return pa | ((u64)hkid << boot_cpu_data.x86_phys_bits);
+}
+
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 bool platform_tdx_enabled(void);
 int tdx_enable(void);
@@ -209,11 +222,21 @@ int __init tdx_init(void);
 
 /* tdxio related */
 bool tdx_io_support(void);
+void tdx_clear_page(unsigned long page_pa, int size);
+void tdx_set_page_present_level(unsigned long addr, enum pg_level pg_level);
+int __tdx_reclaim_page(unsigned long pa, enum pg_level level, bool do_wb, u16 hkid);
+int tdx_reclaim_page(unsigned long pa, bool do_wb, u16 hkid);
+void tdx_reclaim_td_page(unsigned long td_page_pa);
+
+#define TDH_PHYMEM_PAGE_RECLAIM		28
+#define TDH_PHYMEM_PAGE_WBINVD		41
 
 /* Temp solution, copied from tdx_error.h */
 #define TDX_INTERRUPTED_RESUMABLE		0x8000000300000000ULL
 #define TDX_VCPU_ASSOCIATED			0x8000070100000000ULL
 #define TDX_VCPU_NOT_ASSOCIATED			0x8000070200000000ULL
+
+#define TDX_SEAMCALL_STATUS_MASK		0xFFFFFFFF00000000ULL
 
 static inline u64 __seamcall_retry(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			         u64 r10, u64 r11, u64 r12, u64 r13, u64 r14,
@@ -302,6 +325,19 @@ static inline u64 seamcall_retry_saved(u64 op, u64 rcx, u64 rdx, u64 r8,
 				r15, out, true);
 }
 
+static inline u64 tdh_phymem_page_reclaim(u64 page,
+					  struct tdx_module_args *out)
+{
+	return seamcall_retry(TDH_PHYMEM_PAGE_RECLAIM,
+			      page, 0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_phymem_page_wbinvd(u64 page)
+{
+	return seamcall_retry(TDH_PHYMEM_PAGE_WBINVD,
+			      page, 0, 0, 0, 0, 0, NULL);
+}
+
 /* tdxio related end */
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
@@ -336,6 +372,16 @@ static inline u64 seamcall_retry_saved(u64 op, u64 rcx, u64 rdx, u64 r8,
 {
 	return TDX_SEAMCALL_UD;
 }
+static inline void tdx_clear_page(unsigned long page_pa, int size) { }
+static inline void tdx_set_page_present_level(unsigned long addr, enum pg_level pg_level) { }
+static inline int __tdx_reclaim_page(unsigned long pa, enum pg_level level, bool do_wb,
+				     u16 hkid) { return -EOPNOTSUPP; }
+static inline int tdx_reclaim_page(unsigned long pa, bool do_wb,
+				   u16 hkid) { return -EOPNOTSUPP; }
+static inline void tdx_reclaim_td_page(unsigned long td_page_pa) { }
+static inline u64 tdh_phymem_page_reclaim(u64 page,
+					  struct tdx_module_args *out) { return -EOPNOTSUPP; }
+static inline u64 tdh_phymem_page_wbinvd(u64 page) { return -EOPNOTSUPP; }
 /* tdxio related end */
 #endif	/* CONFIG_INTEL_TDX_HOST */
 

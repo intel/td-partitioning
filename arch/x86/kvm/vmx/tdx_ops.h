@@ -148,17 +148,6 @@ static inline void tdx_set_page_present(hpa_t addr)
 		set_direct_map_default_noflush(pfn_to_page(addr >> PAGE_SHIFT));
 }
 
-static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level)
-{
-	int i;
-
-	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
-		return;
-
-	for (i = 0; i < KVM_PAGES_PER_HPAGE(pg_level); i++)
-		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
-}
-
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
 	u64 r;
@@ -360,11 +349,13 @@ static inline u64 tdh_mng_key_reclaimid(hpa_t tdr)
 	return tdx_seamcall(TDH_MNG_KEY_RECLAIMID, tdr, 0, 0, 0, 0, 0, NULL);
 }
 
+#if 0
 static inline u64 tdh_phymem_page_reclaim(hpa_t page,
 					  struct tdx_module_args *out)
 {
 	return tdx_seamcall(TDH_PHYMEM_PAGE_RECLAIM, page, 0, 0, 0, 0, 0, out);
 }
+#endif
 
 static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_args *out)
@@ -396,10 +387,12 @@ static inline u64 tdh_phymem_cache_wb(bool resume)
 			    NULL);
 }
 
+#if 0
 static inline u64 tdh_phymem_page_wbinvd(hpa_t page)
 {
 	return tdx_seamcall(TDH_PHYMEM_PAGE_WBINVD, page, 0, 0, 0, 0, 0, NULL);
 }
+#endif
 
 static inline u64 tdh_vp_wr(hpa_t tdvpr, u64 field, u64 val, u64 mask,
 			    struct tdx_module_args *out)
