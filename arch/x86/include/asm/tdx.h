@@ -228,6 +228,10 @@ int __tdx_reclaim_page(unsigned long pa, enum pg_level level, bool do_wb, u16 hk
 int tdx_reclaim_page(unsigned long pa, bool do_wb, u16 hkid);
 void tdx_reclaim_td_page(unsigned long td_page_pa);
 
+/* Export Intel-IOMMU registers for other components */
+#define DMAR_CONFIG_RP_REG	0x8000000B
+#define DMAR_CLEAR_RP_REG	0x8000000C
+
 #define TDH_PHYMEM_PAGE_RECLAIM		28
 #define TDH_PHYMEM_PAGE_WBINVD		41
 #define TDH_IOMMU_SETREG		128
