@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/cpu.h>
+#include <linux/iommu.h>
 #include <linux/mmu_context.h>
 #include <linux/misc_cgroup.h>
 
@@ -6152,11 +6153,107 @@ out_fput:
 }
 
 /* TDX connect stuff */
-static void tdx_tdi_devif_remove(struct tdx_tdi *ttdi) { }
+static inline struct device *tdx_tdi_to_dev(struct tdx_tdi *ttdi)
+{
+	return &ttdi->tdi->pdev->dev;
+}
+
+static void tdx_tdi_devif_remove(struct tdx_tdi *ttdi)
+{
+	struct device *dev = tdx_tdi_to_dev(ttdi);
+	struct tdx_module_args out = { 0 };
+	u64 retval;
+
+	dev_info(dev, "%s: remove tdisp devif\n", __func__);
+
+	retval = tdh_devif_remove(ttdi->id.func_id, &out);
+
+	dev_info(dev, "%s ret %llx func_id %x td_buf %llx vmm_buf %llx\n",
+		 __func__, retval, ttdi->id.func_id, out.rcx, out.rdx);
+
+	if (retval)
+		dev_err(dev, "failed to remove DEVIF %llx\n", retval);
+	if ((u64)ttdi->td_buff_pa != out.rcx)
+		dev_err(dev, "td buffer address doesn't match\n");
+	if ((u64)ttdi->vmm_buff_pa != out.rdx)
+		dev_err(dev, "vmm buffer address doesn't match\n");
+
+	free_page((unsigned long)__va(ttdi->vmm_buff_pa));
+	free_page((unsigned long)__va(ttdi->td_buff_pa));
+	free_page((unsigned long)__va(ttdi->devifcs_pa));
+}
 
 static int tdx_tdi_devif_create(struct tdx_tdi *ttdi)
 {
+	struct device *dev = tdx_tdi_to_dev(ttdi);
+	struct kvm_tdx *kvm_tdx = ttdi->kvm_tdx;
+	struct pci_tdi *tdi = ttdi->tdi;
+	struct iommu_hw_info_vtd info;
+	unsigned long va;
+	u64 retval;
+	int ret;
+
+	dev_info(dev, "%s: create tdisp devif\n", __func__);
+
+	/* Per-condition, IOMMU for target device must support TDX-IO */
+	ret = iommu_get_hw_info(dev, IOMMU_HW_INFO_TYPE_INTEL_VTD,
+				(void *)&info, sizeof(struct iommu_hw_info_vtd));
+	if (ret) {
+		dev_err(dev, "%s: Failed to get IOMMU ID\n", __func__);
+		return ret;
+	}
+
+	/*
+	 * PT_DEVIFCS_R(devifcs)/NR(td_buff/vm_buff) doesn't need
+	 * tdh_phymem_page_reclaim()
+	 */
+	va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!va)
+		return -ENOMEM;
+	ttdi->devifcs_pa = __pa(va);
+
+	va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!va) {
+		ret = -ENOMEM;
+		goto free_devifcs;
+	}
+	ttdi->td_buff_pa = __pa(va);
+
+	va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!va) {
+		ret = -ENOMEM;
+		goto free_td_buff;
+	}
+	ttdi->vmm_buff_pa = __pa(va);
+
+	ttdi->id.func_id = tdi->intf_id.func_id;
+	ttdi->id.stream_id = tdi->stream_id;
+	ttdi->id.iommu_id = (u16)info.id;
+	ttdi->id.type = TDX_DEVIF_TYPE_PFVF;
+
+	retval = tdh_devif_create(ttdi->id.raw, kvm_tdx->tdr_pa,
+				  ttdi->devifcs_pa, ttdi->td_buff_pa,
+				  ttdi->vmm_buff_pa);
+
+	dev_info(dev, "%s ret %llx id %llx func_id %x tdr %lx devifcs %lx td buf %lx vmm buf %lx\n",
+		 __func__, retval, ttdi->id.raw, ttdi->id.func_id,
+		 kvm_tdx->tdr_pa, ttdi->devifcs_pa, ttdi->td_buff_pa,
+		 ttdi->vmm_buff_pa);
+
+	if (retval) {
+		ret = -EFAULT;
+		goto free_vmm_buff;
+	}
+
 	return 0;
+
+free_vmm_buff:
+	free_page((unsigned long)__va(ttdi->vmm_buff_pa));
+free_td_buff:
+	free_page((unsigned long)__va(ttdi->td_buff_pa));
+free_devifcs:
+	free_page((unsigned long)__va(ttdi->devifcs_pa));
+	return ret;
 }
 
 static void tdx_tdi_devifmt_uinit(struct tdx_tdi *ttdi) { }
@@ -6190,6 +6287,7 @@ static void tdx_tdi_free(struct tdx_tdi *ttdi)
 static struct tdx_tdi *tdx_tdi_alloc(struct kvm_tdx *kvm_tdx,
 				     struct pci_tdi *tdi)
 {
+	struct pci_dev *pdev = tdi->pdev;
 	struct tdx_tdi *ttdi;
 
 	ttdi = kzalloc(sizeof(*ttdi), GFP_KERNEL);
@@ -6198,7 +6296,9 @@ static struct tdx_tdi *tdx_tdi_alloc(struct kvm_tdx *kvm_tdx,
 
 	ttdi->tdi = tdi;
 	ttdi->kvm_tdx = kvm_tdx;
-
+	ttdi->rid = PCI_DEVID(pdev->bus->number, pdev->devfn);
+	tdi->mmio_offset = kvm_tdx->mmio_offset;
+	pr_info("%s: tdi mmio_offset = %llx\n", __func__, tdi->mmio_offset);
 	return ttdi;
 }
 

@@ -460,6 +460,11 @@ struct tdx_devif_id {
 
 struct tdx_tdi {
 	struct tdx_devif_id id;
+	unsigned long devifcs_pa;
+	unsigned long td_buff_pa;
+	unsigned long vmm_buff_pa;
+
+	u16 rid;
 
 	struct kvm_tdx *kvm_tdx;
 	struct pci_tdi *tdi;
