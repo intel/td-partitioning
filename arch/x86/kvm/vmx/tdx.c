@@ -723,6 +723,9 @@ int tdx_vm_init(struct kvm *kvm)
 
 	smp_store_release(&kvm_tdx->has_range_blocked, false);
 
+	mutex_init(&kvm_tdx->ttdi_mutex);
+	INIT_LIST_HEAD_RCU(&kvm_tdx->ttdi_list);
+
 	/*
 	 * This function initializes only KVM software construct.  It doesn't
 	 * initialize TDX stuff, e.g. TDCS, TDR, TDCX, HKID etc.
@@ -6149,13 +6152,212 @@ out_fput:
 }
 
 /* TDX connect stuff */
+static void tdx_tdi_devif_remove(struct tdx_tdi *ttdi) { }
+
+static int tdx_tdi_devif_create(struct tdx_tdi *ttdi)
+{
+	return 0;
+}
+
+static void tdx_tdi_devifmt_uinit(struct tdx_tdi *ttdi) { }
+
+static int tdx_tdi_devifmt_init(struct tdx_tdi *ttdi)
+{
+	return 0;
+}
+
+static void tdx_tdi_mmiomt_uinit(struct tdx_tdi *ttdi) { }
+
+static int tdx_tdi_mmiomt_init(struct tdx_tdi *ttdi)
+{
+	return 0;
+}
+
+static void tdx_tdi_mmio_unmap_all(struct tdx_tdi *ttdi) { }
+
+static void tdx_tdi_dmar_uinit(struct tdx_tdi *ttdi) { }
+
+static int tdx_tdi_dmar_init(struct tdx_tdi *ttdi)
+{
+	return 0;
+}
+
+static void tdx_tdi_free(struct tdx_tdi *ttdi)
+{
+	kfree(ttdi);
+}
+
+static struct tdx_tdi *tdx_tdi_alloc(struct kvm_tdx *kvm_tdx,
+				     struct pci_tdi *tdi)
+{
+	struct tdx_tdi *ttdi;
+
+	ttdi = kzalloc(sizeof(*ttdi), GFP_KERNEL);
+	if (!ttdi)
+		return NULL;
+
+	ttdi->tdi = tdi;
+	ttdi->kvm_tdx = kvm_tdx;
+
+	return ttdi;
+}
+
+static bool __is_tdx_tdi_added(struct kvm_tdx *kvm_tdx, struct tdx_tdi *ttdi)
+{
+	struct tdx_tdi *tmp;
+
+	list_for_each_entry(tmp, &kvm_tdx->ttdi_list, node) {
+		if (tmp == ttdi)
+			return true;
+	}
+
+	return false;
+}
+
+static void tdx_tdi_add(struct tdx_tdi *ttdi)
+{
+	struct kvm_tdx *kvm_tdx = ttdi->kvm_tdx;
+
+	list_add_rcu(&ttdi->node, &kvm_tdx->ttdi_list);
+}
+
+static void tdx_tdi_del(struct tdx_tdi *ttdi)
+{
+	list_del_rcu(&ttdi->node);
+	synchronize_rcu();
+}
+
+static int tdx_tdi_req(struct tdx_tdi *ttdi, unsigned long flags,
+		       struct tdisp_request_parm *parm)
+{
+	return 0;
+}
+
+
 int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdisp_request_parm parm = { 0 };
+	struct device *dev = &tdi->pdev->dev;
+	struct tdx_tdi *ttdi;
+	int ret;
+
+	mutex_lock(&kvm_tdx->ttdi_mutex);
+
+	ttdi = tdx_tdi_alloc(kvm_tdx, tdi);
+	if (!ttdi) {
+		ret = -ENOMEM;
+		goto unlock;
+	}
+	tdi->priv = ttdi;
+
+	/*
+	 * Steps to bind the TDISP device
+	 *
+	 * 1. Create DEVIF
+	 * 2. Create MMIOMT
+	 * 3. Create DMAR tables
+	 */
+
+	ret = tdx_tdi_devifmt_init(ttdi);
+	if (ret)
+		goto devif_free;
+
+	ret = tdx_tdi_devif_create(ttdi);
+	if (ret)
+		goto devifmt_uinit;
+
+	ret = tdx_tdi_mmiomt_init(ttdi);
+	if (ret)
+		goto devif_remove;
+
+	ret = tdx_tdi_dmar_init(ttdi);
+	if (ret)
+		goto mmiomt_uinit;
+
+	/* Move TDISP Device Interface state from UNLOCKED to LOCKED */
+	parm.message = TDISP_LOCK_INTF_REQ;
+	ret = tdx_tdi_req(ttdi, 0, &parm);
+	if (ret)
+		goto dmar_uinit;
+
+	parm.message = TDISP_GET_DEVIF_STATE;
+	ret = tdx_tdi_req(ttdi, 0, &parm);
+	if (ret)
+		goto dmar_uinit;
+
+	dev_dbg(dev, "%s: current TDI state is %u\n", __func__, tdi->state);
+
+	tdx_tdi_add(ttdi);
+	mutex_unlock(&kvm_tdx->ttdi_mutex);
+	return 0;
+
+dmar_uinit:
+	tdx_tdi_dmar_uinit(ttdi);
+mmiomt_uinit:
+	tdx_tdi_mmiomt_uinit(ttdi);
+devif_remove:
+	tdx_tdi_devif_remove(ttdi);
+devifmt_uinit:
+	tdx_tdi_devifmt_uinit(ttdi);
+devif_free:
+	tdi->priv = NULL;
+	tdx_tdi_free(ttdi);
+unlock:
+	mutex_unlock(&kvm_tdx->ttdi_mutex);
+	return ret;
+}
+
+static int __tdx_unbind_tdi(struct kvm_tdx *kvm_tdx, struct tdx_tdi *ttdi)
+{
+	struct tdisp_request_parm parm = { 0 };
+	struct pci_tdi *tdi = ttdi->tdi;
+	struct device *dev = &tdi->pdev->dev;
+
+	if (!ttdi || !__is_tdx_tdi_added(kvm_tdx, ttdi)) {
+		dev_err(dev, "%s: target device is not bound\n", __func__);
+		return -ENODEV;
+	}
+
+	tdx_tdi_del(ttdi);
+
+	/* Move TDISP Device Interface state from LOCKED to UNLOCKED */
+	parm.message = TDISP_STOP_INTF_REQ;
+	tdx_tdi_req(ttdi, 0, &parm);
+
+	parm.message = TDISP_GET_DEVIF_STATE;
+	tdx_tdi_req(ttdi, 0, &parm);
+
+	dev_dbg(dev, "%s: current TDI state is %u\n", __func__, tdi->state);
+
+	/*
+	 * Steps to unbind the TDISP device
+	 *
+	 * 1. Unmap MMIO
+	 * 2. Remove DMAR tables
+	 * 3. Remove DEVIF
+	 * 4. Remove MMIOMT
+	 */
+
+	tdx_tdi_mmio_unmap_all(ttdi);
+	tdx_tdi_dmar_uinit(ttdi);
+	tdx_tdi_devif_remove(ttdi);
+	tdx_tdi_devifmt_uinit(ttdi);
+	tdx_tdi_mmiomt_uinit(ttdi);
+	tdi->priv = NULL;
+	tdx_tdi_free(ttdi);
+
 	return 0;
 }
 
 int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_tdi *ttdi = tdi->priv;
+
+	mutex_lock(&kvm_tdx->ttdi_mutex);
+	__tdx_unbind_tdi(kvm_tdx, ttdi);
+	mutex_unlock(&kvm_tdx->ttdi_mutex);
 	return 0;
 }
 
