@@ -488,6 +488,8 @@ struct tdx_tdi {
 
 	unsigned long dmar_pages_va;
 
+	struct list_head mmiomt;
+
 	struct kvm_tdx *kvm_tdx;
 	struct tdx_iommu *tiommu;
 	struct pci_tdi *tdi;

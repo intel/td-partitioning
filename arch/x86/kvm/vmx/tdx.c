@@ -6497,10 +6497,240 @@ static int tdx_tdi_devifmt_init(struct tdx_tdi *ttdi)
 	return mt_entry_populate(&devif_mt_table, ttdi->tdi->intf_id.func_id, 0, NULL);
 }
 
-static void tdx_tdi_mmiomt_uinit(struct tdx_tdi *ttdi) { }
+union mmiomt_idx {
+	struct {
+		u64 level:3;
+		u64 reserved_0:9;
+		u64 pfn:40;
+		u64 reserved_1:12;
+	};
+	u64 raw;
+};
+
+union mmiomt_info {
+	struct {
+		u64 type:2;
+		u64 reserved_0:10;
+		u64 func_id:32;
+		u64 reserved_1:20;
+	};
+	u64 raw;
+};
+
+union mmiomt_entry {
+	struct {
+		u64 xlock:1;
+		u64 type:2;
+	};
+	struct qnode {
+		struct qnode_pa {
+			u64 rsvd1:11;
+			u64 p:1;
+			u64 pfn:40;
+			u64 rsvd2:12;
+		} pa[4];
+	} qnode;
+	u64 value[4];
+};
+
+static u8 mmio_mt_level_shift[] = { 19, 28, 37, 46, 52 };
+#define MMIOMT_LEVEL_SHIFT(x) (mmio_mt_level_shift[(x)])
+#define MMIOMT_PA_TO_IDX(_pa, _l) (((_pa) >> MMIOMT_LEVEL_SHIFT(_l)) & 0x3)
+
+#define MMIOMT_TYPE_QNODE	0
+#define MMIOMT_TYPE_DATA	1
+
+static int tdx_mmiomt_read(u64 mmio_pa, int entry_level, union mmiomt_entry *entry)
+{
+	union mmiomt_idx mmiomt_idx = { 0 };
+	struct tdx_module_args out;
+	u64 ret;
+
+	mmiomt_idx.pfn = mmio_pa >> PAGE_SHIFT;
+	mmiomt_idx.level = entry_level;
+
+	ret = tdh_mmiomt_read(mmiomt_idx.raw, &out);
+	if (ret) {
+		pr_err("%s: ret %llx mmiomt_idx %llx", __func__, ret, mmiomt_idx.raw);
+		return -EFAULT;
+	}
+
+	entry->value[0] = out.rcx;
+	entry->value[1] = out.rdx;
+	entry->value[2] = out.r8;
+	entry->value[3] = out.r9;
+
+	pr_debug("%s mmio_pa=0x%llx, entry_level=%d, entry 0x%llx 0x%llx 0x%llx 0x%llx\n",
+		 __func__, mmio_pa, entry_level, entry->value[0],
+		 entry->value[1], entry->value[2], entry->value[3]);
+
+	return 0;
+}
+
+static int mmio_mt_add_node(struct mt_node *node)
+{
+	int parent_entry_level = node->key.level + 1;
+	u64 base_mmio_pa = node->key.base_id;
+	union mmiomt_idx mmiomt_idx = { 0 };
+	union mmiomt_entry entry;
+	u8 pa_idx = MMIOMT_PA_TO_IDX(base_mmio_pa, node->key.level);
+	u64 ret;
+
+	tdx_mmiomt_read(base_mmio_pa, parent_entry_level, &entry);
+	if (entry.type != MMIOMT_TYPE_QNODE) {
+		pr_err("%s parent entry is not qnode\n", __func__);
+		return -EFAULT;
+	}
+
+	if (entry.qnode.pa[pa_idx].p) {
+		pr_err("%s parent entry is linked, but not by OS\n", __func__);
+		return -EFAULT;
+	}
+
+	mmiomt_idx.pfn = base_mmio_pa >> PAGE_SHIFT;
+	mmiomt_idx.level = parent_entry_level;
+
+	ret = tdh_mmiomt_add(mmiomt_idx.raw, node->pa);
+	if (ret) {
+		pr_err("%s: ret %llx mmiomt_idx %llx base_mmio_pa %llx parent_entry_level %x mmiomt_pa %llx\n",
+		       __func__, ret, mmiomt_idx.raw, base_mmio_pa, parent_entry_level,
+		       node->pa);
+		return -EFAULT;
+	}
+
+	tdx_mmiomt_read(base_mmio_pa, parent_entry_level, &entry);
+
+	return 0;
+}
+
+static void mmio_mt_remove_node(struct mt_node *node)
+{
+	union mmiomt_idx mmiomt_idx = { 0 };
+	int parent_entry_level = node->key.level + 1;
+	u64 base_mmio_pa = node->key.base_id;
+	u64 ret;
+
+	mmiomt_idx.pfn = base_mmio_pa >> PAGE_SHIFT;
+	mmiomt_idx.level = parent_entry_level;
+	ret = tdh_mmiomt_remove(mmiomt_idx.raw);
+	if (ret)
+		pr_err("%s: mmiomt_idx =%llx, ret=%llx\n", __func__, mmiomt_idx.raw, ret);
+}
+
+static int mmio_mt_set_entry(struct mt_node *node, u64 entry_id, void *data, bool set)
+{
+	union mmiomt_info mmiomt_info = { 0 };
+	union mmiomt_idx mmiomt_idx = { 0 };
+	int entry_level = node->key.level;
+	u64 mmio_pa = entry_id;
+	u64 ret;
+
+	mmiomt_idx.pfn = mmio_pa >> PAGE_SHIFT;
+	mmiomt_idx.level = entry_level;
+
+	if (set) {
+		u32 func_id = *(u32 *)data;
+
+		mmiomt_info.func_id = func_id; //set : func_id; unset: 0
+		mmiomt_info.type = 1; // set: data; unset: qnode
+	}
+
+	ret = tdh_mmiomt_set(mmiomt_idx.raw, mmiomt_info.raw);
+	if (ret) {
+		pr_err("%s: ret %llx mmio_idx %llx, mmiomt_info %llx\n",
+		       __func__, ret, mmiomt_idx.raw, mmiomt_info.raw);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
+static struct mt_table mmio_mt_table = {
+	.table = { [0 ... ((1 << (MT_HTABLE_ORDER)) - 1)] = HLIST_HEAD_INIT },
+	.nr_levels = ARRAY_SIZE(mmio_mt_level_shift),
+	.level_shift = mmio_mt_level_shift,
+	.add_node = mmio_mt_add_node,
+	.remove_node = mmio_mt_remove_node,
+	.set_entry = mmio_mt_set_entry,
+};
+
+static void tdx_tdi_mmiomt_remove(struct tdx_tdi *ttdi, u64 mmio_pa, int level)
+{
+	pr_debug("%s: mmio_pa=%llx, level=%d\n", __func__, mmio_pa, level);
+
+	mt_entry_depopulate(&mmio_mt_table, mmio_pa, level);
+}
+
+struct devif_mmiomt {
+	hpa_t mmio_hpa;
+	int level;
+	unsigned long devifcs_pa;
+	struct list_head list;
+};
+
+static int tdx_tdi_mmiomt_add(struct tdx_tdi *ttdi, u64 mmio_pa, int level)
+{
+	struct devif_mmiomt *devmmio;
+
+	devmmio = kzalloc(sizeof(*devmmio), GFP_ATOMIC);
+	if (!devmmio)
+		return -ENOMEM;
+
+	devmmio->mmio_hpa = mmio_pa;
+	devmmio->level = level;
+	devmmio->devifcs_pa = ttdi->devifcs_pa;
+	list_add(&devmmio->list, &ttdi->mmiomt);
+
+	pr_debug("%s, mmio_pa=%llx, level=%d\n", __func__, mmio_pa, level);
+
+	return mt_entry_populate(&mmio_mt_table, mmio_pa, level, &ttdi->tdi->intf_id.func_id);
+}
+
+static void tdx_tdi_mmiomt_uinit(struct tdx_tdi *ttdi)
+{
+	struct list_head *mmiomt_list = &ttdi->mmiomt;
+	struct pci_dev *pdev = ttdi->tdi->pdev;
+	struct devif_mmiomt *mmiomt, *tmp;
+
+	dev_info(&pdev->dev, "%s: mmiomt uinit\n", __func__);
+
+	list_for_each_entry_safe(mmiomt, tmp, mmiomt_list, list) {
+		if (mmiomt->devifcs_pa != ttdi->devifcs_pa)
+			continue;
+
+		tdx_tdi_mmiomt_remove(ttdi, mmiomt->mmio_hpa, mmiomt->level);
+		list_del(&mmiomt->list);
+		kfree(mmiomt);
+	}
+}
 
 static int tdx_tdi_mmiomt_init(struct tdx_tdi *ttdi)
 {
+	struct pci_dev *pdev = ttdi->tdi->pdev;
+	struct resource *res;
+	int i;
+
+	dev_info(&pdev->dev, "%s: mmiomt init\n", __func__);
+
+	for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+		int bar = i + PCI_STD_RESOURCES;
+		unsigned long mmio_len, offset;
+
+		res = &pdev->resource[bar];
+		mmio_len = resource_size(res);
+
+		/*
+		 * mmio for tdxio device must be 64k aligned in DIMP spec.
+		 * keep it to 4K for now
+		 */
+		if ((res->start & ~PAGE_MASK) || !mmio_len || !(res->flags & IORESOURCE_MEM))
+			continue;
+
+		/* level 0 means page of size 4K */
+		for (offset = 0; offset < mmio_len; offset += PAGE_SIZE)
+			tdx_tdi_mmiomt_add(ttdi, res->start + offset, 0);
+	}
+
 	return 0;
 }
 
@@ -7130,6 +7360,7 @@ static struct tdx_tdi *tdx_tdi_alloc(struct kvm_tdx *kvm_tdx,
 	if (!ttdi)
 		return NULL;
 
+	INIT_LIST_HEAD(&ttdi->mmiomt);
 	ttdi->tdi = tdi;
 	ttdi->kvm_tdx = kvm_tdx;
 	ttdi->rid = PCI_DEVID(pdev->bus->number, pdev->devfn);
