@@ -4320,6 +4320,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 
 	kvm_tdx->attributes = td_params->attributes;
 	kvm_tdx->xfam = td_params->xfam;
+	kvm_tdx->eptp_controls = td_params->eptp_controls;
 
 	if ((td_params->attributes & TDX_TD_ATTRIBUTE_MIG) &&
 	    tdx_mig_state_create(to_kvm_tdx(kvm))) {

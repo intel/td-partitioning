@@ -148,6 +148,8 @@ struct kvm_tdx {
 	struct tdx_mig_state *mig_state;
 
 	/* tdxio stuff */
+	u64 eptp_controls;
+
 	/* mutex for tdi bind */
 	struct mutex ttdi_mutex;
 	struct list_head ktiommu_list;
