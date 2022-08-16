@@ -55,6 +55,9 @@ struct tdx_binding_slot {
 struct tdx_iommu {
 	u64 iommu_id;
 
+	unsigned long wait_desc_pa;
+	raw_spinlock_t  invq_lock;
+
 	struct kref ref;
 	struct list_head node;
 };
@@ -482,6 +485,8 @@ struct tdx_tdi {
 	unsigned long vmm_buff_pa;
 
 	u16 rid;
+
+	unsigned long dmar_pages_va;
 
 	struct kvm_tdx *kvm_tdx;
 	struct tdx_iommu *tiommu;
