@@ -478,6 +478,25 @@ struct tdx_devif_id {
 	};
 };
 
+/*
+ * 8.4.7 TDH.DEVIF.REQUEST
+ */
+struct tdx_payload_parm {
+	union {
+		u64 raw;
+		struct {
+			u64 size:12;
+			u64 pa:51;
+			u64 td_flag:1;
+		} req;
+		struct {
+			u64 rsvd:12;
+			u64 pa:51;
+			u64 td_flag:1;
+		} rsp;
+	};
+};
+
 struct tdx_tdi {
 	struct tdx_devif_id id;
 	unsigned long devifcs_pa;

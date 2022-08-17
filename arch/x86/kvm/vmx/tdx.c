@@ -7476,6 +7476,23 @@ static int tdx_tdi_dmar_init(struct tdx_tdi *ttdi)
 	return 0;
 }
 
+static struct tdx_tdi *tdx_tdi_find_by_func_id(struct kvm_tdx *kvm_tdx,
+					       u32 func_id)
+{
+	struct tdx_tdi *ttdi;
+
+	mutex_lock(&kvm_tdx->ttdi_mutex);
+	list_for_each_entry(ttdi, &kvm_tdx->ttdi_list, node) {
+		if (ttdi->tdi->intf_id.func_id == func_id) {
+			mutex_unlock(&kvm_tdx->ttdi_mutex);
+			return ttdi;
+		}
+	}
+	mutex_unlock(&kvm_tdx->ttdi_mutex);
+
+	return NULL;
+}
+
 static struct tdx_tdi *tdx_mmio_pfn_to_tdi(struct kvm_tdx *kvm_tdx,
 					   enum pg_level level, kvm_pfn_t pfn)
 {
@@ -7560,12 +7577,224 @@ static void tdx_tdi_del(struct tdx_tdi *ttdi)
 	synchronize_rcu();
 }
 
+#define TDI_BUFF_SIZE		PAGE_SIZE
+/*
+ * TDI_BUFF_SIZE - 8 (DOE header) - 8 (SPDM Secured Msg.header) -
+ * 11 (PCISIG vendor header) - 16 (SPDM Secured Msg.MAC) - 3 (max DW padding)
+ * - 1 (application id byte)
+ * = PAGE_SIZE - 47 = 4049
+ */
+#define TDI_MAX_PAYLOAD_SIZE	(TDI_BUFF_SIZE - 46)
+#define TDI_MIN_PAYLOAD_SIZE	16
+
+struct tdx_tdi_request {
+	unsigned long flags;
+#define TDI_REQUEST_FLAGS_TD	0x1
+
+	unsigned long req_in_va;	/* TDISP request payload */
+	unsigned long req_out_va;	/* Full encrypted request */
+        unsigned long rsp_in_va;	/* Full encrypted response */
+	unsigned long rsp_out_va;	/* TDISP response payload */
+	size_t        req_in_sz;
+	size_t        req_out_sz;
+	size_t        rsp_in_sz;
+	size_t        rsp_out_sz;
+};
+
+void tdx_tdi_request_free(struct tdx_tdi_request *req)
+{
+	free_pages(req->req_in_va,  get_order(req->req_in_sz));
+	free_pages(req->req_out_va, get_order(req->req_out_sz));
+	free_pages(req->rsp_in_va,  get_order(req->rsp_in_sz));
+	free_pages(req->rsp_out_va, get_order(req->rsp_out_sz));
+	kfree(req);
+}
+
+struct tdx_tdi_request *tdx_tdi_request_alloc(unsigned long flags)
+{
+	unsigned int order = get_order(TDI_BUFF_SIZE);
+	struct tdx_tdi_request *req;
+
+	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	if (!req)
+		return NULL;
+
+	/*
+	 * TDX module only supports MAX message size to 4K including
+	 * DOE and SPDM header, per current version of TDX module it
+	 * only supports SPDM 1.2 and DOE 1.0. The headers are 46
+	 * byte, so MAX_TDX_SPDM_PAYLOAD_SIZE is PAGE_SIZE - 46, same
+	 * for TDISP requests and response, PAGE_SIZE buffer is enough
+	 */
+	if (!(flags & TDI_REQUEST_FLAGS_TD)) {
+		req->req_in_sz  = TDI_BUFF_SIZE;
+		req->rsp_out_sz = TDI_BUFF_SIZE;
+		req->req_in_va  = __get_free_pages(GFP_KERNEL, order);
+		req->rsp_out_va = __get_free_pages(GFP_KERNEL, order);
+	}
+
+	req->req_out_sz = TDI_BUFF_SIZE;
+	req->rsp_in_sz  = TDI_BUFF_SIZE;
+	req->req_out_va = __get_free_pages(GFP_KERNEL, order);
+	req->rsp_in_va  = __get_free_pages(GFP_KERNEL, order);
+
+	if (!req->rsp_in_va || !req->req_out_va) {
+		tdx_tdi_request_free(req);
+		return NULL;
+	}
+
+	if (!(flags & TDI_REQUEST_FLAGS_TD) &&
+	    (!req->rsp_out_va || !req->req_in_va)) {
+		tdx_tdi_request_free(req);
+		return NULL;
+	}
+
+	req->flags = flags;
+	return req;
+}
+
+static inline u8 req_to_rsp_message(u8 message)
+{
+	return message & 0x7f;
+}
+
+static bool is_tdx_tdisp_req_parm_valid(struct tdisp_request_parm *parm)
+{
+	/*
+	 * Requires check TSM/TDX Module capabilities to support these
+	 * parameters, as platform may not have full support of TDISP
+	 * spec.
+	 */
+
+	return true;
+}
+
 static int tdx_tdi_req(struct tdx_tdi *ttdi, unsigned long flags,
 		       struct tdisp_request_parm *parm)
 {
-	return 0;
-}
+	struct device *dev = &ttdi->tdi->pdev->dev;
+	struct tdisp_response_parm rsp_parm;
+	u64 retval, req_out_pa, rsp_out_pa;
+	struct tdx_payload_parm payload;
+	struct tdx_tdi_request *request;
+	struct spdm_message msg = { 0 };
+	struct tdx_module_args out;
+	unsigned int actual_sz;
+	int ret;
 
+	if (parm && !is_tdx_tdisp_req_parm_valid(parm)) {
+		dev_err(dev, "invalid request parameters\n");
+		return -EOPNOTSUPP;
+	}
+
+	request = tdx_tdi_request_alloc(flags);
+	if (!request) {
+		dev_err(dev, "fail to alloc tdi request\n");
+		return -ENOMEM;
+	}
+
+	ret = pci_tdi_msg_exchange_prepare(ttdi->tdi);
+	if (ret) {
+		dev_err(dev, "fail to prepare tdi msg exchange %d\n", ret);
+		goto exit_req_free;
+	}
+
+	/*
+	 * TDH.DEVIF.REQUEST
+	 *
+	 * td_flag = 1
+	 *    no need to generate request payload (payload.req_in_pa == NULL)
+	 * td_flag = 0
+	 *    generated request payload (valid payload.req_in_pa)
+	 *
+	 * need encrypted request message from TDX module (req_out_pa)
+	 */
+	if (request->flags & TDI_REQUEST_FLAGS_TD) {
+		payload.raw = 0;
+		payload.req.td_flag = 1;
+	} else {
+		ret = pci_tdi_gen_req(ttdi->tdi, request->req_in_va,
+				      request->req_in_sz, parm, &actual_sz);
+		if (ret) {
+			dev_err(dev, "fail to gen req %d\n", ret);
+			goto exit_msg_complete;
+		}
+
+		payload.raw = __pa(request->req_in_va);
+		payload.req.td_flag = 0;
+		payload.req.size = actual_sz;
+	}
+	req_out_pa = __pa(request->req_out_va);
+
+	retval = tdh_devif_request(ttdi->id.func_id, payload.raw,
+				   req_out_pa, &out);
+	if (retval) {
+		dev_err(dev, "fail to devif request\n");
+		ret = -EFAULT;
+		goto exit_msg_complete;
+	}
+
+	/*
+	 * Message exchange
+	 *
+	 * req_size could be larger than actual message length.
+	 * resp_size is provided as max response buffer.
+	 */
+	msg.flags = SPDM_MSG_FLAGS_DOE | SPDM_MSG_FLAGS_SECURE;
+	msg.req_addr = request->req_out_va;
+	msg.req_size = request->req_out_sz;
+	msg.resp_addr = request->rsp_in_va;
+	msg.resp_size = request->rsp_in_sz;
+
+	ret = pci_tdi_msg_exchange(ttdi->tdi, &msg);
+	if (ret) {
+		dev_err(dev, "fail to exchange tdi msg %d\n", ret);
+		goto exit_msg_complete;
+	}
+
+	/*
+	 * TDH.DEVIF.RESPONSE
+	 *
+	 * provide encrypted response message to TDX module (payload.rsp_in_pa)
+	 *
+	 * td_flag = 1
+	 *   no need to process response payload (rsp_out_pa == NULL)
+	 * td_flag = 0
+	 *   process response payload (valid rsp_out_pa)
+	 *
+	 */
+	payload.raw = __pa(request->rsp_in_va);
+
+	if (request->flags & TDI_REQUEST_FLAGS_TD) {
+		payload.rsp.td_flag = 1;
+		rsp_out_pa = 0;
+	} else {
+		payload.rsp.td_flag = 0;
+		rsp_out_pa = __pa(request->rsp_out_va);
+	}
+
+	retval = tdh_devif_response(ttdi->id.func_id, payload.raw,
+				    rsp_out_pa, &out);
+	if (retval) {
+		ret = -EFAULT;
+		goto exit_msg_complete;
+	}
+
+	if (!(request->flags & TDI_REQUEST_FLAGS_TD)) {
+		rsp_parm.message = tdisp_req_to_rsp_message(parm->message);
+
+		ret = pci_tdi_process_rsp(ttdi->tdi, request->rsp_out_va,
+					  out.rdx, &rsp_parm);
+		if (ret)
+			dev_err(dev, "fail to process tdi rsp %d\n", ret);
+	}
+
+exit_msg_complete:
+	pci_tdi_msg_exchange_complete(ttdi->tdi);
+exit_req_free:
+	tdx_tdi_request_free(request);
+	return ret;
+}
 
 int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 {
@@ -7696,11 +7925,29 @@ int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 
 int tdx_tdi_get_info(struct kvm *kvm, struct kvm_tdi_info *info)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_tdi *ttdi;
+
+	ttdi = tdx_tdi_find_by_func_id(kvm_tdx, info->func_id);
+	if (!ttdi)
+		return -EINVAL;
+
+	info->nonce0 = ttdi->tdi->nonce[0];
+	info->nonce1 = ttdi->tdi->nonce[1];
+	info->nonce2 = ttdi->tdi->nonce[2];
+	info->nonce3 = ttdi->tdi->nonce[3];
 	return 0;
 }
 
 int tdx_tdi_user_request(struct kvm *kvm, struct kvm_tdi_user_request *req)
 {
-	return 0;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_tdi *ttdi;
+
+	ttdi = tdx_tdi_find_by_func_id(kvm_tdx, req->func_id);
+	if (!ttdi)
+		return -EINVAL;
+
+	return tdx_tdi_req(ttdi, TDI_REQUEST_FLAGS_TD, 0);
 }
 /* TDX connect stuff end */
