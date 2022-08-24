@@ -7646,6 +7646,8 @@ static int vmx_set_pasid_trans(struct kvm_vmx *kvm_vmx, ioasid_t gpasid,
 
 	spin_lock(&kvm_vmx->pasid_lock);
 
+	kvm_make_block_vmentry_request(&kvm_vmx->kvm);
+
 	pte = vmx_find_pasid_table_entry(kvm_vmx, gpasid);
 	if (IS_ERR(pte)) {
 		ret = PTR_ERR(pte);
@@ -7667,6 +7669,7 @@ static int vmx_set_pasid_trans(struct kvm_vmx *kvm_vmx, ioasid_t gpasid,
 	*pte = hpasid | PASID_TE_VALID;
 
 done:
+	kvm_clear_block_vmentry_request(&kvm_vmx->kvm);
 	spin_unlock(&kvm_vmx->pasid_lock);
 	return ret;
 }
@@ -7692,9 +7695,12 @@ static int vmx_clear_pasid_trans(struct kvm_vmx *kvm_vmx, ioasid_t gpasid,
 	old_hpasid = pasid_te_hpasid(pte);
 	WARN_ON(old_hpasid != hpasid);
 
+	kvm_make_block_vmentry_request(&kvm_vmx->kvm);
+
 	*pte = 0;
 	ioasid_put_locked(NULL, old_hpasid);
 
+	kvm_clear_block_vmentry_request(&kvm_vmx->kvm);
 done:
 	spin_unlock(&kvm_vmx->pasid_lock);
 	return ret;
