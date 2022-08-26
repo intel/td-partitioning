@@ -1228,8 +1228,11 @@ static int idxd_wq_load_config(struct idxd_wq *wq)
 	wq->threshold = wq->wqcfg->wq_thresh;
 
 	/* The driver does not support shared WQ mode in read-only config yet */
-	if (wq->wqcfg->mode == WQCFG_MODE_SHARED || wq->wqcfg->pasid_en)
-		return -EOPNOTSUPP;
+//	if (wq->wqcfg->mode == WQCFG_MODE_SHARED || wq->wqcfg->pasid_en)
+//		return -EOPNOTSUPP;
+
+	/* Is this right? */
+	wq->wqcfg->mode_support = 1;
 
 	set_bit(WQ_FLAG_DEDICATED, &wq->flags);
 
@@ -1512,11 +1515,13 @@ int idxd_drv_enable_wq(struct idxd_wq *wq)
 	 * A dedicated wq that is not 'kernel' type will configure pasid and
 	 * pasid_en later on so there is no need to setup.
 	 */
-	if (test_bit(IDXD_FLAG_CONFIGURABLE, &idxd->flags)) {
+	printk("%s: %d, %lu\n", __func__, __LINE__, idxd->flags);
+	if (test_bit(IDXD_FLAG_CONFIGURABLE, &idxd->flags) || wq->wqcfg->mode_support) {
+		printk("%s: %d, %d\n", __func__, __LINE__,  wq_pasid_enabled(wq));
 		if (wq_pasid_enabled(wq)) {
 			if (is_idxd_wq_kernel(wq) || wq_shared(wq)) {
 				u32 pasid = wq_dedicated(wq) ? idxd->pasid : 0;
-
+				printk("%s: %d, %d\n", __func__, __LINE__, pasid);
 				__idxd_wq_set_pasid_locked(wq, pasid);
 			}
 		}
