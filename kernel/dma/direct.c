@@ -76,18 +76,18 @@ bool dma_coherent_ok(struct device *dev, phys_addr_t phys, size_t size)
 		min_not_zero(dev->coherent_dma_mask, dev->bus_dma_limit);
 }
 
-static int dma_set_decrypted(struct device *dev, void *vaddr, size_t size)
+static int dma_set_decrypted(struct device *dev, void *vaddr, size_t size, unsigned long attrs)
 {
-	if (!force_dma_unencrypted(dev))
+	if (!force_dma_unencrypted(dev) && !(attrs & DMA_ATTR_FORCEUNENCRYPTED))
 		return 0;
 	return set_memory_decrypted((unsigned long)vaddr, PFN_UP(size));
 }
 
-static int dma_set_encrypted(struct device *dev, void *vaddr, size_t size)
+static int dma_set_encrypted(struct device *dev, void *vaddr, size_t size, unsigned long attrs)
 {
 	int ret;
 
-	if (!force_dma_unencrypted(dev))
+	if (!force_dma_unencrypted(dev) && !(attrs & DMA_ATTR_FORCEUNENCRYPTED))
 		return 0;
 	ret = set_memory_encrypted((unsigned long)vaddr, PFN_UP(size));
 	if (ret)
@@ -294,7 +294,7 @@ void *dma_direct_alloc(struct device *dev, size_t size,
 			goto out_free_pages;
 	} else {
 		ret = page_address(page);
-		if (dma_set_decrypted(dev, ret, size))
+		if (dma_set_decrypted(dev, ret, size, attrs))
 			goto out_free_pages;
 	}
 
@@ -308,10 +308,15 @@ void *dma_direct_alloc(struct device *dev, size_t size,
 	}
 
 	*dma_handle = phys_to_dma_direct(dev, page_to_phys(page));
+	if (!force_dma_unencrypted(dev)) {
+		if (dev->authorized == MODE_SECURE && (attrs & DMA_ATTR_FORCEUNENCRYPTED))
+			*dma_handle |= cc_mkdec(0);
+	}
+
 	return ret;
 
 out_encrypt_pages:
-	if (dma_set_encrypted(dev, page_address(page), size))
+	if (dma_set_encrypted(dev, page_address(page), size, attrs))
 		return NULL;
 out_free_pages:
 	__dma_direct_free_pages(dev, page, size);
@@ -356,7 +361,7 @@ void dma_direct_free(struct device *dev, size_t size,
 	} else {
 		if (IS_ENABLED(CONFIG_ARCH_HAS_DMA_CLEAR_UNCACHED))
 			arch_dma_clear_uncached(cpu_addr, size);
-		if (dma_set_encrypted(dev, cpu_addr, size))
+		if (dma_set_encrypted(dev, cpu_addr, size, attrs))
 			return;
 	}
 
@@ -377,7 +382,7 @@ struct page *dma_direct_alloc_pages(struct device *dev, size_t size,
 		return NULL;
 
 	ret = page_address(page);
-	if (dma_set_decrypted(dev, ret, size))
+	if (dma_set_decrypted(dev, ret, size, 0))
 		goto out_free_pages;
 	memset(ret, 0, size);
 	*dma_handle = phys_to_dma_direct(dev, page_to_phys(page));
@@ -398,7 +403,7 @@ void dma_direct_free_pages(struct device *dev, size_t size,
 	    dma_free_from_pool(dev, vaddr, size))
 		return;
 
-	if (dma_set_encrypted(dev, vaddr, size))
+	if (dma_set_encrypted(dev, vaddr, size, 0))
 		return;
 	__dma_direct_free_pages(dev, page, size);
 }
@@ -528,6 +533,9 @@ dma_addr_t dma_direct_map_resource(struct device *dev, phys_addr_t paddr,
 		WARN_ON_ONCE(1);
 		return DMA_MAPPING_ERROR;
 	}
+
+	if (dev->authorized == MODE_SECURE && (attrs & DMA_ATTR_FORCEUNENCRYPTED))
+		dma_addr |= cc_mkdec(0);
 
 	return dma_addr;
 }
