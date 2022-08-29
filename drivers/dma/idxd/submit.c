@@ -163,6 +163,18 @@ int idxd_enqcmds(struct idxd_wq *wq, void __iomem *portal, const void *desc)
 	return rc;
 }
 
+static void dump_desc(struct dsa_hw_desc *hw)
+{
+	pr_debug("========== dump_desc ===========\n");
+	pr_debug("desc: priv = 0x%x\n", hw->priv);
+	pr_debug("desc: flags = 0x%x\n", hw->flags);
+	pr_debug("desc: opcode = 0x%x\n", hw->opcode);
+	pr_debug("desc: completion_addr = 0x%llx\n", (unsigned long long)hw->completion_addr);
+	pr_debug("desc: src_addr = 0x%llx\n", (unsigned long long)hw->src_addr);
+	pr_debug("desc: dst_addr = 0x%llx\n", (unsigned long long)hw->dst_addr);
+	pr_debug("desc: xfer_size = 0x%x\n", hw->xfer_size);
+}
+
 int idxd_submit_desc(struct idxd_wq *wq, struct idxd_desc *desc)
 {
 	struct idxd_device *idxd = wq->idxd;
@@ -181,6 +193,8 @@ int idxd_submit_desc(struct idxd_wq *wq, struct idxd_desc *desc)
 	}
 
 	portal = idxd_wq_portal_addr(wq);
+
+	dump_desc(desc->hw);
 
 	/*
 	 * The wmb() flushes writes to coherent DMA data before
