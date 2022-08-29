@@ -96,15 +96,15 @@ static bool dev_is_platform(struct device *dev)
        return !strcmp(dev_bus_name(dev), "platform");
 }
 
-static bool authorized_node_match(struct device *dev,
-				  struct authorize_node *node)
+static int authorized_node_match(struct device *dev,
+				 struct authorize_node *node)
 {
 	int i;
 
 
 	/* If bus matches "ALL" and dev_list is NULL, return true */
 	if (!strcmp(node->bus, "ALL") && !node->dev_list)
-		return true;
+		return MODE_SHARED;
 
 	/*
 	 * Since next step involves bus specific comparison, make
@@ -112,11 +112,11 @@ static bool authorized_node_match(struct device *dev,
 	 * return false.
 	 */
 	if (strcmp(node->bus, dev->bus->name))
-		return false;
+		return MODE_UNAUTHORIZED;
 
 	/* If dev_list is NULL, allow all and return true */
 	if (!node->dev_list)
-		return true;
+		return MODE_SHARED;
 
 	/*
 	 * Do bus specific device ID match. Currently only PCI
@@ -127,7 +127,7 @@ static bool authorized_node_match(struct device *dev,
 
 		if (pci_match_id((struct pci_device_id *)node->dev_list,
 				 to_pci_dev(dev)))
-			return true;
+			return MODE_SHARED;
 
 		/*
 		 * Prevent any config space accesses in initcalls.
@@ -139,17 +139,17 @@ static bool authorized_node_match(struct device *dev,
 		for (i = 0; i < ARRAY_SIZE(acpi_allow_hids); i++) {
 			if (!strncmp(acpi_allow_hids[i], dev_name(dev),
 						strlen(acpi_allow_hids[i])))
-				return true;
+				return MODE_SHARED;
 		}
 	} else if (dev_is_platform(dev)) {
 		for (i = 0; i < ARRAY_SIZE(platform_allow_hids); i++) {
 			if (!strncmp(platform_allow_hids[i], dev_name(dev),
 						strlen(platform_allow_hids[i])))
-				return true;
+				return MODE_SHARED;
 		}
 	}
 
-	return false;
+	return MODE_UNAUTHORIZED;
 }
 
 static struct pci_device_id *parse_pci_id(char *ids)
@@ -224,38 +224,40 @@ static __init int allowed_cmdline_setup(char *buf)
 }
 __setup("authorize_allow_devs=", allowed_cmdline_setup);
 
-bool dev_authorized_init(void)
+int dev_authorized_init(void)
 {
 	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST) &&
 			cc_filter_enabled())
-		return false;
+		return MODE_UNAUTHORIZED;
 
-	return true;
+	return MODE_SHARED;
 }
 
-bool arch_dev_authorized(struct device *dev)
+int arch_dev_authorized(struct device *dev)
 {
-	int i;
+	int i, authorized;
 
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
-		return true;
+		return MODE_SHARED;
 
 	if (!cc_filter_enabled())
-		return true;
+		return MODE_SHARED;
 
 	if (!dev->bus)
 		return dev->authorized;
 
 	/* Lookup arch allow list */
 	for (i = 0;  i < ARRAY_SIZE(allow_list); i++) {
-		if (authorized_node_match(dev, &allow_list[i]))
-			return true;
+		authorized = authorized_node_match(dev, &allow_list[i]);
+		if (authorized)
+			return authorized;
 	}
 
 	/* Lookup command line allow list */
 	for (i = 0; i < cmd_allowed_nodes_len; i++) {
-		if (authorized_node_match(dev, &cmd_allowed_nodes[i]))
-			return true;
+		authorized = authorized_node_match(dev, &cmd_allowed_nodes[i]);
+		if (authorized)
+			return authorized;
 	}
 
 	return false;
