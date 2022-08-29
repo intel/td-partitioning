@@ -755,6 +755,11 @@ static int dmatest_func(void *data)
 			struct page *pg = virt_to_page(buf);
 			unsigned long pg_off = offset_in_page(buf);
 
+			if (dev->dev->authorized == MODE_SECURE) {
+				pr_info("%s: auth - private mode, %s memory is used as src buf\n",
+					__func__, force_src_shared ? "force-shared" : "private");
+			}
+
 			if (dev->dev->authorized == MODE_SECURE && force_src_shared)
 				um->addr[i] = dma_map_page_attrs(dev->dev, pg,
 								 pg_off, um->len,
@@ -780,6 +785,11 @@ static int dmatest_func(void *data)
 			void *buf = dst->aligned[i];
 			struct page *pg = virt_to_page(buf);
 			unsigned long pg_off = offset_in_page(buf);
+
+			if (dev->dev->authorized == MODE_SECURE) {
+				pr_info("%s: auth - private mode, %s memory is used as dst buf\n",
+					__func__, force_dst_shared ? "force-shared" : "private");
+			}
 
 			if (dev->dev->authorized == MODE_SECURE && force_dst_shared)
 				dsts[i] = dma_map_page_attrs(dev->dev, pg,
