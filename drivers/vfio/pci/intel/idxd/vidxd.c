@@ -93,11 +93,15 @@ static void vidxd_mmio_init_wqcap(struct vdcm_idxd *vidxd)
 	wq_cap->total_wq_size = wq->size;
 	wq_cap->num_wqs = VIDXD_MAX_WQS;
 	wq_cap->wq_ats_support = 0;
-	wq_cap->dedicated_mode = 1;
+	if (wq_dedicated(wq))
+		wq_cap->dedicated_mode = 1;
+	else
+		wq_cap->shared_mode = 1;
 }
 
 static void vidxd_mmio_init_wqcfg(struct vdcm_idxd *vidxd)
 {
+	struct idxd_device *idxd = vidxd->idxd;
 	struct idxd_wq *wq = vidxd->wq;
 	u8 *bar0 = vidxd->bar0;
 	union wqcfg *wqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET);
@@ -105,7 +109,10 @@ static void vidxd_mmio_init_wqcfg(struct vdcm_idxd *vidxd)
 	wqcfg->wq_size = wq->size;
 	wqcfg->wq_thresh = wq->threshold;
 
-	wqcfg->mode = WQCFG_MODE_DEDICATED;
+	if (wq_dedicated(wq))
+		wqcfg->mode = WQCFG_MODE_DEDICATED;
+	else if (device_user_pasid_enabled(idxd))
+		wqcfg->pasid_en = 1;
 
 	wqcfg->bof = wq->wqcfg->bof;
 

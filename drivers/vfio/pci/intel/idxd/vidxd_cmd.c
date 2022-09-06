@@ -156,7 +156,7 @@ void vidxd_reset(struct vdcm_idxd *vidxd)
 	gensts->state = IDXD_DEVICE_STATE_DRAIN;
 	wq = vidxd->wq;
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		rc = idxd_wq_abort(wq);
 		if (rc < 0) {
 			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
@@ -189,16 +189,19 @@ static void vidxd_wq_reset(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
-	rc = idxd_wq_abort(wq);
-	if (rc < 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
-		return;
-	}
-
-	rc = idxd_wq_disable(wq, false);
-	if (rc < 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
-		return;
+	if (wq_dedicated(wq)) {
+		rc = idxd_wq_abort(wq);
+		if (rc < 0) {
+			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
+			return;
+		}
+		rc = idxd_wq_disable(wq, false);
+		if (rc < 0) {
+			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
+			return;
+		}
+	} else {
+		idxd_wq_drain(wq);
 	}
 
 	vwqcfg->wq_state = IDXD_WQ_DEV_DISABLED;
@@ -335,12 +338,10 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 		return;
 	}
 
-	if (wqcap->dedicated_mode == 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_WQ_MODE);
-		return;
-	}
-
 	wq_pasid_enable = vwqcfg->pasid_en;
+
+        if (wq_shared(wq))
+		goto out;
 
 	if (wq_pasid_enable) {
 		u32 gpasid;
@@ -396,6 +397,7 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 		return;
 	}
 
+out:
 	vwqcfg->wq_state = IDXD_WQ_DEV_ENABLED;
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }

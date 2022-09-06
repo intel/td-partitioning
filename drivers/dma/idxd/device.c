@@ -175,6 +175,41 @@ void idxd_wq_free_resources(struct idxd_wq *wq)
 	sbitmap_queue_free(&wq->sbq);
 }
 
+static void dump_wqcfg(struct idxd_wq *wq)
+{
+	struct idxd_device *idxd = wq->idxd;
+	struct device *dev = &idxd->pdev->dev;
+	union wqcfg *wqcfg = wq->wqcfg;
+
+	dev_dbg(dev, "wq id=%d\n", wq->id);
+
+	dev_dbg(dev, "wq_size=%d\n", wqcfg->wq_size);
+	dev_dbg(dev, "wq_thresh=%d\n", wqcfg->wq_thresh);
+	dev_dbg(dev, "wq_mode=%d\n", wqcfg->mode);
+	dev_dbg(dev, "wq_bof=%d\n", wqcfg->bof);
+	dev_dbg(dev, "wq_ats_disable=%d\n", wqcfg->wq_ats_disable);
+	dev_dbg(dev, "priority=%d\n", wqcfg->priority);
+	dev_dbg(dev, "pasid=%d\n", wqcfg->pasid);
+	dev_dbg(dev, "pasid_en=%d\n", wqcfg->pasid_en);
+	dev_dbg(dev, "priv=%d\n", wqcfg->priv);
+	dev_dbg(dev, "max_xfer_shift=%d\n", wqcfg->max_xfer_shift);
+	dev_dbg(dev, "max_batch_shift=%d\n", wqcfg->max_batch_shift);
+
+		/* bytes 16-19 */
+	dev_dbg(dev, "occupancy_inth=%d\n", wqcfg->occupancy_inth);
+	dev_dbg(dev, "occupancy_table_sel=%d\n", wqcfg->occupancy_table_sel);
+
+		/* bytes 20-23 */
+	dev_dbg(dev, "occupancy_limit=%d\n", wqcfg->occupancy_limit);
+	dev_dbg(dev, "occupancy_int_en=%d\n", wqcfg->occupancy_int_en);
+
+		/* bytes 24-27 */
+	dev_dbg(dev, "occupancy=%d\n", wqcfg->occupancy);
+	dev_dbg(dev, "occupancy_int=%d\n", wqcfg->occupancy_int);
+	dev_dbg(dev, "mode_support=%d\n", wqcfg->mode_support);
+	dev_dbg(dev, "wq_state=%d\n", wqcfg->wq_state);
+}
+
 int idxd_wq_enable(struct idxd_wq *wq)
 {
 	struct idxd_device *idxd = wq->idxd;
@@ -185,7 +220,6 @@ int idxd_wq_enable(struct idxd_wq *wq)
 		dev_dbg(dev, "WQ %d already enabled\n", wq->id);
 		return 0;
 	}
-
 	idxd_cmd_exec(idxd, IDXD_CMD_ENABLE_WQ, wq->id, &status);
 
 	if (status != IDXD_CMDSTS_SUCCESS &&
@@ -305,6 +339,7 @@ void idxd_wq_setup_pasid(struct idxd_wq *wq, int pasid)
 	wq->wqcfg->pasid_en = 1;
 	wq->wqcfg->pasid = pasid;
 	iowrite32(wq->wqcfg->bits[WQCFG_PASID_IDX], idxd->reg_base + offset);
+
 }
 EXPORT_SYMBOL_GPL(idxd_wq_setup_pasid);
 
@@ -1170,7 +1205,7 @@ static int idxd_wqs_setup(struct idxd_device *idxd)
 		if (!wq->group)
 			continue;
 
-		if (wq_shared(wq) && !wq_shared_supported(wq)) {
+		if (wq_shared(wq) && !(wq_shared_supported(wq) || (wq->type & IDXD_WQT_VDEV))) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SWQ_SUPPORT;
 			dev_warn(dev, "No shared wq support but configured.\n");
 			return -EINVAL;
@@ -1234,7 +1269,9 @@ static int idxd_wq_load_config(struct idxd_wq *wq)
 	/* Is this right? */
 	wq->wqcfg->mode_support = 1;
 
-	set_bit(WQ_FLAG_DEDICATED, &wq->flags);
+	/* Is this right to support both SWQ and DWQ? */
+	if (wq->wqcfg->mode == WQCFG_MODE_DEDICATED && !wq->wqcfg->pasid_en)
+		set_bit(WQ_FLAG_DEDICATED, &wq->flags);
 
 	wq->priority = wq->wqcfg->priority;
 
@@ -1487,7 +1524,7 @@ int idxd_drv_enable_wq(struct idxd_wq *wq)
 
 	/* Shared WQ checks */
 	if (wq_shared(wq)) {
-		if (!wq_shared_supported(wq)) {
+		if (!wq_shared_supported(wq) && !(wq->type & IDXD_WQT_VDEV)) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SVM;
 			dev_dbg(dev, "PASID not enabled and shared wq.\n");
 			goto err;
@@ -1572,6 +1609,8 @@ int idxd_drv_enable_wq(struct idxd_wq *wq)
 		dev_dbg(dev, "percpu_ref setup failed\n");
 		goto err_ref;
 	}
+
+	dump_wqcfg(wq);
 
 	return 0;
 

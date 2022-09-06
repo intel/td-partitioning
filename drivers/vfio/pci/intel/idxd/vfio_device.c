@@ -16,8 +16,16 @@ MODULE_IMPORT_NS(IOMMUFD);
 
 enum {
 	IDXD_VDEV_TYPE_1DWQ = 0,
+	IDXD_VDEV_TYPE_1SWQ,
 	IDXD_VDEV_TYPE_MAX
 };
+
+/*
+ * Since vdev file names are global in DSA devices, define their ida's as
+ * global to avoid conflict vdev file names.
+ */
+static DEFINE_IDA(vdev_ida);
+static DEFINE_MUTEX(vdev_ida_lock);
 
 static int idxd_vdcm_open(struct vfio_device *vdev)
 {
@@ -878,8 +886,8 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
 {
-	struct idxd_wq *wq;
-	int i;
+	struct idxd_wq *wq, *least_used_swq;
+	int i, min_wq_refcount = INT_MAX;
 	bool found = false;
 
 	for (i = 0; i < idxd->max_wqs; i++) {
@@ -903,8 +911,19 @@ static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
 			break;
 		}
 
+		/* Find least used shared WQ. */
+		if (type == IDXD_VDEV_TYPE_1SWQ && wq_shared(wq)) {
+			found = true;
+			if (idxd_wq_refcount(wq) < min_wq_refcount)
+				least_used_swq = wq;
+			break;
+		}
+
 		mutex_unlock(&wq->wq_lock);
 	}
+
+	if (type == IDXD_VDEV_TYPE_1SWQ && found)
+		wq = least_used_swq;
 
 	if (found) {
 		idxd_wq_get(wq);
@@ -1015,7 +1034,9 @@ static int vdev_device_create(struct idxd_device *idxd, u32 type)
 	dev->bus = &dsa_bus_type;
 	dev->type = &idxd_vdev_device_type;
 
+	mutex_lock(&vdev_ida_lock);
 	parent->id = ida_alloc(&idxd->vdev_ida, GFP_KERNEL);
+	mutex_unlock(&vdev_ida_lock);
 	sprintf(vdev_name, "vdev%u.%u", idxd->id, parent->id);
 	dev_found = device_find_child_by_name(dev->parent, vdev_name);
 	if (dev_found) {
@@ -1053,7 +1074,9 @@ static int vdev_device_remove(struct idxd_device *idxd, char *vdev_name)
 		if (!strcmp(dev_name(dev), vdev_name)) {
 			list_del(&pos->list);
 			device_unregister(dev);
+			mutex_lock(&vdev_ida_lock);
 			ida_free(&idxd->vdev_ida, pos->id);
+			mutex_unlock(&vdev_ida_lock);
 
 			return 0;
 		}
@@ -1079,11 +1102,6 @@ static int idxd_vdev_drv_probe(struct idxd_dev *idxd_dev)
 
 	if (idxd->state != IDXD_DEV_ENABLED)
 		return -ENXIO;
-
-	if (!wq_dedicated(wq)) {
-		dev_warn(dev, "Only dedicated workqueues are supported\n");
-		return -EOPNOTSUPP;
-	}
 
 	mutex_lock(&wq->wq_lock);
 	if (!idxd_wq_driver_name_match(wq, dev)) {
