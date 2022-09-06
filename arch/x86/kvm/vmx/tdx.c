@@ -7923,6 +7923,17 @@ int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 	return 0;
 }
 
+void tdx_unbind_tdi_all(struct kvm *kvm)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_tdi *ttdi;
+
+	mutex_lock(&kvm_tdx->ttdi_mutex);
+	list_for_each_entry(ttdi, &kvm_tdx->ttdi_list, node)
+		__tdx_unbind_tdi(kvm_tdx, ttdi);
+	mutex_unlock(&kvm_tdx->ttdi_mutex);
+}
+
 int tdx_tdi_get_info(struct kvm *kvm, struct kvm_tdi_info *info)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
