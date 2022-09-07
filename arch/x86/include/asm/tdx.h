@@ -185,9 +185,9 @@ static inline void tdx_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
-int tdx_module_update(bool live_update);
+int tdx_module_update(bool live_update, bool *recoverable);
 #else /* !CONFIG_INTEL_TDX_MODULE_UPDATE */
-static inline int tdx_module_update(bool live_update)
+static inline int tdx_module_update(bool live_update, bool *recoverable)
 {
 	return -EOPNOTSUPP;
 }

@@ -1871,7 +1871,11 @@ static int init_tdx_module_via_handoff_data(void)
 	return ret;
 }
 
-int tdx_module_update(bool live_update)
+/*
+ * @recoverable is used to tell the caller if the old TDX module still works after
+ * an update failure.
+ */
+int tdx_module_update(bool live_update, bool *recoverable)
 {
 	int ret;
 	struct seamldr_params *params;
@@ -1895,6 +1899,7 @@ int tdx_module_update(bool live_update)
 		goto release_module;
 
 	seam_sig = (void *)sig->data;
+	*recoverable = true;
 	params = alloc_seamldr_params(module->data, module->size, sig->data, sig->size,
 				      live_update);
 	if (IS_ERR(params)) {
@@ -1928,11 +1933,19 @@ int tdx_module_update(bool live_update)
 		ret = tdx_prepare_handoff_data(seam_sig->min_update_hv);
 		if (ret)
 			goto unlock;
+
+		/* the old module is already shutdown */
+		*recoverable = false;
 	}
 
 	ret = seamldr_install(params);
 	/* Initialize TDX module after a successful update */
 	if (!ret) {
+		/*
+		 * The old module has been overridden by the new one. Any
+		 * failure after this point is unrecoverable.
+		 */
+		*recoverable = false;
 		tdx_module_status = TDX_MODULE_UNKNOWN;
 		ret = __tdx_enable(live_update);
 	}
