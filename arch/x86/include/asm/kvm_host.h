@@ -1792,7 +1792,8 @@ struct kvm_x86_ops {
 	 */
 	int (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				 kvm_pfn_t pfn);
-
+	void (*link_shared_spte)(struct kvm *kvm, gfn_t gfn, int level,
+				 u64 spte);
 	bool (*has_wbinvd_exit)(void);
 
 	u64 (*get_l2_tsc_offset)(struct kvm_vcpu *vcpu);

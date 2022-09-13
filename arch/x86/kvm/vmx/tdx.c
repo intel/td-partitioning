@@ -3048,6 +3048,27 @@ static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	return tdx_sept_drop_private_spte(kvm, gfn, level, pfn);
 }
 
+static void tdx_link_shared_spte(struct kvm *kvm, gfn_t gfn, int level,
+				 u64 spte)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_module_args out;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	u64 gpa_info;
+	u64 err;
+
+	if (!is_td(kvm) || !tdx_io_support())
+		return;
+
+	gpa_info = (u64)gpa | (level - 1);
+
+	err = tdh_mem_shared_sept_wr(gpa_info, kvm_tdx->tdr_pa, spte, &out);
+	pr_debug("%s gpa_info=0x%llx, spte=0x%llx, err=0x%llx, out_rcx=0x%llx, out_rdx=0x%llx\n",
+		 __func__, gpa_info, spte, err, out.rcx, out.rdx);
+	if (WARN_ON_ONCE(err))
+		pr_tdx_error(TDH_MEM_SHARED_SEPT_WR, err, &out);
+}
+
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 			   int trig_mode, int vector)
 {
@@ -5857,6 +5878,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->write_unblock_private_page = tdx_write_unblock_private_page;
 	x86_ops->import_private_pages = tdx_mig_stream_import_private_pages;
 	x86_ops->restore_private_page = tdx_restore_private_page;
+	x86_ops->link_shared_spte = tdx_link_shared_spte;
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 
 	mce_register_decode_chain(&tdx_mce_nb);

@@ -1848,6 +1848,12 @@ static int tdp_mmu_unzap_large_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault
 	return RET_PF_CONTINUE;
 }
 
+static void link_shared_spte(struct kvm *kvm, gfn_t gfn, int level, u64 spte)
+{
+	if (kvm_x86_ops.link_shared_spte)
+		static_call(kvm_x86_link_shared_spte)(kvm, gfn, level, spte);
+}
+
 /*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
@@ -1939,6 +1945,11 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 				track_possible_nx_huge_page(kvm, sp);
 			spin_unlock(&kvm->arch.tdp_mmu_pages_lock);
 		}
+
+		if (!is_private && iter.level == vcpu->arch.mmu->root_role.level &&
+		    kvm_gfn_shared_mask(vcpu->kvm))
+			link_shared_spte(vcpu->kvm, iter.gfn, iter.level,
+					 kvm_tdp_mmu_read_spte(iter.sptep));
 	}
 
 	/*
