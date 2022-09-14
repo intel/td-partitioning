@@ -1849,16 +1849,71 @@ static int verify_hash(const void *module, int module_size,
 	return ret;
 }
 
+static int determine_handoff_version(const struct seam_sigstruct *sig)
+{
+	struct tdx_module_output out;
+	u16 module_hv, min_update_hv;
+	bool no_downgrade;
+	int ret;
+
+	/*
+	 * TDX module can generate handoff for any version between its
+	 * [min_update_hv, module_hv]. But if no_downgrade is set, TDX
+	 * module can generate handoff for version == module_hv only.
+	 * Retrieve these three values from current TDX module,
+	 * compare them with the supported handoff version carried
+	 * in the new module's seam_sigstruct, then decide the proper
+	 * handoff version.
+	 */
+	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_MODULE_HV, 0, 0, NULL, &out);
+	if (!ret)
+		module_hv = out.r8;
+	else
+		return ret;
+
+	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_MIN_UPDATE_HV, 0, 0, NULL, &out);
+	if (!ret)
+		min_update_hv = out.r8;
+	else
+		return ret;
+
+	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_NO_DOWNGRADE, 0, 0, NULL, &out);
+	if (!ret)
+		no_downgrade = out.r8;
+	else
+		return ret;
+
+	if (no_downgrade)
+		min_update_hv = module_hv;
+
+	/* The supported handoff version doesn't overlap */
+	if (module_hv < sig->min_update_hv || min_update_hv > sig->module_hv) {
+		pr_err("Unsupported handoff versions [%d, %d]. Supported versions [%d, %d].\n",
+			sig->min_update_hv, sig->module_hv, min_update_hv, module_hv);
+		return -EINVAL;
+	}
+
+	/* Use the highest handoff version supported by both modules */
+	return min(module_hv, sig->module_hv);
+}
+
 /*
  * Shut down TDX module and prepare handoff data for the next TDX module.
  * Following a successful TDH_SYS_SHUTDOWN, further TDX module APIs will
  * fail.
  */
-static int tdx_prepare_handoff_data(u16 req_hv)
+static int tdx_prepare_handoff_data(const struct seam_sigstruct *sig)
 {
+	int ret;
+
 	/* tdx_module_status is protected by tdx_module_lock */
 	lockdep_assert_held(&tdx_module_lock);
-	return seamcall(TDH_SYS_SHUTDOWN, req_hv, 0, 0, 0, NULL, NULL);
+
+	ret = determine_handoff_version(sig);
+	if (ret < 0)
+		return ret;
+
+	return seamcall(TDH_SYS_SHUTDOWN, ret, 0, 0, 0, NULL, NULL);
 }
 
 static int init_tdx_module_via_handoff_data(void)
@@ -1935,7 +1990,7 @@ int tdx_module_update(bool live_update, bool *recoverable)
 	}
 
 	if (live_update) {
-		ret = tdx_prepare_handoff_data(seam_sig->min_update_hv);
+		ret = tdx_prepare_handoff_data(seam_sig);
 		if (ret)
 			goto unlock;
 

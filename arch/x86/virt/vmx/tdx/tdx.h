@@ -177,6 +177,9 @@ struct p_seamldr_info {
  */
 #define TDX_MD_FEATURES0		0x0A00000300000008
 #define		TDX_FEATURES0_TD_PRES	BIT(1)
+#define TDX_MD_MODULE_HV		0x8900000100000000
+#define TDX_MD_MIN_UPDATE_HV		0x8900000100000001
+#define TDX_MD_NO_DOWNGRADE		0x8900000000000002
 
 /*
  * Do not put any hardware-defined TDX structure representations below
