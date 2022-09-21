@@ -22,13 +22,6 @@ enum {
 	IDXD_VDEV_TYPE_MAX
 };
 
-/*
- * Since vdev file names are global in DSA devices, define their ida's as
- * global to avoid conflict vdev file names.
- */
-static DEFINE_IDA(vdev_ida);
-static DEFINE_MUTEX(vdev_ida_lock);
-
 static int idxd_vdcm_open(struct vfio_device *vdev)
 {
 	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
@@ -2308,9 +2301,7 @@ static int vdev_device_create(struct idxd_device *idxd, u32 type)
 	dev->bus = &dsa_bus_type;
 	dev->type = &idxd_vdev_device_type;
 
-	mutex_lock(&vdev_ida_lock);
 	parent->id = ida_alloc(&idxd->vdev_ida, GFP_KERNEL);
-	mutex_unlock(&vdev_ida_lock);
 	sprintf(vdev_name, "vdev%u.%u", idxd->id, parent->id);
 	dev_found = device_find_child_by_name(dev->parent, vdev_name);
 	if (dev_found) {
@@ -2348,9 +2339,7 @@ static int vdev_device_remove(struct idxd_device *idxd, char *vdev_name)
 		if (!strcmp(dev_name(dev), vdev_name)) {
 			list_del(&pos->list);
 			device_unregister(dev);
-			mutex_lock(&vdev_ida_lock);
 			ida_free(&idxd->vdev_ida, pos->id);
-			mutex_unlock(&vdev_ida_lock);
 
 			return 0;
 		}
