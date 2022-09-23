@@ -175,6 +175,14 @@ static void *find_guid_info(const guid_t *guid, u8 mode)
 	int i = 0;
 
 	list_for_each_entry(cur_module, &prm_module_list, module_list) {
+		/*
+		 * Module GUID match
+		 */
+		if (mode == GET_MODULE && guid_equal(guid, &cur_module->guid))
+			return (void *)cur_module;
+		/*
+		 * Handler GUID match
+		 */
 		for (i = 0; i < cur_module->handler_count; ++i) {
 			cur_handler = &cur_module->handlers[i];
 			if (guid_equal(guid, &cur_handler->guid)) {
