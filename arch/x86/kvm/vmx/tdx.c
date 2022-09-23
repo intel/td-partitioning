@@ -904,9 +904,21 @@ u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 					struct vcpu_tdx *tdx)
 {
+	u64 err, retries = 0;
+
 	guest_enter_irqoff();
-	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr_pa, vcpu->arch.regs,
-					tdx->tdvmcall.regs_mask);
+	do {
+		tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr_pa,
+						     vcpu->arch.regs,
+					    tdx->tdvmcall.regs_mask);
+		err = tdx->exit_reason.full & TDX_SEAMCALL_STATUS_MASK;
+
+		if (retries++ > TDX_SEAMCALL_RETRY_MAX) {
+			KVM_BUG_ON(err, vcpu->kvm);
+			pr_tdx_error(TDH_VP_ENTER, err, NULL);
+			break;
+		}
+	} while (err == TDX_OPERAND_BUSY);
 	guest_exit_irqoff();
 }
 
