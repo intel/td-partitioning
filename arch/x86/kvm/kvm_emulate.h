@@ -158,7 +158,10 @@ struct x86_emulate_ops {
 	int (*write_emulated)(struct x86_emulate_ctxt *ctxt,
 			      unsigned long addr, const void *val,
 			      unsigned int bytes,
-			      struct x86_exception *fault);
+			      struct x86_exception *fault,
+			      bool non_posted);
+
+	int (*np_write_complete)(struct x86_emulate_ctxt *ctxt, bool *retry);
 
 	/*
 	 * cmpxchg_emulated: Emulate an atomic (LOCKed) CMPXCHG operation on an

@@ -350,6 +350,10 @@ struct kvm_vcpu {
 #ifdef CONFIG_HAS_IOMEM
 	int mmio_needed;
 	int mmio_read_completed;
+	int mmio_nonposted_write_completed;
+#define MMIO_WRITE 1
+#define MMIO_NONPOSTED_WRITE 3
+#define MMIO_NONPOSTED_DEFERRED 4
 	int mmio_is_write;
 	int mmio_cur_fragment;
 	int mmio_nr_fragments;

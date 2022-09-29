@@ -7700,7 +7700,8 @@ static int emulator_read_write(struct x86_emulate_ctxt *ctxt,
 			unsigned long addr,
 			void *val, unsigned int bytes,
 			struct x86_exception *exception,
-			const struct read_write_emulator_ops *ops)
+			const struct read_write_emulator_ops *ops,
+			bool non_posted)
 {
 	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
 	gpa_t gpa;
@@ -7744,6 +7745,12 @@ static int emulator_read_write(struct x86_emulate_ctxt *ctxt,
 
 	vcpu->run->mmio.len = min(8u, vcpu->mmio_fragments[0].len);
 	vcpu->run->mmio.is_write = vcpu->mmio_is_write = ops->write;
+
+	if (non_posted && ops->write) {
+		vcpu->mmio_is_write |= MMIO_NONPOSTED_WRITE;
+		vcpu->run->mmio.is_write = vcpu->mmio_is_write;
+	}
+
 	vcpu->run->exit_reason = KVM_EXIT_MMIO;
 	vcpu->run->mmio.phys_addr = gpa;
 
@@ -7757,17 +7764,31 @@ static int emulator_read_emulated(struct x86_emulate_ctxt *ctxt,
 				  struct x86_exception *exception)
 {
 	return emulator_read_write(ctxt, addr, val, bytes,
-				   exception, &read_emultor);
+				   exception, &read_emultor, false);
 }
 
 static int emulator_write_emulated(struct x86_emulate_ctxt *ctxt,
 			    unsigned long addr,
 			    const void *val,
 			    unsigned int bytes,
-			    struct x86_exception *exception)
+			    struct x86_exception *exception,
+			    bool non_posted)
 {
 	return emulator_read_write(ctxt, addr, (void *)val, bytes,
-				   exception, &write_emultor);
+				   exception, &write_emultor, non_posted);
+}
+
+static int emulator_np_write_complete(struct x86_emulate_ctxt *ctxt, bool *retry)
+{
+	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
+
+	if (vcpu->mmio_nonposted_write_completed) {
+		vcpu->mmio_nonposted_write_completed = 0;
+		*retry = !!(vcpu->run->mmio.is_write & MMIO_NONPOSTED_DEFERRED);
+		return 1;
+	}
+
+	return 0;
 }
 
 #define emulator_try_cmpxchg_user(t, ptr, old, new) \
@@ -7843,7 +7864,7 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 emul_write:
 	pr_warn_once("emulating exchange as write\n");
 
-	return emulator_write_emulated(ctxt, addr, new, bytes, exception);
+	return emulator_write_emulated(ctxt, addr, new, bytes, exception, false);
 }
 
 static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
@@ -8327,6 +8348,7 @@ static const struct x86_emulate_ops emulate_ops = {
 	.fetch               = kvm_fetch_guest_virt,
 	.read_emulated       = emulator_read_emulated,
 	.write_emulated      = emulator_write_emulated,
+	.np_write_complete   = emulator_np_write_complete,
 	.cmpxchg_emulated    = emulator_cmpxchg_emulated,
 	.invlpg              = emulator_invlpg,
 	.pio_in_emulated     = emulator_pio_in_emulated,
@@ -9941,7 +9963,7 @@ static int emulator_fix_hypercall(struct x86_emulate_ctxt *ctxt)
 	static_call(kvm_x86_patch_hypercall)(vcpu, instruction);
 
 	return emulator_write_emulated(ctxt, rip, instruction, 3,
-		&ctxt->exception);
+		&ctxt->exception, false);
 }
 
 static int dm_request_for_irq_injection(struct kvm_vcpu *vcpu)
@@ -11069,9 +11091,13 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 		vcpu->mmio_needed = 0;
 
 		/* FIXME: return into emulator if single-stepping.  */
-		if (vcpu->mmio_is_write)
+		if (vcpu->mmio_is_write == MMIO_WRITE)
 			return 1;
-		vcpu->mmio_read_completed = 1;
+		if (vcpu->mmio_is_write == MMIO_NONPOSTED_WRITE)
+			vcpu->mmio_nonposted_write_completed = 1;
+		else
+			vcpu->mmio_read_completed = 1;
+
 		return complete_emulated_io(vcpu);
 	}
 
