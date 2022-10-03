@@ -145,6 +145,19 @@ static void vidxd_wq_abort(struct vdcm_idxd *vidxd, int val)
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }
 
+static inline void vidxd_vwq_init(struct vdcm_idxd *vidxd)
+{
+	int i;
+
+	for (i = 0; i < VIDXD_MAX_WQS; i++) {
+		INIT_LIST_HEAD(&vidxd->vwq[i].head);
+		vidxd->vwq[i].ndescs = 0;
+
+		memset(vidxd->vwq[i].portals, 0,
+		       VIDXD_MAX_PORTALS * sizeof(struct idxd_wq_portal));
+	}
+}
+
 void vidxd_reset(struct vdcm_idxd *vidxd)
 {
 	u8 *bar0 = vidxd->bar0;
@@ -155,6 +168,8 @@ void vidxd_reset(struct vdcm_idxd *vidxd)
 
 	gensts->state = IDXD_DEVICE_STATE_DRAIN;
 	wq = vidxd->wq;
+
+	vidxd_vwq_init(vidxd);
 
 	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		rc = idxd_wq_abort(wq);

@@ -43,11 +43,40 @@ enum {
 	IDXD_VDCM_WRITE,
 };
 
+union hw_desc {
+	struct dsa_hw_desc *hw;
+	struct iax_hw_desc *iax_hw;
+};
+
+#define IDXD_DESC_SIZE sizeof(union hw_desc)
+
+#define VIDXD_MAX_PORTALS 64
+
+struct idxd_wq_desc_elem {
+	enum idxd_portal_prot portal_prot;
+	u8 portal_id;
+	u8 work_desc[IDXD_DESC_SIZE];
+	struct list_head link;
+};
+
+struct idxd_wq_portal {
+	u8 data[IDXD_DESC_SIZE];
+	unsigned int count;
+};
+
+struct idxd_virtual_wq {
+	unsigned int ndescs;
+	struct list_head head;
+	struct idxd_wq_portal portals[VIDXD_MAX_PORTALS];
+};
+
 struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
 	struct idxd_wq *wq;
+	struct idxd_virtual_wq vwq;
 	struct iommufd_device *idev;
+	int num_wqs;
 
 	u64 bar_val[VIDXD_MAX_BARS];
 	u64 bar_size[VIDXD_MAX_BARS];
@@ -63,6 +92,10 @@ struct vdcm_idxd {
 	struct xarray pasid_xa;
 
 	struct eventfd_ctx *req_trigger;
+
+	bool paused;
+	struct mutex state_mutex;
+	enum vfio_device_mig_state mig_state;
 };
 
 struct vdcm_hwpt {
