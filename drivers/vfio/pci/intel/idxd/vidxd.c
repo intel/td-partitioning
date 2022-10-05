@@ -326,6 +326,17 @@ static void vidxd_report_pci_error(struct vdcm_idxd *vidxd)
 	send_halt_interrupt(vidxd);
 }
 
+void vidxd_notify_revoked_handles (struct vdcm_idxd *vidxd)
+{
+	u8 *bar0 = vidxd->bar0;
+	u32 *intcause = (u32 *)(bar0 + IDXD_INTCAUSE_OFFSET);
+
+	*intcause |= IDXD_INTC_INT_HANDLE_REVOKED;
+
+	pr_info("informating guest about revoked handles\n");
+	vidxd_send_interrupt(vidxd, 0);
+}
+
 int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count)
 {
 	u32 offset = pos & 0xfff;

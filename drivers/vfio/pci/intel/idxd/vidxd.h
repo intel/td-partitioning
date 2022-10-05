@@ -44,8 +44,8 @@ enum {
 };
 
 union hw_desc {
-	struct dsa_hw_desc *hw;
-	struct iax_hw_desc *iax_hw;
+	struct dsa_hw_desc hw;
+	struct iax_hw_desc iax_hw;
 };
 
 #define IDXD_DESC_SIZE sizeof(union hw_desc)
@@ -78,6 +78,7 @@ struct vidxd_data {
 
 	u8 ims_idx[VIDXD_MAX_MSIX_VECS];
 
+	unsigned int ndescs[VIDXD_MAX_WQS];
 	struct idxd_wq_desc_elem el[VIDXD_MAX_WQS][VIDXD_MAX_PORTALS];
 };
 
@@ -172,6 +173,8 @@ int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsign
 int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
 int vidxd_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
 int vidxd_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
+void vidxd_notify_revoked_handles (struct vdcm_idxd *vidxd);
+int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
 
 static inline void vidxd_send_interrupt(struct vdcm_idxd *vidxd, int vector)
 {

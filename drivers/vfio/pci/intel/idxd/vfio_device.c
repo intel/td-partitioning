@@ -1307,6 +1307,266 @@ static int vf_qm_get_match_data(struct hisi_acc_vf_core_device *hisi_acc_vdev,
 	return 0;
 }
 
+#endif
+
+static int vidxd_resume_wq_state(struct vdcm_idxd *vidxd)
+{
+	struct idxd_device *idxd = vidxd->idxd;
+	struct device *dev = vidxd_dev(vidxd);
+	union wqcfg *vwqcfg, *wqcfg;
+	struct idxd_wq *wq;
+	int wq_id, rc = 0;
+	bool priv;
+	u8 *bar0 = vidxd->bar0;
+
+	dev_dbg(dev, "%s:%d numwqs %d\n", __func__, __LINE__, vidxd->num_wqs);
+	/* TODO: Currently support for only 1 WQ per VDEV */
+	for (wq_id = 0; wq_id < vidxd->num_wqs; wq_id++) {
+		wq = vidxd->wq;
+		dev_dbg(dev, "%s:%d wq %px\n", __func__, __LINE__, wq);
+		vwqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET);
+		wqcfg = wq->wqcfg;
+
+		if (vidxd_state(vidxd) != 1 || vwqcfg->wq_state != 1) {
+			/* either VDEV or vWQ is disabled */
+			if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED)
+				idxd_wq_disable(wq, false);
+			continue;
+		} else {
+			unsigned long flags;
+			printk("vidxd re-enable wq %u:%u\n", wq_id, wq->id);
+
+			/* If dedicated WQ and PASID is not enabled, program
+			 * the default PASID in the WQ PASID register */
+			if (wq_dedicated(wq) && vwqcfg->mode_support) {
+				int wq_pasid = -1, gpasid = -1;
+
+				if (vwqcfg->pasid_en) {
+					gpasid = vwqcfg->pasid;
+					priv = vwqcfg->priv;
+					rc = vidxd_get_host_pasid(dev,
+								  gpasid,
+								  &wq_pasid);
+				} else {
+					wq_pasid = vfio_device_get_pasid(&vidxd->vdev);
+					priv = true;
+				}
+
+				if (wq_pasid >= 0) {
+					wqcfg->bits[WQCFG_PASID_IDX] &=
+								~GENMASK(29, 8);
+					wqcfg->priv = priv;
+					wqcfg->pasid_en = 1;
+					wqcfg->pasid = wq_pasid;
+					dev_dbg(dev, "pasid %d:%d in wq %d\n",
+						gpasid, wq_pasid, wq->id);
+					spin_lock_irqsave(&idxd->dev_lock,
+									flags);
+					idxd_wq_setup_pasid(wq, wq_pasid);
+					idxd_wq_setup_priv(wq, priv);
+					spin_unlock_irqrestore(&idxd->dev_lock,
+									flags);
+					rc = idxd_wq_enable(wq);
+					if (rc) {
+						dev_err(dev, "resume wq failed\n");
+						break;;
+					}
+				}
+			} else if (!wq_dedicated(wq) && vwqcfg->mode_support) {
+				wqcfg->bits[WQCFG_PASID_IDX] &= ~GENMASK(29, 8);
+				wqcfg->pasid_en = 1;
+				wqcfg->mode = 0;
+				spin_lock_irqsave(&idxd->dev_lock, flags);
+				idxd_wq_setup_pasid(wq, 0);
+				spin_unlock_irqrestore(&idxd->dev_lock, flags);
+				rc = idxd_wq_enable(wq);
+				if (rc) {
+					dev_err(dev, "resume wq %d failed\n",
+							wq->id);
+					break;
+				}
+			}
+		}
+	}
+	return rc;
+}
+
+static void vidxd_dest_load_state(struct vdcm_idxd *vidxd)
+{
+	struct vidxd_migration_file *migf = vidxd->resuming_migf;
+	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+
+	pr_info("%s, data_size: %lx\n", __func__, migf->total_length);
+
+	/* restore the state data to device */
+	memcpy(vidxd->cfg, vidxd_data->cfg, sizeof(vidxd->cfg));
+	memcpy((u8 *)vidxd->bar_val, vidxd_data->bar_val, sizeof(vidxd->bar_val));
+	memcpy((u8 *)vidxd->bar_size, vidxd_data->bar_size,
+	       sizeof(vidxd->bar_size));
+	memcpy((u8 *)vidxd->bar0, vidxd_data->bar0, sizeof(vidxd->bar0));
+	//memcpy((u8 *)ims, data_ptr + offset, sizeof(vidxd->ims));
+	//offset += sizeof(vidxd->ims);
+}
+
+static int
+vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
+{
+	struct vidxd_migration_file *migf = vidxd->resuming_migf;
+	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+	struct device *dev = vidxd_dev(vidxd);
+	u8 *bar0 = vidxd->bar0;
+	int i, rc = 0;
+
+	/* Restore int handle info */
+	for (i = 1; i < VIDXD_MAX_MSIX_VECS; i++) {
+		u32 revoked_handle, perm_val, auxval, gpasid, pasid;
+		int ims_idx = dev_msi_hwirq(dev, i - 1);
+		int irq = dev_msi_irq_vector(dev, i - 1);
+		bool paside;
+
+		memcpy((u8 *)&revoked_handle, &vidxd_data->ims_idx[i],
+		       sizeof(revoked_handle));
+
+		pr_info("%s: %d new handle %x old handle %x\n",
+			__func__, i, ims_idx, revoked_handle);
+
+		if (revoked_handle != ims_idx) {
+			/* Int Handle Revoked */
+			*int_handle_revoked = true;
+		}
+
+		perm_val = *(u32 *)(bar0 + VIDXD_MSIX_PERM_OFFSET + i * 8);
+
+		paside = (perm_val >> 3) & 1;
+		gpasid = (perm_val >> 12) & 0xfffff;
+
+		if (paside) {
+			rc = vidxd_get_host_pasid(dev, gpasid, &pasid);
+			if (rc < 0)
+				return rc;
+
+			dev_dbg(dev, "guest pasid enabled, translate gpasid: %d to pasid %d\n",
+				gpasid, pasid);
+		} else {
+			pasid = vfio_device_get_pasid(&vidxd->vdev);
+                        if (pasid == IOMMU_PASID_INVALID)
+				return -ENODEV;
+
+			dev_dbg(dev, "guest pasid disabled, using default host pasid: %u\n",
+				pasid);
+		}
+
+		auxval = ims_ctrl_pasid_aux(pasid, true);
+
+		rc = irq_set_auxdata(irq, IMS_AUXDATA_CONTROL_WORD, auxval);
+		pr_info("%s: auxval %x rc %d\n", __func__, auxval, rc);
+		if (rc < 0) {
+			pr_info("set ims pasid %d failed rc %d\n", pasid, rc);
+			break;
+		}
+	}
+
+	return rc;
+}
+
+static int vidxd_resubmit_pending_descs (struct vdcm_idxd *vidxd)
+{
+	struct vidxd_migration_file *migf = vidxd->resuming_migf;
+	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+	struct idxd_virtual_wq *vwq;
+	struct idxd_wq *wq;
+	int i;
+
+	/*
+	 * Submit the queued descriptors. The WQ states
+	 * have been resumed by this point
+	 */
+	for (i = 0; i < vidxd->num_wqs; i++) {
+		struct idxd_wq_desc_elem el;
+		void __iomem *portal;
+		int j = 0;
+
+		vwq = &vidxd->vwq[i];
+		wq = vidxd->wq;
+
+		memcpy((u8 *)&vwq->ndescs, &vidxd_data->ndescs[i],
+		       sizeof(vwq->ndescs));
+
+		for (; vwq->ndescs > 0; vwq->ndescs--) {
+			memcpy((u8 *)&el, &vidxd_data->el[i][j++], sizeof(el));
+
+			/* Fixme: Is this right? */
+			portal = wq->portal +
+				 idxd_get_wq_portal_offset(wq->id,
+							   el.portal_prot,
+							   IDXD_IRQ_IMS);
+			portal += (el.portal_id << 6);
+
+			pr_info("submitting desc[%d] to WQ %d:%d ded %d\n",
+				j, i, wq->id, wq_dedicated(wq));
+			if (wq_dedicated(wq)) {
+				iosubmit_cmds512(portal, el.work_desc, 1);
+			} else {
+				struct dsa_hw_desc *hw =
+					(struct dsa_hw_desc *)el.work_desc;
+				int hpasid, gpasid = hw->pasid;
+				struct device *dev = vidxd_dev(vidxd);
+				int rc;
+
+				/* Translate the gpasid in the descriptor */
+				rc = vidxd_get_host_pasid(dev, gpasid, &hpasid);
+				if (rc < 0) {
+					pr_info("gpasid->hpasid trans failed\n");
+					continue;
+				}
+				hw->pasid = hpasid;
+				/* FIXME: Allow enqcmds to retry a few times
+				 * before failing */
+				rc = enqcmds(portal, el.work_desc);
+				if (rc < 0) {
+					pr_info("%s: enqcmds failed\n", __func__);
+					continue;
+				}
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int idxd_vdcm_load_data(struct vdcm_idxd *vidxd)
+{
+	bool int_handle_revoked = false;
+	int rc = 0;
+
+	vidxd_dest_load_state(vidxd);
+
+	rc = vidxd_resume_wq_state(vidxd);
+	if (rc) {
+		pr_info("vidxd resume wq state failed %d\n", rc);
+		return rc;
+	}
+
+	rc = vidxd_resume_ims_state(vidxd, &int_handle_revoked);
+	if (rc) {
+		pr_info("vidxd int handle revocation handling failed %d\n", rc);
+
+		return rc;
+	}
+
+	rc = vidxd_resubmit_pending_descs(vidxd);
+	if (rc) {
+		pr_info("vidxd pending descs handling failed %d\n", rc);
+		return rc;
+	}
+
+	if (int_handle_revoked)
+                vidxd_notify_revoked_handles(vidxd);
+
+	return rc;
+}
+
+#if 0
 static int vf_qm_load_data(struct hisi_acc_vf_core_device *hisi_acc_vdev,
 			   struct hisi_acc_vf_migration_file *migf)
 {
@@ -1388,7 +1648,8 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 		/* FIXME: need to dynamic allocate vidxd_data based on ndesc. */
 		WARN_ON(vwq->ndescs > VIDXD_MAX_PORTALS);
 
-                memcpy(&vwq->ndescs, (u8 *)&vwq->ndescs, sizeof(vwq->ndescs));
+                memcpy(&vidxd_data->ndescs[i], (u8 *)&vwq->ndescs,
+		       sizeof(vwq->ndescs));
                 list_for_each_entry(el, &vwq->head, link) {
                         printk("Saving WQ[%d] descriptor[%d]\n", i, j);
                         memcpy(&vidxd_data->el[i][j++], (u8 *)el,
@@ -1521,29 +1782,24 @@ static void hisi_acc_vf_start_device(struct hisi_acc_vf_core_device *hisi_acc_vd
 	vf_qm_fun_reset(hisi_acc_vdev, vf_qm);
 }
 
-static int hisi_acc_vf_load_state(struct hisi_acc_vf_core_device *hisi_acc_vdev)
+#endif
+
+static int idxd_vdcm_load_state(struct vdcm_idxd *vidxd)
 {
-	struct device *dev = &hisi_acc_vdev->vf_dev->dev;
-	struct hisi_acc_vf_migration_file *migf = hisi_acc_vdev->resuming_migf;
 	int ret;
 
-	/* Check dev compatibility */
-	ret = vf_qm_check_match(hisi_acc_vdev, migf);
+	/* Recover data to VDEV and DEV */
+	ret = idxd_vdcm_load_data(vidxd);
 	if (ret) {
-		dev_err(dev, "failed to match the VF!\n");
-		return ret;
-	}
-	/* Recover data to VF */
-	ret = vf_qm_load_data(hisi_acc_vdev, migf);
-	if (ret) {
-		dev_err(dev, "failed to recover the VF!\n");
+		struct device *dev = vidxd_dev(vidxd);
+
+		dev_err(dev, "failed to recover the VDEV and DEV!\n");
+
 		return ret;
 	}
 
 	return 0;
 }
-
-#endif
 
 static int idxd_vdcm_release_file(struct inode *inode, struct file *filp)
 {
@@ -1556,11 +1812,10 @@ static int idxd_vdcm_release_file(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-#if 0
-static ssize_t hisi_acc_vf_resume_write(struct file *filp, const char __user *buf,
-					size_t len, loff_t *pos)
+static ssize_t idxd_vdcm_resume_write(struct file *filp, const char __user *buf,
+				      size_t len, loff_t *pos)
 {
-	struct hisi_acc_vf_migration_file *migf = filp->private_data;
+	struct vidxd_migration_file *migf = filp->private_data;
 	loff_t requested_length;
 	ssize_t done = 0;
 	int ret;
@@ -1573,7 +1828,7 @@ static ssize_t hisi_acc_vf_resume_write(struct file *filp, const char __user *bu
 	    check_add_overflow((loff_t)len, *pos, &requested_length))
 		return -EINVAL;
 
-	if (requested_length > sizeof(struct acc_vf_data))
+	if (requested_length > sizeof(struct vidxd_data))
 		return -ENOMEM;
 
 	mutex_lock(&migf->lock);
@@ -1582,7 +1837,7 @@ static ssize_t hisi_acc_vf_resume_write(struct file *filp, const char __user *bu
 		goto out_unlock;
 	}
 
-	ret = copy_from_user(&migf->vf_data, buf, len);
+	ret = copy_from_user(&migf->vidxd_data + *pos, buf, len);
 	if (ret) {
 		done = -EFAULT;
 		goto out_unlock;
@@ -1592,27 +1847,27 @@ static ssize_t hisi_acc_vf_resume_write(struct file *filp, const char __user *bu
 	migf->total_length += len;
 out_unlock:
 	mutex_unlock(&migf->lock);
+
 	return done;
 }
 
-static const struct file_operations hisi_acc_vf_resume_fops = {
+static const struct file_operations idxd_vdcm_resume_fops = {
 	.owner = THIS_MODULE,
-	.write = hisi_acc_vf_resume_write,
-	.release = hisi_acc_vf_release_file,
+	.write = idxd_vdcm_resume_write,
+	.release = idxd_vdcm_release_file,
 	.llseek = no_llseek,
 };
 
-static struct hisi_acc_vf_migration_file *
-hisi_acc_vf_pci_resume(struct hisi_acc_vf_core_device *hisi_acc_vdev)
+static struct vidxd_migration_file *idxd_vdcm_resume(struct vdcm_idxd *vidxd)
 {
-	struct hisi_acc_vf_migration_file *migf;
+	struct vidxd_migration_file *migf;
 
 	migf = kzalloc(sizeof(*migf), GFP_KERNEL);
 	if (!migf)
 		return ERR_PTR(-ENOMEM);
 
-	migf->filp = anon_inode_getfile("hisi_acc_vf_mig", &hisi_acc_vf_resume_fops, migf,
-					O_WRONLY);
+	migf->filp = anon_inode_getfile("vidxd_mig", &idxd_vdcm_resume_fops,
+					migf, O_WRONLY);
 	if (IS_ERR(migf->filp)) {
 		int err = PTR_ERR(migf->filp);
 
@@ -1622,10 +1877,9 @@ hisi_acc_vf_pci_resume(struct hisi_acc_vf_core_device *hisi_acc_vdev)
 
 	stream_open(migf->filp->f_inode, migf->filp);
 	mutex_init(&migf->lock);
+
 	return migf;
 }
-
-#endif
 
 static ssize_t idxd_vdcm_save_read(struct file *filp, char __user *buf,
 				   size_t len, loff_t *pos)
@@ -1755,26 +2009,28 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 		return NULL;
 	}
 
-#if 0
 	if (cur == VFIO_DEVICE_STATE_STOP && new == VFIO_DEVICE_STATE_RESUMING) {
-		struct hisi_acc_vf_migration_file *migf;
+		struct vidxd_migration_file *migf;
 
-		migf = hisi_acc_vf_pci_resume(hisi_acc_vdev);
+		migf = idxd_vdcm_resume(vidxd);
 		if (IS_ERR(migf))
 			return ERR_CAST(migf);
 		get_file(migf->filp);
-		hisi_acc_vdev->resuming_migf = migf;
+		vidxd->resuming_migf = migf;
+
 		return migf->filp;
 	}
 
 	if (cur == VFIO_DEVICE_STATE_RESUMING && new == VFIO_DEVICE_STATE_STOP) {
-		ret = hisi_acc_vf_load_state(hisi_acc_vdev);
+		ret = idxd_vdcm_load_state(vidxd);
 		if (ret)
 			return ERR_PTR(ret);
-		hisi_acc_vf_disable_fds(hisi_acc_vdev);
+		idxd_vdcm_disable_fds(vidxd);
+
 		return NULL;
 	}
 
+#if 0
 	if (cur == VFIO_DEVICE_STATE_STOP && new == VFIO_DEVICE_STATE_RUNNING) {
 		hisi_acc_vf_start_device(hisi_acc_vdev);
 		return NULL;
