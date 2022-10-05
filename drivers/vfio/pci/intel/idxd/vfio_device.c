@@ -8,6 +8,8 @@
 #include <linux/vfio.h>
 #include <linux/iommufd.h>
 #include <linux/eventfd.h>
+#include <linux/anon_inodes.h>
+#include <linux/msi.h>
 #include "registers.h"
 #include "idxd.h"
 #include "vidxd.h"
@@ -1349,65 +1351,61 @@ static int vf_qm_load_data(struct hisi_acc_vf_core_device *hisi_acc_vdev,
 	qm_dev_cmd_init(qm);
 	return 0;
 }
+#endif
 
-static int vf_qm_state_save(struct hisi_acc_vf_core_device *hisi_acc_vdev,
-			    struct hisi_acc_vf_migration_file *migf)
+static void
+vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
+				   struct vidxd_migration_file *migf)
 {
-	struct acc_vf_data *vf_data = &migf->vf_data;
-	struct hisi_qm *vf_qm = &hisi_acc_vdev->vf_qm;
-	struct device *dev = &vf_qm->pdev->dev;
-	int ret;
+	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+	struct idxd_virtual_wq *vwq;
+	int i;
 
-	ret = vf_qm_get_match_data(hisi_acc_vdev, vf_data);
-	if (ret)
-		return ret;
+	memcpy(vidxd_data->cfg, vidxd->cfg, sizeof(vidxd->cfg));
+	memcpy(vidxd_data->bar_val, (u8 *)vidxd->bar_val,
+	       sizeof(vidxd->bar_val));
+	memcpy(vidxd_data->bar_size, (u8 *)vidxd->bar_size,
+	       sizeof(vidxd->bar_size));
+	memcpy(vidxd_data->bar0, (u8 *)vidxd->bar0, sizeof(vidxd->bar0));
 
-	if (unlikely(qm_wait_dev_not_ready(vf_qm))) {
-		/* Update state and return with match data */
-		vf_data->vf_qm_state = QM_NOT_READY;
-		hisi_acc_vdev->vf_qm_state = vf_data->vf_qm_state;
-		migf->total_length = QM_MATCH_SIZE;
-		return 0;
+	/* Save int handle info */
+	for (i = 1; i < VIDXD_MAX_MSIX_VECS; i++) {
+		struct device *dev = vidxd_dev(vidxd);
+		u32 ims_idx = dev_msi_hwirq(dev, i - 1);
+
+		/* Save the current handle in use */
+		pr_info("Saving handle %d\n", ims_idx);
+		memcpy(&vidxd_data->ims_idx[i], (u8 *)&ims_idx, sizeof(ims_idx));
 	}
 
-	vf_data->vf_qm_state = QM_READY;
-	hisi_acc_vdev->vf_qm_state = vf_data->vf_qm_state;
+        /* Save the queued descriptors */
+        for (i = 0; i < vidxd->num_wqs; i++) {
+                struct idxd_wq_desc_elem *el;
+		int j = 0;
 
-	ret = vf_qm_cache_wb(vf_qm);
-	if (ret) {
-		dev_err(dev, "failed to writeback QM Cache!\n");
-		return ret;
-	}
+                vwq = &vidxd->vwq[i];
 
-	ret = qm_get_regs(vf_qm, vf_data);
-	if (ret)
-		return -EINVAL;
+		/* FIXME: need to dynamic allocate vidxd_data based on ndesc. */
+		WARN_ON(vwq->ndescs > VIDXD_MAX_PORTALS);
 
-	/* Every reg is 32 bit, the dma address is 64 bit. */
-	vf_data->eqe_dma = vf_data->qm_eqc_dw[2];
-	vf_data->eqe_dma <<= QM_XQC_ADDR_OFFSET;
-	vf_data->eqe_dma |= vf_data->qm_eqc_dw[1];
-	vf_data->aeqe_dma = vf_data->qm_aeqc_dw[2];
-	vf_data->aeqe_dma <<= QM_XQC_ADDR_OFFSET;
-	vf_data->aeqe_dma |= vf_data->qm_aeqc_dw[1];
-
-	/* Through SQC_BT/CQC_BT to get sqc and cqc address */
-	ret = qm_get_sqc(vf_qm, &vf_data->sqc_dma);
-	if (ret) {
-		dev_err(dev, "failed to read SQC addr!\n");
-		return -EINVAL;
-	}
-
-	ret = qm_get_cqc(vf_qm, &vf_data->cqc_dma);
-	if (ret) {
-		dev_err(dev, "failed to read CQC addr!\n");
-		return -EINVAL;
-	}
-
-	migf->total_length = sizeof(struct acc_vf_data);
-	return 0;
+                memcpy(&vwq->ndescs, (u8 *)&vwq->ndescs, sizeof(vwq->ndescs));
+                list_for_each_entry(el, &vwq->head, link) {
+                        printk("Saving WQ[%d] descriptor[%d]\n", i, j);
+                        memcpy(&vidxd_data->el[i][j++], (u8 *)el,
+			       sizeof(*el));
+                }
+        }
 }
 
+static void idxd_vdcm_state_save(struct vdcm_idxd *vidxd,
+				 struct vidxd_migration_file *migf)
+{
+	vidxd_source_prepare_for_migration(vidxd, migf);
+
+	migf->total_length = sizeof(struct vidxd_data);
+}
+
+#if 0
 /* Check the PF's RAS state and Function INT state */
 static int
 hisi_acc_check_int_state(struct hisi_acc_vf_core_device *hisi_acc_vdev)
@@ -1465,8 +1463,9 @@ hisi_acc_check_int_state(struct hisi_acc_vf_core_device *hisi_acc_vdev)
 		return -EINVAL;
 	}
 }
+#endif
 
-static void hisi_acc_vf_disable_fd(struct hisi_acc_vf_migration_file *migf)
+static void idxd_vdcm_disable_fd(struct vidxd_migration_file *migf)
 {
 	mutex_lock(&migf->lock);
 	migf->disabled = true;
@@ -1475,21 +1474,22 @@ static void hisi_acc_vf_disable_fd(struct hisi_acc_vf_migration_file *migf)
 	mutex_unlock(&migf->lock);
 }
 
-static void hisi_acc_vf_disable_fds(struct hisi_acc_vf_core_device *hisi_acc_vdev)
+static void idxd_vdcm_disable_fds(struct vdcm_idxd *vidxd)
 {
-	if (hisi_acc_vdev->resuming_migf) {
-		hisi_acc_vf_disable_fd(hisi_acc_vdev->resuming_migf);
-		fput(hisi_acc_vdev->resuming_migf->filp);
-		hisi_acc_vdev->resuming_migf = NULL;
+	if (vidxd->resuming_migf) {
+		idxd_vdcm_disable_fd(vidxd->resuming_migf);
+		fput(vidxd->resuming_migf->filp);
+		vidxd->resuming_migf = NULL;
 	}
 
-	if (hisi_acc_vdev->saving_migf) {
-		hisi_acc_vf_disable_fd(hisi_acc_vdev->saving_migf);
-		fput(hisi_acc_vdev->saving_migf->filp);
-		hisi_acc_vdev->saving_migf = NULL;
+	if (vidxd->saving_migf) {
+		idxd_vdcm_disable_fd(vidxd->saving_migf);
+		fput(vidxd->saving_migf->filp);
+		vidxd->saving_migf = NULL;
 	}
 }
 
+#if 0
 /*
  * This function is called in all state_mutex unlock cases to
  * handle a 'deferred_reset' if exists.
@@ -1543,16 +1543,20 @@ static int hisi_acc_vf_load_state(struct hisi_acc_vf_core_device *hisi_acc_vdev)
 	return 0;
 }
 
-static int hisi_acc_vf_release_file(struct inode *inode, struct file *filp)
-{
-	struct hisi_acc_vf_migration_file *migf = filp->private_data;
+#endif
 
-	hisi_acc_vf_disable_fd(migf);
+static int idxd_vdcm_release_file(struct inode *inode, struct file *filp)
+{
+	struct vidxd_migration_file *migf = filp->private_data;
+
+	idxd_vdcm_disable_fd(migf);
 	mutex_destroy(&migf->lock);
 	kfree(migf);
+
 	return 0;
 }
 
+#if 0
 static ssize_t hisi_acc_vf_resume_write(struct file *filp, const char __user *buf,
 					size_t len, loff_t *pos)
 {
@@ -1621,10 +1625,12 @@ hisi_acc_vf_pci_resume(struct hisi_acc_vf_core_device *hisi_acc_vdev)
 	return migf;
 }
 
-static ssize_t hisi_acc_vf_save_read(struct file *filp, char __user *buf, size_t len,
-				     loff_t *pos)
+#endif
+
+static ssize_t idxd_vdcm_save_read(struct file *filp, char __user *buf,
+				   size_t len, loff_t *pos)
 {
-	struct hisi_acc_vf_migration_file *migf = filp->private_data;
+	struct vidxd_migration_file *migf = filp->private_data;
 	ssize_t done = 0;
 	int ret;
 
@@ -1645,7 +1651,7 @@ static ssize_t hisi_acc_vf_save_read(struct file *filp, char __user *buf, size_t
 
 	len = min_t(size_t, migf->total_length - *pos, len);
 	if (len) {
-		ret = copy_to_user(buf, &migf->vf_data, len);
+		ret = copy_to_user(buf, &migf->vidxd_data + *pos, len);
 		if (ret) {
 			done = -EFAULT;
 			goto out_unlock;
@@ -1658,45 +1664,39 @@ out_unlock:
 	return done;
 }
 
-static const struct file_operations hisi_acc_vf_save_fops = {
+static const struct file_operations idxd_vdcm_save_fops = {
 	.owner = THIS_MODULE,
-	.read = hisi_acc_vf_save_read,
-	.release = hisi_acc_vf_release_file,
+	.read = idxd_vdcm_save_read,
+	.release = idxd_vdcm_release_file,
 	.llseek = no_llseek,
 };
 
-static struct hisi_acc_vf_migration_file *
-hisi_acc_vf_stop_copy(struct hisi_acc_vf_core_device *hisi_acc_vdev)
+static struct vidxd_migration_file *
+idxd_vdcm_stop_copy(struct vdcm_idxd *vidxd)
 {
-	struct hisi_acc_vf_migration_file *migf;
-	int ret;
+	struct vidxd_migration_file *migf;
 
 	migf = kzalloc(sizeof(*migf), GFP_KERNEL);
 	if (!migf)
 		return ERR_PTR(-ENOMEM);
 
-	migf->filp = anon_inode_getfile("hisi_acc_vf_mig", &hisi_acc_vf_save_fops, migf,
+	migf->filp = anon_inode_getfile("vidxd_mig", &idxd_vdcm_save_fops, migf,
 					O_RDONLY);
 	if (IS_ERR(migf->filp)) {
 		int err = PTR_ERR(migf->filp);
 
 		kfree(migf);
+
 		return ERR_PTR(err);
 	}
 
 	stream_open(migf->filp->f_inode, migf->filp);
 	mutex_init(&migf->lock);
 
-	ret = vf_qm_state_save(hisi_acc_vdev, migf);
-	if (ret) {
-		fput(migf->filp);
-		return ERR_PTR(ret);
-	}
+	idxd_vdcm_state_save(vidxd, migf);
 
 	return migf;
 }
-
-#endif
 
 static int idxd_vdcm_stop_device(struct vdcm_idxd *vidxd)
 {
@@ -1721,7 +1721,6 @@ static int idxd_vdcm_stop_device(struct vdcm_idxd *vidxd)
 	for (i = 0; i < vidxd->num_wqs; i++)
 		idxd_wq_drain(vidxd->wq);
 
-
 	return 0;
 }
 
@@ -1738,7 +1737,6 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 		return NULL;
 	}
 
-#if 0
 	if (cur == VFIO_DEVICE_STATE_STOP && new == VFIO_DEVICE_STATE_STOP_COPY) {
 		struct vidxd_migration_file *migf;
 
@@ -1747,14 +1745,17 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 			return ERR_CAST(migf);
 		get_file(migf->filp);
 		vidxd->saving_migf = migf;
+
 		return migf->filp;
 	}
 
 	if ((cur == VFIO_DEVICE_STATE_STOP_COPY && new == VFIO_DEVICE_STATE_STOP)) {
-		hisi_acc_vf_disable_fds(hisi_acc_vdev);
+		idxd_vdcm_disable_fds(vidxd);
+
 		return NULL;
 	}
 
+#if 0
 	if (cur == VFIO_DEVICE_STATE_STOP && new == VFIO_DEVICE_STATE_RESUMING) {
 		struct hisi_acc_vf_migration_file *migf;
 

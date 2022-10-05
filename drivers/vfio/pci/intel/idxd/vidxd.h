@@ -70,11 +70,31 @@ struct idxd_virtual_wq {
 	struct idxd_wq_portal portals[VIDXD_MAX_PORTALS];
 };
 
+struct vidxd_data {
+	u64 bar_val[VIDXD_MAX_BARS];
+	u64 bar_size[VIDXD_MAX_BARS];
+	u8 cfg[VIDXD_MAX_CFG_SPACE_SZ];
+	u8 bar0[VIDXD_MAX_MMIO_SPACE_SZ];
+
+	u8 ims_idx[VIDXD_MAX_MSIX_VECS];
+
+	struct idxd_wq_desc_elem el[VIDXD_MAX_WQS][VIDXD_MAX_PORTALS];
+};
+
+struct vidxd_migration_file {
+	struct file *filp;
+	struct mutex lock;
+	bool disabled;
+
+	struct vidxd_data vidxd_data;
+	size_t total_length;
+};
+
 struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
 	struct idxd_wq *wq;
-	struct idxd_virtual_wq vwq;
+	struct idxd_virtual_wq vwq[VIDXD_MAX_WQS];
 	struct iommufd_device *idev;
 	int num_wqs;
 
@@ -96,6 +116,8 @@ struct vdcm_idxd {
 	bool paused;
 	struct mutex state_mutex;
 	enum vfio_device_mig_state mig_state;
+	struct vidxd_migration_file *resuming_migf;
+	struct vidxd_migration_file *saving_migf;
 };
 
 struct vdcm_hwpt {
