@@ -361,6 +361,15 @@ static ssize_t idxd_vdcm_rw(struct vfio_device *vdev, char *buf, size_t count,
 		break;
 	case VFIO_PCI_BAR2_REGION_INDEX:
 	case VFIO_PCI_BAR3_REGION_INDEX:
+		if (mode == IDXD_VDCM_WRITE) {
+			rc = vidxd_portal_mmio_write(vidxd,
+				vidxd->bar_val[1] + pos, buf, count);
+		} else {
+			rc = vidxd_portal_mmio_read(vidxd,
+				vidxd->bar_val[1] + pos, buf, count);
+		}
+		break;
+
 	case VFIO_PCI_BAR4_REGION_INDEX:
 	case VFIO_PCI_BAR5_REGION_INDEX:
 	case VFIO_PCI_VGA_REGION_INDEX:
@@ -1772,17 +1781,16 @@ again:
 	spin_unlock(&hisi_acc_vdev->reset_lock);
 }
 
-static void hisi_acc_vf_start_device(struct hisi_acc_vf_core_device *hisi_acc_vdev)
-{
-	struct hisi_qm *vf_qm = &hisi_acc_vdev->vf_qm;
-
-	if (hisi_acc_vdev->vf_qm_state != QM_READY)
-		return;
-
-	vf_qm_fun_reset(hisi_acc_vdev, vf_qm);
-}
-
 #endif
+
+static void idxd_vdcm_start_device(struct vdcm_idxd *vidxd)
+{
+	/*
+	 * The VMM may continue the VM after pausing it. So get ready
+	 * for normal operation
+	 */
+	vidxd->paused = false;
+}
 
 static int idxd_vdcm_load_state(struct vdcm_idxd *vidxd)
 {
@@ -2030,17 +2038,17 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 		return NULL;
 	}
 
-#if 0
 	if (cur == VFIO_DEVICE_STATE_STOP && new == VFIO_DEVICE_STATE_RUNNING) {
-		hisi_acc_vf_start_device(hisi_acc_vdev);
+		idxd_vdcm_start_device(vidxd);
+
 		return NULL;
 	}
-#endif
 
 	/*
 	 * vfio_mig_get_next_state() does not use arcs other than the above
 	 */
 	WARN_ON(true);
+
 	return ERR_PTR(-EINVAL);
 }
 
