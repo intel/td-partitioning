@@ -83,6 +83,7 @@ struct vfio_domain {
 	struct list_head	group_list;
 	bool			fgsp : 1;	/* Fine-grained super pages */
 	bool			enforce_cache_coherency : 1;
+	bool			trusted : 1;
 };
 
 struct vfio_dma {
@@ -2209,8 +2210,10 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	if (!domain->domain)
 		goto out_free_domain;
 
-	if (attrs & VFIO_GROUP_ATTRS_TRUSTED)
+	if (attrs & VFIO_GROUP_ATTRS_TRUSTED) {
 		iommu_domain_set_trusted(domain->domain);
+		domain->trusted = true;
+	}
 
 	if (iommu->nesting) {
 		ret = iommu_enable_nesting(domain->domain);
@@ -2290,7 +2293,8 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	list_for_each_entry(d, &iommu->domain_list, next) {
 		if (d->domain->ops == domain->domain->ops &&
 		    d->enforce_cache_coherency ==
-			    domain->enforce_cache_coherency) {
+			    domain->enforce_cache_coherency &&
+		    d->trusted == domain->trusted) {
 			iommu_detach_group(domain->domain, group->iommu_group);
 			if (!iommu_attach_group(d->domain,
 						group->iommu_group)) {
