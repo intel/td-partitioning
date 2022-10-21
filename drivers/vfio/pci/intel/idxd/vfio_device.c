@@ -95,9 +95,12 @@ static void idxd_vdcm_close(struct vfio_device *vdev)
 	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
 
 	mutex_lock(&vidxd->dev_lock);
-	idxd_vdcm_set_irqs(vidxd, VFIO_IRQ_SET_DATA_NONE |
-			   VFIO_IRQ_SET_ACTION_TRIGGER,
-			   VFIO_PCI_MSIX_IRQ_INDEX, 0, 0, NULL);
+	/* Disable MSIX if it was set up. */
+	if  (vidxd_dev(vidxd)->msi.data) {
+		idxd_vdcm_set_irqs(vidxd,
+				   VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER,
+				   VFIO_PCI_MSIX_IRQ_INDEX, 0, 0, NULL);
+	}
 	vfio_pci_ims_free(vdev);
 	vidxd_shutdown(vidxd);
 	vfio_device_set_pasid(vdev, IOMMU_PASID_INVALID);
@@ -1423,11 +1426,15 @@ vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 	struct vidxd_migration_file *migf = vidxd->resuming_migf;
 	struct vidxd_data *vidxd_data = &migf->vidxd_data;
 	struct device *dev = vidxd_dev(vidxd);
+	struct vfio_ims *ims = &vidxd->vdev.ims;
 	u8 *bar0 = vidxd->bar0;
 	int i, rc = 0;
 
+	if  (!dev->msi.data)
+		return rc;
+
 	/* Restore int handle info */
-	for (i = 1; i < VIDXD_MAX_MSIX_VECS; i++) {
+	for (i = 1; i < ims->num; i++) {
 		u32 revoked_handle, perm_val, auxval, gpasid, pasid;
 		int ims_idx = dev_msi_hwirq(dev, i - 1);
 		int irq = dev_msi_irq_vector(dev, i - 1);
@@ -1627,6 +1634,8 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 				   struct vidxd_migration_file *migf)
 {
 	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+	struct vfio_ims *ims = &vidxd->vdev.ims;
+	struct device *dev = vidxd_dev(vidxd);
 	struct idxd_virtual_wq *vwq;
 	int i;
 
@@ -1637,14 +1646,16 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 	       sizeof(vidxd->bar_size));
 	memcpy(vidxd_data->bar0, (u8 *)vidxd->bar0, sizeof(vidxd->bar0));
 
-	/* Save int handle info */
-	for (i = 1; i < VIDXD_MAX_MSIX_VECS; i++) {
-		struct device *dev = vidxd_dev(vidxd);
-		u32 ims_idx = dev_msi_hwirq(dev, i - 1);
+	/* Save int handle info if MIS was set up. */
+	if  (dev->msi.data) {
+		for (i = 1; i < ims->num; i++) {
+			u32 ims_idx = dev_msi_hwirq(dev, i - 1);
 
-		/* Save the current handle in use */
-		pr_info("Saving handle %d\n", ims_idx);
-		memcpy(&vidxd_data->ims_idx[i], (u8 *)&ims_idx, sizeof(ims_idx));
+			/* Save the current handle in use */
+			pr_info("Saving handle %d\n", ims_idx);
+			memcpy(&vidxd_data->ims_idx[i], (u8 *)&ims_idx,
+			       sizeof(ims_idx));
+		}
 	}
 
         /* Save the queued descriptors */
@@ -1989,8 +2000,12 @@ static int idxd_vdcm_stop_device(struct vdcm_idxd *vidxd)
 static struct file *
 _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 {
+	struct vfio_device *vdev = &vidxd->vdev;
 	u32 cur = vidxd->mig_state;
 	int ret;
+
+	dev_dbg(vidxd_dev(vidxd), "%s: migration state change: %d->%d\n",
+		dev_name(vdev->dev), cur, new);
 
 	if (cur == VFIO_DEVICE_STATE_RUNNING && new == VFIO_DEVICE_STATE_STOP) {
 		ret = idxd_vdcm_stop_device(vidxd);
