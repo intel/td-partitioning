@@ -66,6 +66,22 @@
 #define LEVEL_STRIDE		(9)
 #define LEVEL_MASK		(((u64)1 << LEVEL_STRIDE) - 1)
 
+#define DEFER_DEVICE_DOMAIN_INFO ((struct device_domain_info *)(-2))
+
+struct device_domain_info *get_domain_info(struct device *dev)
+{
+	struct device_domain_info *info;
+
+	if (!dev)
+		return NULL;
+
+	info = dev_iommu_priv_get(dev);
+	if (unlikely(info == DEFER_DEVICE_DOMAIN_INFO))
+		return NULL;
+
+	return info;
+}
+
 static inline int agaw_to_level(int agaw)
 {
 	return agaw + 2;
@@ -4928,6 +4944,7 @@ static int intel_iommu_set_dirty_tracking(struct iommu_domain *domain,
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	struct device_domain_info *info;
+	struct dev_pasid_info *dev_pasid;
 	int ret = -EINVAL;
 
 	spin_lock(&dmar_domain->lock);
@@ -4944,6 +4961,22 @@ static int intel_iommu_set_dirty_tracking(struct iommu_domain *domain,
 			break;
 		}
 
+		ret = intel_pasid_setup_dirty_tracking(info->iommu, info->domain,
+						     info->dev, IOMMU_NO_PASID,
+						     enable);
+		if (ret)
+			break;
+
+	}
+
+	list_for_each_entry(dev_pasid, &dmar_domain->dev_pasids, link_domain) {
+		/* First-level page table always enables dirty bit*/
+		if (dmar_domain->use_first_level) {
+			ret = 0;
+			break;
+		}
+
+		info = get_domain_info(dev_pasid->dev);
 		ret = intel_pasid_setup_dirty_tracking(info->iommu, info->domain,
 						     info->dev, IOMMU_NO_PASID,
 						     enable);
