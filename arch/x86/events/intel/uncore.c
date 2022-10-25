@@ -27,6 +27,10 @@ int __uncore_max_dies;
 
 /* mask of cpus that collect uncore events */
 static cpumask_t uncore_cpu_mask;
+static cpumask_t uncore_cpu_mask_pkg;
+#define intel_uncore_scope_id(_type, _cpu)					\
+	((_type->scope == INTEL_UNCORE_DIE) ? topology_logical_die_id(_cpu) :	\
+	 topology_logical_die_id(cpumask_first(topology_core_cpumask(_cpu))))
 
 /* constraint for the fixed counter */
 static struct event_constraint uncore_constraint_fixed =
@@ -843,6 +847,11 @@ static void uncore_pmu_disable(struct pmu *pmu)
 static ssize_t uncore_get_attr_cpumask(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
+	struct intel_uncore_pmu *pmu = dev_to_uncore_pmu(dev);
+
+	if (pmu->type->scope == INTEL_UNCORE_PKG)
+		return cpumap_print_to_pagebuf(true, buf, &uncore_cpu_mask_pkg);
+
 	return cpumap_print_to_pagebuf(true, buf, &uncore_cpu_mask);
 }
 
@@ -1453,16 +1462,20 @@ static void uncore_pci_exit(void)
 	}
 }
 
-static void uncore_change_type_ctx(struct intel_uncore_type *type, int old_cpu,
-				   int new_cpu)
+static void uncore_change_type_ctx(struct intel_uncore_type *type,
+				   int old_cpu, int new_cpu)
 {
 	struct intel_uncore_pmu *pmu = type->pmus;
 	struct intel_uncore_box *box;
-	int i, die;
+	unsigned int id;
+	int i;
 
-	die = topology_logical_die_id(old_cpu < 0 ? new_cpu : old_cpu);
+	if (new_cpu == nr_cpu_ids)
+		return;
+
+	id = intel_uncore_scope_id(type, old_cpu < 0 ? new_cpu : old_cpu);
 	for (i = 0; i < type->num_boxes; i++, pmu++) {
-		box = pmu->boxes[die];
+		box = pmu->boxes[id];
 		if (!box)
 			continue;
 
@@ -1484,22 +1497,24 @@ static void uncore_change_type_ctx(struct intel_uncore_type *type, int old_cpu,
 }
 
 static void uncore_change_context(struct intel_uncore_type **uncores,
-				  int old_cpu, int new_cpu)
+				  int old_cpu, int new_die_cpu, int new_pkg_cpu)
 {
 	for (; *uncores; uncores++)
-		uncore_change_type_ctx(*uncores, old_cpu, new_cpu);
+		uncore_change_type_ctx(*uncores, old_cpu, ((struct intel_uncore_type *)(*uncores)->scope == INTEL_UNCORE_DIE) ? new_die_cpu : new_pkg_cpu);
 }
 
-static void uncore_box_unref(struct intel_uncore_type **types, int id)
+static void uncore_box_unref(struct intel_uncore_type **types, unsigned int cpu)
 {
 	struct intel_uncore_type *type;
 	struct intel_uncore_pmu *pmu;
 	struct intel_uncore_box *box;
+	unsigned int id;
 	int i;
 
 	for (; *types; types++) {
 		type = *types;
 		pmu = type->pmus;
+		id = intel_uncore_scope_id(type, cpu);
 		for (i = 0; i < type->num_boxes; i++, pmu++) {
 			box = pmu->boxes[id];
 			if (box && atomic_dec_return(&box->refcnt) == 0)
@@ -1510,60 +1525,75 @@ static void uncore_box_unref(struct intel_uncore_type **types, int id)
 
 static int uncore_event_cpu_offline(unsigned int cpu)
 {
-	int die, target;
+	int die_target = nr_cpu_ids, pkg_target = nr_cpu_ids;
 
 	/* Check if exiting cpu is used for collecting uncore events */
-	if (!cpumask_test_and_clear_cpu(cpu, &uncore_cpu_mask))
+	if (cpumask_test_and_clear_cpu(cpu, &uncore_cpu_mask)) {
+		/* Find a new cpu to collect uncore events */
+		die_target = cpumask_any_but(topology_die_cpumask(cpu), cpu);
+
+		/* Migrate uncore events to the new target */
+		if (die_target < nr_cpu_ids)
+			cpumask_set_cpu(die_target, &uncore_cpu_mask);
+		else
+			die_target = -1;
+	}
+
+	if (cpumask_test_and_clear_cpu(cpu, &uncore_cpu_mask_pkg)) {
+		/* Find a new cpu to collect uncore events */
+		pkg_target = cpumask_any_but(topology_core_cpumask(cpu), cpu);
+
+		/* Migrate uncore events to the new target */
+		if (pkg_target < nr_cpu_ids)
+			cpumask_set_cpu(pkg_target, &uncore_cpu_mask_pkg);
+		else
+			pkg_target = -1;
+	}
+
+	if ((die_target == nr_cpu_ids) && (pkg_target == nr_cpu_ids))
 		goto unref;
-	/* Find a new cpu to collect uncore events */
-	target = cpumask_any_but(topology_die_cpumask(cpu), cpu);
 
-	/* Migrate uncore events to the new target */
-	if (target < nr_cpu_ids)
-		cpumask_set_cpu(target, &uncore_cpu_mask);
-	else
-		target = -1;
-
-	uncore_change_context(uncore_msr_uncores, cpu, target);
-	uncore_change_context(uncore_mmio_uncores, cpu, target);
-	uncore_change_context(uncore_pci_uncores, cpu, target);
+	uncore_change_context(uncore_msr_uncores, cpu, die_target, pkg_target);
+	uncore_change_context(uncore_mmio_uncores, cpu, die_target, pkg_target);
+	uncore_change_context(uncore_pci_uncores, cpu, die_target, pkg_target);
 
 unref:
 	/* Clear the references */
-	die = topology_logical_die_id(cpu);
-	uncore_box_unref(uncore_msr_uncores, die);
-	uncore_box_unref(uncore_mmio_uncores, die);
+	uncore_box_unref(uncore_msr_uncores, cpu);
+	uncore_box_unref(uncore_mmio_uncores, cpu);
 	return 0;
 }
 
 static int allocate_boxes(struct intel_uncore_type **types,
-			 unsigned int die, unsigned int cpu)
+			  unsigned int cpu)
 {
 	struct intel_uncore_box *box, *tmp;
 	struct intel_uncore_type *type;
 	struct intel_uncore_pmu *pmu;
 	LIST_HEAD(allocated);
+	unsigned int id;
 	int i;
 
 	/* Try to allocate all required boxes */
 	for (; *types; types++) {
 		type = *types;
 		pmu = type->pmus;
+		id = intel_uncore_scope_id(type, cpu);
 		for (i = 0; i < type->num_boxes; i++, pmu++) {
-			if (pmu->boxes[die])
+			if (pmu->boxes[id])
 				continue;
 			box = uncore_alloc_box(type, cpu_to_node(cpu));
 			if (!box)
 				goto cleanup;
 			box->pmu = pmu;
-			box->dieid = die;
+			box->dieid = id;
 			list_add(&box->active_list, &allocated);
 		}
 	}
 	/* Install them in the pmus */
 	list_for_each_entry_safe(box, tmp, &allocated, active_list) {
 		list_del_init(&box->active_list);
-		box->pmu->boxes[die] = box;
+		box->pmu->boxes[id] = box;
 	}
 	return 0;
 
@@ -1576,20 +1606,22 @@ cleanup:
 }
 
 static int uncore_box_ref(struct intel_uncore_type **types,
-			  int id, unsigned int cpu)
+			  unsigned int cpu)
 {
 	struct intel_uncore_type *type;
 	struct intel_uncore_pmu *pmu;
 	struct intel_uncore_box *box;
+	unsigned int id;
 	int i, ret;
 
-	ret = allocate_boxes(types, id, cpu);
+	ret = allocate_boxes(types, cpu);
 	if (ret)
 		return ret;
 
 	for (; *types; types++) {
 		type = *types;
 		pmu = type->pmus;
+		id = intel_uncore_scope_id(type, cpu);
 		for (i = 0; i < type->num_boxes; i++, pmu++) {
 			box = pmu->boxes[id];
 			if (box && atomic_inc_return(&box->refcnt) == 1)
@@ -1601,11 +1633,11 @@ static int uncore_box_ref(struct intel_uncore_type **types,
 
 static int uncore_event_cpu_online(unsigned int cpu)
 {
-	int die, target, msr_ret, mmio_ret;
+	int die_target, pkg_target;
+	int msr_ret, mmio_ret;
 
-	die = topology_logical_die_id(cpu);
-	msr_ret = uncore_box_ref(uncore_msr_uncores, die, cpu);
-	mmio_ret = uncore_box_ref(uncore_mmio_uncores, die, cpu);
+	msr_ret = uncore_box_ref(uncore_msr_uncores, cpu);
+	mmio_ret = uncore_box_ref(uncore_mmio_uncores, cpu);
 	if (msr_ret && mmio_ret)
 		return -ENOMEM;
 
@@ -1613,17 +1645,30 @@ static int uncore_event_cpu_online(unsigned int cpu)
 	 * Check if there is an online cpu in the package
 	 * which collects uncore events already.
 	 */
-	target = cpumask_any_and(&uncore_cpu_mask, topology_die_cpumask(cpu));
-	if (target < nr_cpu_ids)
-		return 0;
+	die_target = cpumask_any_and(&uncore_cpu_mask, topology_die_cpumask(cpu));
+	if (die_target < nr_cpu_ids)
+		die_target = nr_cpu_ids;
+	else
+		die_target = cpu;
 
-	cpumask_set_cpu(cpu, &uncore_cpu_mask);
+	pkg_target = cpumask_any_and(&uncore_cpu_mask_pkg, topology_core_cpumask(cpu));
+	if (pkg_target < nr_cpu_ids)
+		pkg_target = nr_cpu_ids;
+	else
+		pkg_target = cpu;
+
+	if ((die_target == nr_cpu_ids) && (pkg_target == nr_cpu_ids))
+		return 0;
+	if (die_target == cpu)
+		cpumask_set_cpu(cpu, &uncore_cpu_mask);
+	if (pkg_target == cpu)
+		cpumask_set_cpu(cpu, &uncore_cpu_mask_pkg);
 
 	if (!msr_ret)
-		uncore_change_context(uncore_msr_uncores, -1, cpu);
+		uncore_change_context(uncore_msr_uncores, -1, die_target, pkg_target);
 	if (!mmio_ret)
-		uncore_change_context(uncore_mmio_uncores, -1, cpu);
-	uncore_change_context(uncore_pci_uncores, -1, cpu);
+		uncore_change_context(uncore_mmio_uncores, -1, die_target, pkg_target);
+	uncore_change_context(uncore_pci_uncores, -1, die_target, pkg_target);
 	return 0;
 }
 

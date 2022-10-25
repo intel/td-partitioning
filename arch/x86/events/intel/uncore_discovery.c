@@ -621,6 +621,12 @@ static bool uncore_update_uncore_type(enum uncore_access_type type_id,
 		return false;
 	}
 
+	/*
+	 * TODO: Find a reliable way to detect per-package units.
+	 */
+	if ((topology_max_die_per_package() > 1) && !type->box_ctrl_die[1])
+		uncore->scope = INTEL_UNCORE_PKG;
+
 	return true;
 }
 

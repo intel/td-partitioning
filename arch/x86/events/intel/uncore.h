@@ -47,6 +47,11 @@ struct uncore_event_desc;
 struct freerunning_counters;
 struct intel_uncore_topology;
 
+enum intel_uncore_scope {
+	INTEL_UNCORE_DIE	= 0,
+	INTEL_UNCORE_PKG,
+};
+
 struct intel_uncore_type {
 	const char *name;
 	int num_counters;
@@ -62,6 +67,7 @@ struct intel_uncore_type {
 	unsigned fixed_ctr;
 	unsigned fixed_ctl;
 	unsigned box_ctl;
+	enum intel_uncore_scope scope;
 	u64 *box_ctls;	/* Unit ctrl addr of the first box of each die */
 	union {
 		unsigned msr_offset;
