@@ -2023,6 +2023,10 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 		get_file(migf->filp);
 		vidxd->saving_migf = migf;
 
+		ret = idxd_vdcm_stop_device(vidxd);
+		if (ret)
+			return ERR_PTR(ret);
+
 		return migf->filp;
 	}
 
