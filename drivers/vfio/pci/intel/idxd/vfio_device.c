@@ -1511,11 +1511,9 @@ static int vidxd_resubmit_pending_descs (struct vdcm_idxd *vidxd)
 		for (; vwq->ndescs > 0; vwq->ndescs--) {
 			memcpy((u8 *)&el, &vidxd_data->el[i][j++], sizeof(el));
 
-			/* Fixme: Is this right? */
-			portal = wq->portal +
-				 idxd_get_wq_portal_offset(wq->id,
-							   el.portal_prot,
-							   IDXD_IRQ_IMS);
+			portal = vidxd->idxd->portal_base +
+				idxd_get_wq_portal_offset(wq->id,
+						el.portal_prot, IDXD_IRQ_IMS);
 			portal += (el.portal_id << 6);
 
 			pr_info("submitting desc[%d] to WQ %d:%d ded %d\n",
@@ -2022,10 +2020,6 @@ _idxd_vdcm_set_device_state(struct vdcm_idxd *vidxd, u32 new)
 			return ERR_CAST(migf);
 		get_file(migf->filp);
 		vidxd->saving_migf = migf;
-
-		ret = idxd_vdcm_stop_device(vidxd);
-		if (ret)
-			return ERR_PTR(ret);
 
 		return migf->filp;
 	}

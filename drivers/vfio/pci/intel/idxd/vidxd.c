@@ -870,11 +870,9 @@ int vidxd_portal_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf,
                } else {
 			void __iomem *wq_portal;
 
-			/* Fix me: right? */
-			wq_portal = wq->portal +
-				    idxd_get_wq_portal_offset(wq->id,
-							      portal_prot,
-							      IDXD_IRQ_IMS);
+			wq_portal = vidxd->idxd->portal_base +
+				idxd_get_wq_portal_offset(wq->id,
+						portal_prot, IDXD_IRQ_IMS);
                         wq_portal += (portal_id << 6);
 
 			printk("submitting a desc to WQ %d ded %d\n", wq->id,
