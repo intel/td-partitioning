@@ -4949,7 +4949,8 @@ static int intel_iommu_set_dirty_tracking(struct iommu_domain *domain,
 
 	spin_lock(&dmar_domain->lock);
 	if (!(dmar_domain->dirty_tracking ^ enable) ||
-	    list_empty(&dmar_domain->devices)) {
+	    (list_empty(&dmar_domain->devices) &&
+		list_empty(&dmar_domain->dev_pasids))) {
 		spin_unlock(&dmar_domain->lock);
 		return 0;
 	}
