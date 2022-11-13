@@ -1425,7 +1425,7 @@ vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 {
 	struct vidxd_migration_file *migf = vidxd->resuming_migf;
 	struct vidxd_data *vidxd_data = &migf->vidxd_data;
-	struct device *dev = vidxd_dev(vidxd);
+	struct device *dev = &vidxd->vdev.device;
 	struct vfio_ims *ims = &vidxd->vdev.ims;
 	u8 *bar0 = vidxd->bar0;
 	int i, rc = 0;
@@ -1632,8 +1632,8 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 				   struct vidxd_migration_file *migf)
 {
 	struct vidxd_data *vidxd_data = &migf->vidxd_data;
+	struct device *dev = &vidxd->vdev.device;
 	struct vfio_ims *ims = &vidxd->vdev.ims;
-	struct device *dev = vidxd_dev(vidxd);
 	struct idxd_virtual_wq *vwq;
 	int i;
 
