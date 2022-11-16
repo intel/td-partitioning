@@ -374,6 +374,17 @@ static inline u64 tdh_vp_wr(hpa_t tdvpr, u64 field, u64 val, u64 mask,
 	return kvm_seamcall(TDH_VP_WR,
 			    tdvpr, field, val, mask, 0, 0, 0, 0, out);
 }
+
+static inline u64 tdh_servtd_prebind(hpa_t target_tdr,
+				     hpa_t hash_addr,
+				     u64 slot_idx,
+				     u64 attr,
+				     enum kvm_tdx_servtd_type type)
+{
+	return kvm_seamcall(TDH_SERVTD_PREBIND, target_tdr,
+			    hash_addr, slot_idx, type, attr, 0, 0, 0, NULL);
+}
+
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */
