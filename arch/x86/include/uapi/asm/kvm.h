@@ -540,6 +540,7 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_INIT_MEM_REGION,
 	KVM_TDX_FINALIZE_VM,
 	KVM_TDX_SERVTD_PREBIND,
+	KVM_TDX_SERVTD_BIND,
 
 	KVM_TDX_CMD_NR_MAX,
 };
@@ -652,6 +653,8 @@ struct kvm_tdx_servtd {
 	union {
 		/* KVM_TDX_SERVTD_PREBIND */
 		__u8  hash[KVM_TDX_SERVTD_HASH_SIZE];
+		/* KVM_TDX_SERVTD_BIND */
+		__u32 pid;
 	};
 };
 
