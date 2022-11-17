@@ -197,6 +197,28 @@ struct tdvmcall_service {
 	uint8_t  data[0];
 };
 
+enum tdvmcall_service_id {
+	TDVMCALL_SERVICE_ID_QUERY,
+
+	TDVMCALL_SERVICE_ID_UNKNOWN,
+};
+
+enum tdvmcall_service_status {
+	TDVMCALL_SERVICE_S_UNSUPP = 0xFFFFFFFE,
+};
+
+struct tdvmcall_service_query {
+#define TDVMCALL_SERVICE_QUERY_VERSION	0
+	uint8_t version;
+#define TDVMCALL_SERVICE_CMD_QUERY	0
+	uint8_t cmd;
+#define TDVMCALL_SERVICE_QUERY_S_SUPPORTED	0
+#define TDVMCALL_SERVICE_QUERY_S_UNSUPPORTED	1
+	uint8_t status;
+	uint8_t rsvd;
+	guid_t  guid;
+};
+
 static inline bool is_td(struct kvm *kvm)
 {
 	return kvm->arch.vm_type == KVM_X86_TDX_VM;
