@@ -3532,6 +3532,12 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		return -EBUSY;
 	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
+	if (init_vm->num_l2_vms > tdx_caps.max_num_l2_vms) {
+		pr_err("TDX: Invalid num_l2_vms %d, maximum %d\n",
+		       init_vm->num_l2_vms, tdx_caps.max_num_l2_vms);
+		return -EOPNOTSUPP;
+	}
+	td_params->num_l2_vms = init_vm->num_l2_vms;
 
 	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
 		const struct tdx_cpuid_config *config = &tdx_caps.cpuid_configs[i];
@@ -3833,6 +3839,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	kvm_tdx->attributes = td_params->attributes;
 	kvm_tdx->xfam = td_params->xfam;
+	kvm_tdx->num_l2_vms = td_params->num_l2_vms;
 
 	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
 		kvm->arch.gfn_shared_mask = gpa_to_gfn(BIT_ULL(51));
