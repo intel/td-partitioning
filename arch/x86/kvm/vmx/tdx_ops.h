@@ -402,6 +402,14 @@ static inline u64 tdh_mig_stream_create(hpa_t tdr, hpa_t migsc)
 			    0, 0, 0, 0, 0, 0, NULL);
 }
 
+static inline u64 tdh_export_blockw(hpa_t tdr,
+				    u64 gpa_list_info,
+				    struct tdx_module_output *out)
+{
+	return kvm_seamcall(TDH_EXPORT_BLOCKW, gpa_list_info, tdr,
+			    0, 0, 0, 0, 0, 0, out);
+}
+
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */
