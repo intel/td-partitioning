@@ -2,4 +2,6 @@
 #ifndef __KVM_X86_TD_PART_H
 #define __KVM_X86_TD_PART_H
 
+extern bool enable_td_part;
+
 #endif /* __KVM_X86_TD_PART_H */

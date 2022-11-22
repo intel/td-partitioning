@@ -4574,6 +4574,8 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = BIT(KVM_X86_DEFAULT_VM);
 		if (static_call(kvm_x86_is_vm_type_supported)(KVM_X86_TDX_VM))
 			r |= BIT(KVM_X86_TDX_VM);
+		if (static_call(kvm_x86_is_vm_type_supported)(KVM_X86_TD_PART_VM))
+			r |= BIT(KVM_X86_TD_PART_VM);
 		break;
 	case KVM_CAP_ENCRYPT_MEMORY_DEBUG:
 		if (kvm_x86_ops.mem_enc_read_memory &&
