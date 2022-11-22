@@ -167,8 +167,9 @@ struct tdx_cpuid_value {
 struct td_params {
 	u64 attributes;
 	u64 xfam;
-	u32 max_vcpus;
-	u32 reserved0;
+	u16 max_vcpus;
+	u8  num_l2_vms;
+	u8  reserved0[5];
 
 	u64 eptp_controls;
 	u64 exec_controls;
