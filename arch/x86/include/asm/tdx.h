@@ -195,6 +195,7 @@ struct tdx_features {
 };
 
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
+const struct tdx_features *tdx_get_features(int index);
 bool platform_tdx_enabled(void);
 int tdx_enable(void);
 /*
@@ -213,6 +214,8 @@ u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 #else	/* !CONFIG_INTEL_TDX_HOST */
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; }
+struct tdx_features;
+static inline const struct tdx_features *tdx_get_features(int index) { return NULL; }
 static inline bool platform_tdx_enabled(void) { return false; }
 static inline int tdx_enable(void)  { return -EINVAL; }
 static inline u32 tdx_get_num_keyid(void) { return 0; }

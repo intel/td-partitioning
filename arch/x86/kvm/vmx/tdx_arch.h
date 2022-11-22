@@ -235,4 +235,13 @@ enum tdx_ext_exit_qualification_type {
 #define TDX_MD_FID_TD_STATE_PAGES		0xA000000000000021
 #define TDX_MD_FID_VP_STATE_PAGES		0xA000000000000022
 
+enum tdx_vm_index {
+	TDX_L1TD,
+	TDX_L2TD_1,
+	TDX_L2TD_2,
+	TDX_L2TD_3,
+
+	TDX_MAX_L2_VMS = TDX_L2TD_3,
+};
+
 #endif /* __KVM_X86_TDX_ARCH_H */
