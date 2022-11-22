@@ -19,6 +19,13 @@
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
+#define TDX_SEAMCALL_VER_SHIFT			16
+#define TDX_SEAMCALL_V0				0
+#define TDX_SEAMCALL_V1				1
+
+#define SEPT_ADD_ALLOW_EXISTING			1
+#define SEPT_ADD_EXISTING_MASK			BIT(63)
+
 static inline uint64_t kvm_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8,
 				    u64 r9, u64 r10, u64 r11, u64 r12,
 				    u64 r13, struct tdx_module_output *out)
@@ -130,17 +137,67 @@ static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 	return r;
 }
 
-static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
+static inline u64 tdh_mem_sept_add(u8 version, hpa_t tdr, gpa_t gpa, int level, hpa_t l1sept_page,
+				   hpa_t l2sept1_page, hpa_t l2sept2_page, hpa_t l2sept3_page,
 				   struct tdx_module_output *out)
 {
+	hpa_t pages[TDX_MAX_L2_VMS] = {l2sept1_page, l2sept2_page, l2sept3_page};
+	gpa_t aligned_gpa = gpa & KVM_HPAGE_MASK(tdx_sept_level_to_pg_level(level));
 	u64 r;
+	int i;
 
-	tdx_clflush_page(page, PG_LEVEL_4K);
-	r = kvm_seamcall(TDH_MEM_SEPT_ADD,
-			 gpa | level, tdr, page, 0, 0, 0, 0, 0, out);
-	if (!r)
-		tdx_set_page_np(page);
+	BUILD_BUG_ON(TDX_MAX_L2_VMS != 3);
+
+	if (VALID_PAGE(l1sept_page))
+		tdx_clflush_page(l1sept_page, PG_LEVEL_4K);
+
+	switch (version) {
+	case TDX_SEAMCALL_V0:
+		/* For version 0, only l1sept will be added */
+		for (i = 0; i < TDX_MAX_L2_VMS; i++)
+			WARN_ON(pages[i] && VALID_PAGE(pages[i]));
+		break;
+	case TDX_SEAMCALL_V1:
+		/* For version 1, paging page can be added to either l2septx */
+		for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+			if (VALID_PAGE(pages[i]))
+				tdx_clflush_page(pages[i], PG_LEVEL_4K);
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	r = kvm_seamcall((version << TDX_SEAMCALL_VER_SHIFT) | TDH_MEM_SEPT_ADD,
+			 aligned_gpa | level, tdr, l1sept_page, l2sept1_page,
+			 l2sept2_page, l2sept3_page, 0, 0, out);
+	if (!r) {
+		if (VALID_PAGE(l1sept_page))
+			tdx_set_page_np(l1sept_page);
+
+		if (version == TDX_SEAMCALL_V1) {
+			for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+				if (VALID_PAGE(pages[i]))
+					tdx_set_page_np(pages[i]);
+			}
+		}
+	}
+
 	return r;
+}
+
+static inline u64 tdh_mem_sept_add_v0(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
+				      struct tdx_module_output *out)
+{
+	return tdh_mem_sept_add(TDX_SEAMCALL_V0, tdr, gpa, level, page, 0, 0, 0, out);
+}
+
+static inline u64 tdh_mem_sept_add_v1(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
+				      hpa_t page_1, hpa_t page_2, hpa_t page_3,
+				      struct tdx_module_output *out)
+{
+	return tdh_mem_sept_add(TDX_SEAMCALL_V1, tdr | SEPT_ADD_ALLOW_EXISTING,
+				gpa, level, page, page_1, page_2, page_3, out);
 }
 
 static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,

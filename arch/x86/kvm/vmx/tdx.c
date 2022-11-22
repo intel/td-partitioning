@@ -2396,7 +2396,7 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	struct tdx_module_output out;
 	u64 err;
 
-	err = tdh_mem_sept_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
+	err = tdh_mem_sept_add_v0(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_SEPT_ADD, err, &out);
 		return -EIO;
