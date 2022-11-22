@@ -603,7 +603,8 @@ struct kvm_tdx_capabilities {
 	__u64 xfam_fixed1;
 
 	__u32 nr_cpuid_configs;
-	__u32 padding;
+	__u8  max_num_l2_vms;
+	__u8  padding[3];
 	struct kvm_tdx_cpuid_config cpuid_configs[0];
 };
 

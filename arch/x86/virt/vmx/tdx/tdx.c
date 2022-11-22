@@ -521,6 +521,20 @@ const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 }
 EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
+const struct tdx_features *tdx_get_features(int index)
+{
+	const struct tdx_features *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED) {
+		if (index < num_tdx_features)
+			r = &tdx_features[index];
+	}
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_features);
+
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
  * all memory regions are added in address ascending order and don't

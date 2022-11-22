@@ -46,6 +46,7 @@ struct tdx_capabilities {
 	u64 xfam_fixed1;
 
 	u32 nr_cpuid_configs;
+	u8 max_num_l2_vms;
 	struct tdx_cpuid_config cpuid_configs[TDX_MAX_NR_CPUID_CONFIGS];
 };
 
@@ -3478,7 +3479,8 @@ int tdx_dev_ioctl(void __user *argp)
 		.xfam_fixed0 = tdx_caps.xfam_fixed0,
 		.xfam_fixed1 = tdx_caps.xfam_fixed1,
 		.nr_cpuid_configs = tdx_caps.nr_cpuid_configs,
-		.padding = 0,
+		.max_num_l2_vms = tdx_caps.max_num_l2_vms,
+		.padding = {0},
 	};
 
 	if (copy_to_user(user_caps, &caps, sizeof(caps)))
@@ -4547,7 +4549,9 @@ bool is_sys_rd_supported(void)
 static int tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
+	const struct tdx_features *features;
 	struct tdx_module_output out;
+	u8 max_num_l2_vms = 0;
 	int ret = 0;
 	u64 err;
 
@@ -4564,6 +4568,10 @@ static int tdx_module_setup(void)
 	if (tdsysinfo->num_cpuid_config > TDX_MAX_NR_CPUID_CONFIGS)
 		return -EIO;
 
+	features = tdx_get_features(0);
+	if (features)
+		max_num_l2_vms = features->features0.td_partitioning ? TDX_MAX_L2_VMS : 0;
+
 	tdx_caps = (struct tdx_capabilities) {
 		.tdcs_nr_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,
 		/*
@@ -4577,6 +4585,7 @@ static int tdx_module_setup(void)
 		.xfam_fixed1 = tdsysinfo->xfam_fixed1,
 		.nr_cpuid_configs = tdsysinfo->num_cpuid_config,
 		.sys_rd = tdsysinfo->sys_rd,
+		.max_num_l2_vms = max_num_l2_vms,
 	};
 
 	err = tdh_sys_rd(TDX_MD_FID_SERVTD_MAX_SERVTDS, &out);
