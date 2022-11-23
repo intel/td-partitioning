@@ -4528,6 +4528,12 @@ static int tdx_module_setup(void)
 	pr_info("tdx: max servtds supported per user TD is %d\n",
 		tdx_caps.max_servtds);
 
+	ret = tdx_mig_capabilities_setup();
+	if (ret)
+		pr_info("tdx: live migration not supported\n");
+	else
+		pr_info("tdx: live migration supported\n");
+
 	if (!memcpy(tdx_caps.cpuid_configs, tdsysinfo->cpuid_configs,
 			tdsysinfo->num_cpuid_config *
 			sizeof(struct tdx_cpuid_config)))
