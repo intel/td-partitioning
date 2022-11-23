@@ -200,11 +200,23 @@ static inline u64 tdh_mem_sept_add_v1(hpa_t tdr, gpa_t gpa, int level, hpa_t pag
 				gpa, level, page, page_1, page_2, page_3, out);
 }
 
-static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_sept_remove(u8 version, hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_output *out)
 {
-	return kvm_seamcall(TDH_MEM_SEPT_REMOVE,
-			    gpa | level, tdr, 0, 0, 0, 0, 0, 0, out);
+	return kvm_seamcall((version << TDX_SEAMCALL_VER_SHIFT) | TDH_MEM_SEPT_REMOVE,
+				   gpa | level, tdr, 0, 0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_mem_sept_remove_v0(hpa_t tdr, gpa_t gpa, int level,
+					 struct tdx_module_output *out)
+{
+	return tdh_mem_sept_remove(TDX_SEAMCALL_V0, tdr, gpa, level, out);
+}
+
+static inline u64 tdh_mem_sept_remove_v1(hpa_t tdr, gpa_t gpa, int level,
+					 struct tdx_module_output *out)
+{
+	return tdh_mem_sept_remove(TDX_SEAMCALL_V1, tdr, gpa, level, out);
 }
 
 static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)

@@ -2600,8 +2600,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 
 	tdx_track(kvm_tdx);
 
-	err = tdh_mem_sept_remove(kvm_tdx->tdr_pa, parent_gpa,
-				  parent_tdx_level, &out);
+	err = tdh_mem_sept_remove_v0(kvm_tdx->tdr_pa, parent_gpa,
+				     parent_tdx_level, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_SEPT_REMOVE, err, &out);
 		return -EIO;
