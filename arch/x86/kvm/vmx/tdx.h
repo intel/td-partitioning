@@ -457,6 +457,11 @@ static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
 	return level - 1;
 }
 
+static __always_inline enum tdx_vm_index index_to_tdx_vm_index(int i)
+{
+	return i + TDX_L2TD_1;
+}
+
 void tdx_reclaim_td_page(unsigned long td_page_pa);
 
 void tdx_track(struct kvm_tdx *kvm_tdx);
