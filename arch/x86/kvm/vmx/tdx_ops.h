@@ -418,6 +418,16 @@ static inline u64 tdh_export_unblockw(hpa_t tdr,
 			    0, 0, 0, 0, 0, 0, out);
 }
 
+static inline u64 tdh_export_state_immutable(hpa_t tdr,
+					     u64 mbmd_info,
+					     u64 page_list_info,
+					     u64 mig_stream_info,
+					     struct tdx_module_output *out)
+{
+	return kvm_seamcall(TDH_EXPORT_STATE_IMMUTABLE, tdr, 0, mbmd_info,
+			    page_list_info, mig_stream_info, 0, 0, 0, out);
+}
+
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */
