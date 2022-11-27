@@ -4989,6 +4989,84 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_map_tdp_page);
 
+static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
+{
+	int idx, ret = 0;
+	struct kvm *kvm = memslot->kvm;
+	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	unsigned long npages = memslot->npages;
+	gfn_t start = memslot->base_gfn;
+	gfn_t end = memslot->base_gfn + npages;
+	gpa_t gpa = gfn_to_gpa(memslot->base_gfn);
+	u64 attrs = KVM_MEMORY_ATTRIBUTE_READ |
+		    KVM_MEMORY_ATTRIBUTE_WRITE |
+		    KVM_MEMORY_ATTRIBUTE_EXECUTE |
+		    KVM_MEMORY_ATTRIBUTE_PRIVATE;
+	kvm_pfn_t pfn;
+
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
+
+	vcpu_load(vcpu);
+	idx = srcu_read_lock(&kvm->srcu);
+
+	kvm_mmu_reload(vcpu);
+
+	KVM_BUG_ON(kvm_vm_set_memory_attributes(kvm, attrs, start, end), kvm);
+	while (npages) {
+		if (signal_pending(current)) {
+			ret = -ERESTARTSYS;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+
+
+		pfn = kvm_mmu_map_tdp_page(vcpu, gpa, PFERR_WRITE_MASK,
+					   PG_LEVEL_4K);
+		if (is_error_noslot_pfn(pfn) || kvm->vm_bugged) {
+			pr_err("%s: failed, noslot_pfn=%d, vm_bugged=%d\n",
+				__func__, is_error_noslot_pfn(pfn), kvm->vm_bugged);
+			ret = -EFAULT;
+			break;
+		}
+
+		gpa += PAGE_SIZE;
+		npages--;
+	}
+
+	srcu_read_unlock(&kvm->srcu, idx);
+	vcpu_put(vcpu);
+
+	mutex_unlock(&vcpu->mutex);
+
+	return ret;
+}
+
+#ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+int kvm_prealloc_private_pages(struct kvm *kvm)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	int bkt, ret = 0;
+
+	kvm_for_each_memslot(memslot, bkt, slots) {
+		if (!memslot->restricted_file)
+			continue;
+
+		ret = kvm_slot_prealloc_private_pages(memslot);
+		if (ret) {
+			pr_err("%s: failed\n", __func__);
+			break;
+		}
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_prealloc_private_pages);
+#endif
+
 static void nonpaging_init_context(struct kvm_mmu *context)
 {
 	context->page_fault = nonpaging_page_fault;
