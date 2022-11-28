@@ -438,6 +438,20 @@ static inline u64 tdh_import_state_immutable(hpa_t tdr,
 			    buf_list_info, mig_stream_info, 0, 0, 0, out);
 }
 
+static inline u64 tdh_export_mem(hpa_t tdr,
+				 u64 mbmd_info,
+				 u64 gpa_list_info,
+				 u64 buf_list_info,
+				 u64 mac_list0_info,
+				 u64 mac_list1_info,
+				 u64 mig_stream_info,
+				 struct tdx_module_output *out)
+{
+	return kvm_seamcall(TDH_EXPORT_MEM, gpa_list_info, tdr, mbmd_info,
+			    buf_list_info, mig_stream_info, mac_list0_info,
+			    mac_list1_info, 0, out);
+}
+
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */
