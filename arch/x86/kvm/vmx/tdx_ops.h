@@ -467,6 +467,14 @@ static inline u64 tdh_import_mem(hpa_t tdr,
 			    mac_list1_info, td_page_list_info, out);
 }
 
+static inline u64 tdh_export_track(hpa_t tdr,
+				   u64 mbmd_info,
+				   u64 mig_stream_info)
+{
+	return kvm_seamcall(TDH_EXPORT_TRACK, tdr, 0, mbmd_info, 0,
+			    mig_stream_info, 0, 0, 0, NULL);
+}
+
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */
