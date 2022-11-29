@@ -1025,6 +1025,37 @@ static int tdx_mig_export_state_td(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static int tdx_mig_import_state_td(struct kvm_tdx *kvm_tdx,
+				   struct tdx_mig_stream *stream,
+				   uint64_t __user *data)
+{
+	struct tdx_mig_page_list *page_list = &stream->page_list;
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_module_output out;
+	uint64_t err, npages;
+
+	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
+		return -EFAULT;
+
+	page_list->info.last_entry = npages - 1;
+	do {
+		err = tdh_import_state_td(kvm_tdx->tdr_pa,
+					  stream->mbmd.addr_and_size,
+					  page_list->info.val,
+					  stream_info.val,
+					  &out);
+		if (err == TDX_INTERRUPTED_RESUMABLE)
+			stream_info.resume = 1;
+	} while (err == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1066,6 +1097,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_EXPORT_STATE_TD:
 		r = tdx_mig_export_state_td(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_IMPORT_STATE_TD:
+		r = tdx_mig_import_state_td(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
 		break;
 	default:
