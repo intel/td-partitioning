@@ -56,6 +56,9 @@ void kvm_tdp_mmu_try_split_huge_pages(struct kvm *kvm,
 int kvm_tdp_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
 			    bool map_private);
 
+int kvm_tdp_mmu_restore_private_pages(struct kvm_memory_slot *slot,
+				      gfn_t gfn_max);
+
 static inline void kvm_tdp_mmu_walk_lockless_begin(void)
 {
 	rcu_read_lock();

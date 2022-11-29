@@ -5086,6 +5086,36 @@ int kvm_prealloc_private_pages(struct kvm *kvm)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kvm_prealloc_private_pages);
+
+static int kvm_slot_restore_private_pages(struct kvm_memory_slot *slot, gfn_t gfn_max)
+{
+	if (!is_tdp_mmu_enabled(slot->kvm))
+		return -EOPNOTSUPP;
+
+	return kvm_tdp_mmu_restore_private_pages(slot, gfn_max);
+}
+
+int kvm_restore_private_pages(struct kvm *kvm, gfn_t gfn_max)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	int bkt, ret = 0;
+
+	kvm_for_each_memslot(memslot, bkt, slots) {
+		if (!memslot->restricted_file)
+			continue;
+
+		ret = kvm_slot_restore_private_pages(memslot, gfn_max);
+		if (ret) {
+			pr_err("%s: failed\n", __func__);
+			break;
+		}
+	}
+
+	kvm_flush_remote_tlbs_with_address(kvm, 0, gfn_max);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_restore_private_pages);
 #endif
 
 static void nonpaging_init_context(struct kvm_mmu *context)

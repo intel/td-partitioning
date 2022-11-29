@@ -165,6 +165,8 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn);
 
 int kvm_prealloc_private_pages(struct kvm *kvm);
+
+int kvm_restore_private_pages(struct kvm *kvm, gfn_t gfn_max);
 #endif
 
 /*

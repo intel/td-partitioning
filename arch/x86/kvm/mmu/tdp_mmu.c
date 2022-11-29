@@ -2559,6 +2559,56 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 	return spte_set;
 }
 
+static int kvm_tdp_mmu_restore_one_private_page(struct kvm *kvm,
+						struct kvm_mmu_page *root,
+						gfn_t gfn)
+{
+	struct tdp_iter iter;
+	u64 new_spte;
+	int ret;
+
+	for_each_tdp_pte_min_level(iter, root, PG_LEVEL_4K, gfn, gfn + 1) {
+		if (!is_writable_pte(iter.old_spte)) {
+			new_spte = iter.old_spte | PT_WRITABLE_MASK;
+			kvm_tdp_mmu_write_spte(iter.sptep, iter.old_spte,
+					       new_spte, iter.level);
+		}
+		ret = static_call(kvm_x86_restore_private_page)(kvm, gfn);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+int kvm_tdp_mmu_restore_private_pages(struct kvm_memory_slot *slot,
+				      gfn_t gfn_max)
+{
+	struct kvm *kvm = slot->kvm;
+	struct kvm_mmu_page *root;
+	gfn_t gfn, gfn_end;
+	int ret;
+
+	gfn_end = slot->base_gfn + slot->npages;
+	if (gfn_end > gfn_max)
+		gfn_end = gfn_max;
+
+	for (gfn = slot->base_gfn; gfn < gfn_end; gfn++) {
+		/* Skip shared pages */
+		if (!kvm_mem_is_private(kvm, gfn))
+			continue;
+
+		for_each_tdp_mmu_root(kvm, root, slot->as_id) {
+			ret = kvm_tdp_mmu_restore_one_private_page(kvm,
+								   root, gfn);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
 int kvm_tdp_mmu_map_private(struct kvm *kvm,
 			    gfn_t *startp, gfn_t end, bool map_private)
 {
