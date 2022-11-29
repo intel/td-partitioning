@@ -700,6 +700,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->host_state_need_save = true;
 	tdx->host_state_need_restore = false;
 
+	tdx->tdvmcall.regs_mask = 0xffffffff;
+
 	return 0;
 }
 
