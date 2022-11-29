@@ -1112,6 +1112,59 @@ static int tdx_mig_export_state_vp(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static uint16_t tdx_mig_mbmd_get_vcpu_idx(struct tdx_mig_mbmd_data *data)
+{
+	return *(uint16_t *)data->type_specific_info;
+}
+
+static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
+				   struct tdx_mig_stream *stream,
+				   uint64_t __user *data)
+{
+	struct tdx_mig_page_list *page_list = &stream->page_list;
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_module_output out;
+	struct vcpu_tdx *vcpu_tdx;
+	struct kvm_vcpu *vcpu;
+	uint64_t err, npages;
+	int cpu, vcpu_idx;
+
+	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
+		return -EFAULT;
+
+	vcpu_idx = tdx_mig_mbmd_get_vcpu_idx(stream->mbmd.data);
+	vcpu = kvm_get_vcpu(&kvm_tdx->kvm, vcpu_idx);
+	vcpu_tdx = to_tdx(vcpu);
+
+	page_list->info.last_entry = npages - 1;
+
+	tdx_td_vcpu_setup(vcpu);
+
+	tdx_flush_vp_on_cpu(vcpu);
+	cpu = get_cpu();
+	do {
+		err = tdh_import_state_vp(vcpu_tdx->tdvpr_pa,
+					  stream->mbmd.addr_and_size,
+					  page_list->info.val,
+					  stream_info.val,
+					  &out);
+		if (err == TDX_INTERRUPTED_RESUMABLE)
+			stream_info.resume = 1;
+	} while (err == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		put_cpu();
+		return -EIO;
+	}
+
+	tdx_add_vcpu_association(vcpu_tdx, cpu);
+	vcpu->cpu = cpu;
+	put_cpu();
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1161,6 +1214,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_EXPORT_STATE_VP:
 		r = tdx_mig_export_state_vp(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_IMPORT_STATE_VP:
+		r = tdx_mig_import_state_vp(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
 		break;
 	default:
