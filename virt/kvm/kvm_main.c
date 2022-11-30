@@ -1865,6 +1865,13 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 		}
 	}
 
+	if (change == KVM_MR_FLAGS_ONLY && (new->flags & KVM_MEM_PRIVATE)) {
+		memcpy(&new->notifier,
+		       &old->notifier, sizeof(struct restrictedmem_notifier));
+		kvm_restrictedmem_unregister((struct kvm_memory_slot *)old);
+		kvm_restrictedmem_register(new);
+	}
+
 	r = kvm_arch_prepare_memory_region(kvm, old, new, change);
 
 	/* Free the bitmap on failure if it was allocated above. */
@@ -2240,9 +2247,6 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		if ((kvm->nr_memslot_pages + npages) < kvm->nr_memslot_pages)
 			return -EINVAL;
 	} else { /* Modify an existing slot. */
-		/* Private memslots are immutable, they can only be deleted. */
-		if (mem->flags & KVM_MEM_PRIVATE)
-			return -EINVAL;
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
 		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
