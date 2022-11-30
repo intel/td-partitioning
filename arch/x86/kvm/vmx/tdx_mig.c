@@ -135,6 +135,8 @@ struct tdx_mig_state {
 	 * architecture to be created.
 	 */
 	struct tdx_mig_stream backward_stream;
+	/* Indicate if TD is the source TD in the current migration session */
+	bool is_src;
 };
 
 struct tdx_mig_capabilities {
@@ -178,6 +180,14 @@ static int tdx_mig_capabilities_setup(void)
 					       td_state_pages, vp_state_pages);
 
 	return 0;
+}
+
+static inline bool tdx_mig_stream_is_src(struct tdx_mig_stream *stream)
+{
+	struct tdx_mig_state *mig_state =
+		container_of(stream, struct tdx_mig_state, stream);
+
+	return mig_state->is_src;
 }
 
 static void tdx_mig_stream_get_tdx_mig_attr(struct tdx_mig_stream *stream,
@@ -494,6 +504,8 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 {
 	struct tdx_mig_state *mig_state;
+	struct tdx_binding_slot *slot =
+		&kvm_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
 
 	/*
 	 * Current version supports only one migration stream. The mig_state
@@ -512,6 +524,7 @@ static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 		kfree(mig_state);
 		return -EIO;
 	}
+	mig_state->is_src = slot->migtd_data.is_src;
 	kvm_tdx->mig_state = mig_state;
 	return 0;
 }
