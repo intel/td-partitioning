@@ -9,8 +9,8 @@
 #include <linux/types.h>
 
 /*
- * Conveniance macro to wrap the PASID for interrupt allocation
- * via pci_ims_alloc_irq(pdev, INTEL_IDXD_DEV_COOKIE(pasid))
+ * Convenience macro to wrap the PASID for interrupt allocation
+ * via pci_ims_alloc_irq(pdev, &INTEL_IDXD_DEV_COOKIE(pasid))
  */
 #define INTEL_IDXD_DEV_COOKIE(pasid)	(union msi_instance_cookie) { .value = (pasid), }
 

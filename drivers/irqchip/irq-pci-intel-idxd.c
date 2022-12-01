@@ -8,6 +8,7 @@
 #include <linux/irqdomain.h>
 #include <linux/msi.h>
 #include <linux/pci.h>
+#include <linux/iommu.h>
 
 #include <linux/irqchip/irq-pci-intel-idxd.h>
 
@@ -33,6 +34,8 @@ struct ims_slot {
 #define CTRL_PASID_ENABLE	BIT(3)
 /* Position of PASID.LSB in the control word */
 #define CTRL_PASID_SHIFT	12
+/* Valid PASID is 20 bits */
+#define CTRL_PASID_VALID	GENMASK(19, 0)
 
 static inline void iowrite32_and_flush(u32 value, void __iomem *addr)
 {
@@ -93,12 +96,17 @@ static void idxd_prepare_desc(struct irq_domain *domain, msi_alloc_info_t *arg,
 	/* Mask the interrupt for paranoia sake */
 	iowrite32_and_flush(CTRL_VECTOR_MASKBIT, &slot->ctrl);
 
-	/*
-	 * The caller provided PASID. Shift it to the proper position
-	 * and set the PASID enable bit.
-	 */
-	desc->data.icookie.value <<= CTRL_PASID_SHIFT;
-	desc->data.icookie.value |= CTRL_PASID_ENABLE;
+	if ((ioasid_t)desc->data.icookie.value != IOMMU_PASID_INVALID) {
+		/*
+		 * The caller provided PASID. Shift it to the proper position
+		 * and set the PASID enable bit.
+		 */
+		desc->data.icookie.value &= CTRL_PASID_VALID;
+		desc->data.icookie.value <<= CTRL_PASID_SHIFT;
+		desc->data.icookie.value |= CTRL_PASID_ENABLE;
+	} else {
+		desc->data.icookie.value = 0;
+	}
 
 	arg->hwirq = desc->msi_index;
 }
