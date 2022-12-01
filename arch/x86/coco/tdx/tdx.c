@@ -347,6 +347,12 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 		panic("TD misconfiguration: SEPT_VE_DISABLE attibute must be set.\n");
 }
 
+u64 tdx_get_cc_mask(void)
+{
+	return cc_mask;
+}
+EXPORT_SYMBOL_GPL(tdx_get_cc_mask);
+
 /*
  * The TDX module spec states that #VE may be injected for a limited set of
  * reasons:

@@ -125,8 +125,10 @@ void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
 bool early_is_tdx_guest(void);
 
 #ifdef CONFIG_INTEL_TDX_GUEST
+u64 tdx_get_cc_mask(void);
 bool is_td_partitioning_supported(void);
 #else
+static inline u64 tdx_get_cc_mask(void) { return 0; }
 static inline bool is_td_partitioning_supported(void) { return false; }
 #endif
 
