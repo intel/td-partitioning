@@ -29,7 +29,7 @@ static ssize_t __copy_oldmem_page(struct iov_iter *iter, unsigned long pfn,
 	if (!vaddr)
 		return -ENOMEM;
 
-	csize = copy_to_iter(vaddr + offset, csize, iter);
+	csize = _copy_mc_to_iter(vaddr + offset, csize, iter);
 
 	iounmap((void __iomem *)vaddr);
 	return csize;
