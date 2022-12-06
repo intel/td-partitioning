@@ -4219,8 +4219,10 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	/* TDX requires VMX. */
 	r = vmxon_all();
-	if (!r)
+	if (!r) {
+		tdx_update_fw(false);
 		r = tdx_module_setup();
+	}
 	vmxoff_all();
 	if (r)
 		return r;
