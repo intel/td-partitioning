@@ -64,6 +64,20 @@
 #define TDH_IMPORT_STATE_VP		87
 #define TDH_MIG_STREAM_CREATE		96
 
+/*
+ * TDX SEAMCALL API function leaves
+ */
+#define TDG_MEM_PAGE_ACCEPT		6
+#define TDG_VM_RD			7
+#define TDG_VM_WR			8
+#define TDG_VP_RD			9
+#define TDG_VP_WR			10
+#define TDG_MEM_PAGE_ATTR_RD		23
+#define TDG_MEM_PAGE_ATTR_WR		24
+#define TDG_VP_ENTER			25
+#define TDG_VP_INVEPT			26
+#define TDG_VP_INVVPID			27
+
 #define TDG_VP_VMCALL_GET_TD_VM_CALL_INFO		0x10000
 #define TDG_VP_VMCALL_MAP_GPA				0x10001
 #define TDG_VP_VMCALL_GET_QUOTE				0x10002
