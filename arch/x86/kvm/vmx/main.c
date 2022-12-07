@@ -12,14 +12,29 @@
 bool enable_tdx = IS_ENABLED(CONFIG_INTEL_TDX_HOST);
 module_param_named(tdx, enable_tdx, bool, 0444);
 
+bool __read_mostly enable_td_part = IS_ENABLED(CONFIG_INTEL_TD_PART_GUEST);
+module_param_named(td_part, enable_td_part, bool, 0444);
+
 static bool vt_is_vm_type_supported(unsigned long type)
 {
 	return type == KVM_X86_DEFAULT_VM ||
-		(enable_tdx && tdx_is_vm_type_supported(type));
+		(enable_tdx && tdx_is_vm_type_supported(type)) ||
+		(enable_td_part && td_part_is_vm_type_supported(type));
+}
+
+static int vt_hardware_enable(void)
+{
+	if (enable_td_part)
+		return 0;
+
+	return vmx_hardware_enable();
 }
 
 static void vt_hardware_disable(void)
 {
+	if (enable_td_part)
+		return;
+
 	/* Note, TDX *and* VMX need to be disabled if TDX is enabled. */
 	tdx_hardware_disable();
 	vmx_hardware_disable();
@@ -32,6 +47,8 @@ static __init int vt_hardware_setup(void)
 	/* Need to be set before vmx_hardware setup */
 	if (enable_tdx)
 		enable_pml = false;
+
+	enable_td_part = enable_td_part && !td_part_hardware_setup(&vt_x86_ops);
 
 	ret = vmx_hardware_setup();
 	if (ret)
@@ -957,7 +974,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.hardware_unsetup = vt_hardware_unsetup,
 	.offline_cpu = tdx_offline_cpu,
 
-	.hardware_enable = vmx_hardware_enable,
+	.hardware_enable = vt_hardware_enable,
 	.hardware_disable = vt_hardware_disable,
 	.has_emulated_msr = vt_has_emulated_msr,
 

@@ -269,6 +269,49 @@ int tdx_hcall_get_quote(void *tdquote, int size)
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 
+static bool is_tdx_guest(void)
+{
+	static bool once;
+	static bool is_tdx;
+
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_GUEST))
+		return false;
+
+	if (!once) {
+		u32 eax, sig[3];
+
+		cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax,
+			    &sig[0], &sig[2],  &sig[1]);
+		is_tdx = !memcmp(TDX_IDENT, sig, sizeof(sig));
+		once = true;
+	}
+
+	return is_tdx;
+}
+
+bool is_td_partitioning_supported(void)
+{
+	struct tdx_module_output out_info;
+	struct tdx_module_output out_rd;
+
+	if (!is_tdx_guest())
+		return false;
+
+	if (!IS_ENABLED(CONFIG_INTEL_TD_PART_GUEST))
+		return false;
+
+	tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out_info);
+
+	if (out_info.r10 & TDG_SYS_RD_SUPPORTED) {
+		tdx_module_call(TDX_SYS_RD, 0, TDX_MD_FEATURES0, 0, 0, &out_rd);
+		if (out_rd.r8 & TDX_FEATURES0_TD_PART)
+			return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL_GPL(is_td_partitioning_supported);
+
 static void tdx_parse_tdinfo(u64 *cc_mask)
 {
 	struct tdx_module_output out;

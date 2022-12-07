@@ -307,8 +307,10 @@ static inline int tdx_update_fw(bool live_update) { return 0; }
 #endif
 
 #ifdef CONFIG_INTEL_TD_PART_GUEST
+int __init td_part_hardware_setup(struct kvm_x86_ops *x86_ops);
 bool td_part_is_vm_type_supported(unsigned long type);
 #else /* CONFIG_INTEL_TD_PART_GUEST */
+static inline int td_part_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
 static inline bool td_part_is_vm_type_supported(unsigned long type) { return false; }
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 

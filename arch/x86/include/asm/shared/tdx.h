@@ -19,7 +19,16 @@
 #define TDX_GET_VEINFO			3
 #define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
+#define TDX_SYS_RD			11
+#define TDX_SYS_RDALL			12
 #define TDX_VERIFYREPORT		22
+
+#define TDG_SYS_RD_SUPPORTED   BIT(0)
+/*
+ * TDX module metadata identifiers
+ */
+#define TDX_MD_FEATURES0		0x0A00000300000008
+#define TDX_FEATURES0_TD_PART		BIT(7)
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
@@ -114,6 +123,12 @@ u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
 
 bool early_is_tdx_guest(void);
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+bool is_td_partitioning_supported(void);
+#else
+static inline bool is_td_partitioning_supported(void) { return false; }
+#endif
 
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_SHARED_TDX_H */
