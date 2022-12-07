@@ -26,6 +26,8 @@ enum tdx_binding_slot_state {
 	TDX_BINDING_SLOT_STATE_BOUND = 2,
 	/* Slot is used, and holds all the info. Ready for pre-migration */
 	TDX_BINDING_SLOT_STATE_PREMIG_WAIT = 3,
+	/* Slot is used, and the pre-migration setup is in progress */
+	TDX_BINDING_SLOT_STATE_PREMIG_PROGRESS = 4,
 
 	TDX_BINDING_SLOT_STATE_UNKNOWN
 };
@@ -199,11 +201,14 @@ struct tdvmcall_service {
 
 enum tdvmcall_service_id {
 	TDVMCALL_SERVICE_ID_QUERY,
+	TDVMCALL_SERVICE_ID_MIGTD,
 
 	TDVMCALL_SERVICE_ID_UNKNOWN,
 };
 
 enum tdvmcall_service_status {
+	TDVMCALL_SERVICE_S_RETURNED = 0x0,
+
 	TDVMCALL_SERVICE_S_UNSUPP = 0xFFFFFFFE,
 };
 
@@ -217,6 +222,66 @@ struct tdvmcall_service_query {
 	uint8_t status;
 	uint8_t rsvd;
 	guid_t  guid;
+};
+
+/* PI Spec: vol 3, 5.6 GUID extension HOB */
+struct hob_generic_hdr {
+#define HOB_TYPE_GUID_EXTENSION	0x0004
+	uint16_t type;
+	/* Length of the payload */
+	uint16_t length;
+	uint32_t rsvd;
+};
+
+struct hob_guid_type_hdr {
+	struct hob_generic_hdr		generic_hdr;
+	guid_t				guid;
+	uint8_t				data[0];
+};
+
+struct migtd_basic_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			req_id;
+	bool				src;
+	uint32_t			cpu_version;
+	uint8_t				usertd_uuid[32];
+	uint64_t			binding_handle;
+	uint64_t			policy_id;
+	uint64_t			comm_id;
+};
+
+struct migtd_socket_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			comm_id;
+	uint64_t			migtd_cid;
+	uint32_t			channel_port;
+	uint32_t			quote_service_port;
+};
+
+struct migtd_policy_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			policy_id;
+	uint32_t			policy_size;
+	uint8_t				pad[4];
+	uint8_t				policy_data[0];
+};
+
+struct migtd_all_info {
+	struct migtd_basic_info		basic;
+	struct migtd_socket_info	socket;
+	struct migtd_policy_info	policy;
+};
+
+struct tdvmcall_service_migtd {
+#define TDVMCALL_SERVICE_MIGTD_WAIT_VERSION	0
+	uint8_t version;
+#define TDVMCALL_SERVICE_MIGTD_CMD_WAIT		1
+	uint8_t cmd;
+#define TDVMCALL_SERVICE_MIGTD_OP_NOOP		0
+#define TDVMCALL_SERVICE_MIGTD_OP_START_MIG	1
+	uint8_t operation;
+	uint8_t status;
+	uint8_t data[0];
 };
 
 static inline bool is_td(struct kvm *kvm)
