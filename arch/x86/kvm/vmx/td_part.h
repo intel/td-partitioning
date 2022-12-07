@@ -1,10 +1,175 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __KVM_X86_TD_PART_H
 #define __KVM_X86_TD_PART_H
+#include <linux/compiler.h>
+#include <asm/kvm_host.h>
+#include <asm/tdx.h>
+
+#include "vmx.h"
+#include "tdx_errno.h"
+#include "tdx_arch.h"
+#include "tdx_ops.h"
+
+#define TDX_TDCALL_VMCS_EXIT_MASK		0x00000000FFFFFFFFULL
+
+#define TDG_VP_ENTER_OUTPUT_INFO_MASK		0x00000000FFFFFFFFULL
+#define TDG_VP_ENTER_OUTPUT_ADDL_INFO_MASK	0xFFFFFFFF00000000ULL
 
 extern bool enable_td_part;
 
 #ifdef CONFIG_INTEL_TD_PART_GUEST
+
+/* TDX control structure (TDR/TDCS/TDVPS) field access codes */
+#define TDG_NON_ARCH			BIT_ULL(63)
+#define TDG_CLASS_SHIFT			56
+#define TDG_CONTEXT_SHIFT		52
+#define TDG_CONTEXT_MASK		GENMASK_ULL(2, 0)
+#define TDG_FIELD_MASK			GENMASK_ULL(31, 0)
+
+#define __BUILD_TDG_FIELD(non_arch, class, context, field)		\
+	(((non_arch) ? TDG_NON_ARCH : 0) |				\
+	((u64)(class) << TDG_CLASS_SHIFT) |				\
+	(((u64)(context) & TDG_CONTEXT_MASK) << TDG_CONTEXT_SHIFT) |	\
+	((u64)(field) & TDG_FIELD_MASK))
+
+#define BUILD_TDG_FIELD(class, context, field)				\
+	__BUILD_TDG_FIELD(false, (class), (context), (field))
+
+#define BUILD_TDG_FIELD_NON_ARCH(class, context, field)			\
+	__BUILD_TDG_FIELD(true, (class), (context), (field))
+
+/* @field is the VMCS field encoding */
+#define TDG_TDVPS_VMCS(field)		BUILD_TDG_FIELD(0, 2, (field))
+#define TDG_TDVPS_GPR(gpr)		BUILD_TDG_FIELD(16, 2, (gpr))
+
+static u64 guest_tdcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			struct tdx_module_output *out)
+{
+	struct tdx_module_output dummy_out;
+	u64 err, ret, retries = 0;
+
+	if (!out)
+		out = &dummy_out;
+
+	do {
+		ret = __tdx_module_call(fn, rcx, rdx, r8, r9, 0, 0, 0, 0, out);
+		if (retries++ > TDX_TDCALL_RETRY_MAX)
+			break;
+
+		err = ret & TDX_TDCALL_STATUS_MASK;
+	} while (TDX_TDCALL_ERR_RECOVERABLE(err));
+
+	return ret;
+}
+
+static inline u64 tdg_vm_read(u64 field_id, struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VM_RD, 0, field_id, 0, 0, out);
+}
+
+static inline u64 tdg_vm_write(u64 field_id, u64 data, u64 mask,
+		struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VM_WR, 0, field_id, data, mask, out);
+}
+
+static inline u64 tdg_vp_read(u64 field_id, struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VP_RD, 0, field_id, 0, 0, out);
+}
+
+static inline u64 tdg_vp_write(u64 field_id, u64 data, u64 mask,
+		struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VP_WR, 0, field_id, data, mask, out);
+}
+
+static inline u64 tdg_vp_enter(u64 vm_flags, u64 guest_state_gpa,
+		struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VP_ENTER, vm_flags, guest_state_gpa, 0, 0, out);
+}
+
+static inline u64 tdg_mem_page_accept(u64 ept_map_info, struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_MEM_PAGE_ACCEPT, ept_map_info, 0, 0, 0, out);
+}
+
+static inline u64 tdg_mem_page_attr_read(gpa_t gpa,
+					 struct tdx_module_output *out)
+{
+	/* gpa can be anywhere within a page */
+	return guest_tdcall(TDG_MEM_PAGE_ATTR_RD, gpa, 0, 0, 0, out);
+}
+
+union tdx_gpa_attr {
+	u64 bits;
+	struct {
+		u8 read:1;
+		u8 write:1;
+		u8 execute_s:1;
+		u8 execute_u:1;
+		u8 verify_guest_paging:1;
+		u8 page_write_access:1;
+		u8 supervisor_shadow_stack:1;
+		u8 suppress_ve:1;
+		u8 :6;
+		u8 unpinned:1;
+		u8 valid:1;
+	} fields[4];
+};
+
+union tdx_attr_flags {
+	u64 bits;
+	struct {
+		u16 attr_mask:15;
+		u16 invept:1;
+	} flags[4];
+};
+
+static inline u64 tdg_mem_page_attr_write(gpa_t gpa, int level,
+					  union tdx_gpa_attr gpa_attr,
+					  union tdx_attr_flags attr_flags,
+					  struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_MEM_PAGE_ATTR_WR, gpa | level, gpa_attr.bits,
+			    attr_flags.bits, 0, out);
+}
+
+static inline u64 tdg_vp_invept(u64 vm_idx_bitmap, struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VP_INVEPT, vm_idx_bitmap, 0, 0, 0, out);
+}
+
+union tdx_vmid_flags {
+	u64 bits;
+	struct {
+		u64 type:1;
+		u64 :51;
+		u64 vm_id:2;
+		u64 :10;
+	};
+};
+
+union tdx_gla_list {
+	u64 bits;
+	struct {
+		u64 last:12;
+		u64 base:52;
+	};
+};
+
+/*
+ * Depending on the LIST flag as part of RCX, RDX can contain either
+ * GLA_LIST_ENTRY or GLA_LIST_INFO
+ */
+static inline u64 tdg_vp_invvpid(union tdx_vmid_flags flags,
+				union tdx_gla_list list,
+				struct tdx_module_output *out)
+{
+	return guest_tdcall(TDG_VP_INVVPID, flags.bits, list.bits, 0, 0, out);
+}
+
 static inline bool is_td_part(struct kvm *kvm)
 {
 	return kvm->arch.vm_type == KVM_X86_TD_PART_VM;

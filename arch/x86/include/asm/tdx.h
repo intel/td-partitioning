@@ -37,9 +37,12 @@
  */
 #define TDX_SEAMCALL_ERR_RECOVERABLE(err) \
 	(err >> TDX_NON_RECOVERABLE_BIT == 0x2)
+#define TDX_TDCALL_ERR_RECOVERABLE	TDX_SEAMCALL_ERR_RECOVERABLE
 
 /* The max number of seamcall retries */
 #define TDX_SEAMCALL_RETRY_MAX	10000
+/* The max number of tdcall retries */
+#define TDX_TDCALL_RETRY_MAX TDX_SEAMCALL_RETRY_MAX
 
 #ifndef __ASSEMBLY__
 
