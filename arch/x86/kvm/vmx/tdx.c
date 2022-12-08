@@ -1949,6 +1949,11 @@ static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
 
 	spin_lock(&tdx->binding_slot_lock);
 	switch (cmd_migtd->cmd) {
+	case TDVMCALL_SERVICE_MIGTD_CMD_SHUTDOWN:
+		/*TODO: end migtd */
+		pr_err("%s: end migtd, not supported\n", __func__);
+		status = TDVMCALL_SERVICE_S_UNSUPP;
+		break;
 	case TDVMCALL_SERVICE_MIGTD_CMD_WAIT:
 		resp_migtd->version = TDVMCALL_SERVICE_MIGTD_WAIT_VERSION;
 		if (cmd_migtd->version != resp_migtd->version) {
