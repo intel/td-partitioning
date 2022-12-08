@@ -1888,6 +1888,52 @@ static int migtd_wait_for_request(struct kvm_tdx *tdx,
 	return len;
 }
 
+/*
+ * Return length of filled bytes. 0 bytes means that the operation isn't
+ * supported.
+ */
+static int migtd_report_status(struct kvm_tdx *tdx,
+			       struct tdvmcall_service_migtd *cmd_migtd,
+			       struct tdvmcall_service_migtd *resp_migtd)
+{
+	uint64_t req_id = *(uint64_t *)cmd_migtd->data;
+	struct tdx_binding_slot *slot = tdx->usertd_binding_slots[req_id];
+	int len = sizeof(struct tdvmcall_service_migtd);
+	enum tdx_binding_slot_state state;
+
+	/* Not bounded any more, e.g. the user TD is destroyed */
+	if (!slot)
+		return 0;
+
+	switch (cmd_migtd->operation) {
+	case TDVMCALL_SERVICE_MIGTD_OP_NOOP:
+		break;
+	case TDVMCALL_SERVICE_MIGTD_OP_START_MIG:
+		state = tdx_binding_slot_get_state(slot);
+		/* Sanity check if the state is unexpected */
+		if (state != TDX_BINDING_SLOT_STATE_PREMIG_PROGRESS)
+			return 0;
+
+		if (cmd_migtd->status != TDVMCALL_SERVICE_MIGTD_STATUS_SUCC) {
+			pr_err("%s: pre-migration failed, state=%x\n",
+				__func__, cmd_migtd->status);
+			state = TDX_BINDING_SLOT_STATE_BOUND;
+		} else {
+			state = TDX_BINDING_SLOT_STATE_PREMIG_DONE;
+			pr_info("Pre-migration is done, userspace pid=%d\n",
+				tdx->kvm.userspace_pid);
+		}
+
+		tdx_binding_slot_set_state(slot, state);
+		break;
+	default:
+		len = 0;
+		pr_err("%s: operation not supported\n", __func__);
+	}
+
+	return len;
+}
+
 /* Return true if the response isn't ready and need to block the vcpu */
 static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
 				     struct tdvmcall_service *cmd_hdr,
@@ -1912,6 +1958,19 @@ static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
 		}
 		len = migtd_wait_for_request(tdx, resp_migtd);
 		status = TDVMCALL_SERVICE_S_RETURNED;
+		break;
+	case TDVMCALL_SERVICE_MIGTD_CMD_REPORT:
+		resp_migtd->version = TDVMCALL_SERVICE_MIGTD_REPORT_VERSION;
+		if (cmd_migtd->version != resp_migtd->version) {
+			pr_warn("%s: version err\n", __func__);
+			status = TDVMCALL_SERVICE_S_UNSUPP;
+			break;
+		}
+		len = migtd_report_status(tdx, cmd_migtd, resp_migtd);
+		if (len)
+			status = TDVMCALL_SERVICE_S_RETURNED;
+		else
+			status = TDVMCALL_SERVICE_S_UNSUPP;
 		break;
 	default:
 		pr_warn("%s: cmd %d not supported\n",
