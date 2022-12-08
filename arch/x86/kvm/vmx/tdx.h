@@ -28,6 +28,8 @@ enum tdx_binding_slot_state {
 	TDX_BINDING_SLOT_STATE_PREMIG_WAIT = 3,
 	/* Slot is used, and the pre-migration setup is in progress */
 	TDX_BINDING_SLOT_STATE_PREMIG_PROGRESS = 4,
+	/* Slot is used, and the pre-migration setup is done */
+	TDX_BINDING_SLOT_STATE_PREMIG_DONE = 5,
 
 	TDX_BINDING_SLOT_STATE_UNKNOWN
 };
@@ -274,12 +276,15 @@ struct migtd_all_info {
 
 struct tdvmcall_service_migtd {
 #define TDVMCALL_SERVICE_MIGTD_WAIT_VERSION	0
+#define TDVMCALL_SERVICE_MIGTD_REPORT_VERSION	0
 	uint8_t version;
 #define TDVMCALL_SERVICE_MIGTD_CMD_WAIT		1
+#define TDVMCALL_SERVICE_MIGTD_CMD_REPORT	2
 	uint8_t cmd;
 #define TDVMCALL_SERVICE_MIGTD_OP_NOOP		0
 #define TDVMCALL_SERVICE_MIGTD_OP_START_MIG	1
 	uint8_t operation;
+#define TDVMCALL_SERVICE_MIGTD_STATUS_SUCC	0
 	uint8_t status;
 	uint8_t data[0];
 };
