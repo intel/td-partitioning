@@ -19,6 +19,8 @@ struct tdx_mig_mbmd {
 	uint64_t addr_and_size;
 };
 
+#define TDX_MIG_NULL_PA		~(0ULL)
+
 /*
  * The buffer list specifies a list of 4KB pages to be used by TDH_EXPORT_MEM
  * and TDH_IMPORT_MEM to export and import guest memory pages. Each entry
@@ -70,6 +72,7 @@ union tdx_mig_gpa_list_entry {
 		uint64_t l2_map         : 3;   // Bits 9:7  :  L2 mapping flags
 		uint64_t mig_type       : 2;   // Bits 11:10:  Migration type
 		uint64_t gfn            : 40;  // Bits 51:12
+#define GPA_LIST_OP_EXPORT	1
 		uint64_t operation      : 2;   // Bits 53:52
 		uint64_t reserved_1     : 2;   // Bits 55:54
 		uint64_t status         : 5;   // Bits 56:52
@@ -797,6 +800,125 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static inline bool gpa_first_time_import(union tdx_mig_gpa_list_entry *entry)
+{
+	return entry->operation == GPA_LIST_OP_EXPORT;
+}
+
+static void tdx_mig_mem_buf_copy(union tdx_mig_buf_list_entry *to_entry,
+				 union tdx_mig_buf_list_entry *from_entry)
+{
+	void *to_va =  __va((kvm_pfn_t)(to_entry->pfn) << PAGE_SHIFT);
+	void *from_va = __va((kvm_pfn_t)(from_entry->pfn) << PAGE_SHIFT);
+
+	memcpy(to_va, from_va, PAGE_SIZE);
+}
+
+
+static int tdx_mig_td_buf_list_add(struct kvm *kvm,
+				   uint64_t npages,
+				   struct tdx_mig_gpa_list *gpa_list,
+				   struct tdx_mig_buf_list *td_buf_list,
+				   struct tdx_mig_buf_list *mem_buf_list)
+{
+	int ret, i;
+	gfn_t gfn;
+	kvm_pfn_t pfn;
+	union tdx_mig_buf_list_entry *td_buf_entries, *mem_buf_entries;
+
+	td_buf_entries = td_buf_list->entries;
+	mem_buf_entries = mem_buf_list->entries;
+
+	for (i = 0; i < npages; i++) {
+		gfn = (gfn_t)gpa_list->entries[i].gfn;
+		ret = kvm_restricted_mem_get_pfn(gfn_to_memslot(kvm, gfn),
+						 gfn, &pfn, NULL);
+		if (ret) {
+			pr_err("%s: failed, ret=%d, gfn=%llx\n",
+				__func__, ret, gfn);
+			return -EIO;
+		}
+		td_buf_entries[i].pfn = pfn;
+		td_buf_entries[i].invalid = false;
+
+		if (!gpa_first_time_import(&gpa_list->entries[i]))
+			continue;
+
+		/*
+		 * First time import: copy data from shared memory to the TD
+		 * private page and do in-place import.
+		 */
+		tdx_mig_mem_buf_copy(&td_buf_entries[i], &mem_buf_entries[i]);
+	}
+
+	/*
+	 * TODO: remove if not necessary.
+	 * TDX module checks GPA list for the end.
+	 */
+	if (i < TDX_MIG_BUF_LIST_PAGES_MAX)
+		td_buf_entries[i].invalid = true;
+
+	return 0;
+}
+
+static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
+				     struct tdx_mig_stream *stream,
+				     uint64_t __user *data)
+{
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
+	union tdx_mig_gpa_list_entry *gpa_list_entry = &gpa_list->entries[0];
+	hpa_t mem_buf_list_hpa, td_buf_list_hpa;
+	struct tdx_module_output out;
+	uint64_t npages, err;
+	int ret;
+
+	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
+		return -EFAULT;
+
+	ret = tdx_mig_td_buf_list_add(&kvm_tdx->kvm, npages, gpa_list,
+				      &stream->td_buf_list,
+				      &stream->mem_buf_list);
+	if (ret)
+		return ret;
+
+	if (gpa_first_time_import(gpa_list_entry)) {
+		/*
+		 * For in-place import, the memory data has been put into the
+		 * pages to be used as TD pages.
+		 */
+		mem_buf_list_hpa = stream->td_buf_list.hpa;
+		td_buf_list_hpa = TDX_MIG_NULL_PA;
+	} else {
+		mem_buf_list_hpa = stream->mem_buf_list.hpa;
+		td_buf_list_hpa = stream->td_buf_list.hpa;
+	}
+
+	stream_info.index = stream->idx;
+	do {
+		err = tdh_import_mem(kvm_tdx->tdr_pa,
+				     stream->mbmd.addr_and_size,
+				     gpa_list->info.val,
+				     mem_buf_list_hpa,
+				     stream->mac_list[0].hpa,
+				     stream->mac_list[1].hpa,
+				     td_buf_list_hpa,
+				     stream_info.val,
+				     &out);
+		if (err == TDX_INTERRUPTED_RESUMABLE) {
+			stream_info.val = 1;
+			gpa_list->info.val = out.rcx;
+		}
+	} while (err == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err != TDX_SUCCESS) {
+		pr_err("%s failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -820,6 +942,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_EXPORT_MEM:
 		r = tdx_mig_stream_export_mem(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_IMPORT_MEM:
+		r = tdx_mig_stream_import_mem(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
 		break;
 	default:
