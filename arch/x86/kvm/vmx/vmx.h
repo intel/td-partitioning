@@ -581,39 +581,6 @@ static inline u8 vmx_get_rvi(void)
 #define KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL			\
 	(TERTIARY_EXEC_IPI_VIRT)
 
-#define BUILD_CONTROLS_SHADOW(lname, uname, bits)						\
-static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
-{												\
-	if (vmx->loaded_vmcs->controls_shadow.lname != val) {					\
-		vmcs_write##bits(uname, val);							\
-		vmx->loaded_vmcs->controls_shadow.lname = val;					\
-	}											\
-}												\
-static inline u##bits __##lname##_controls_get(struct loaded_vmcs *vmcs)			\
-{												\
-	return vmcs->controls_shadow.lname;							\
-}												\
-static inline u##bits lname##_controls_get(struct vcpu_vmx *vmx)				\
-{												\
-	return __##lname##_controls_get(vmx->loaded_vmcs);					\
-}												\
-static __always_inline void lname##_controls_setbit(struct vcpu_vmx *vmx, u##bits val)		\
-{												\
-	BUILD_BUG_ON(!(val & (KVM_REQUIRED_VMX_##uname | KVM_OPTIONAL_VMX_##uname)));		\
-	lname##_controls_set(vmx, lname##_controls_get(vmx) | val);				\
-}												\
-static __always_inline void lname##_controls_clearbit(struct vcpu_vmx *vmx, u##bits val)	\
-{												\
-	BUILD_BUG_ON(!(val & (KVM_REQUIRED_VMX_##uname | KVM_OPTIONAL_VMX_##uname)));		\
-	lname##_controls_set(vmx, lname##_controls_get(vmx) & ~val);				\
-}
-BUILD_CONTROLS_SHADOW(vm_entry, VM_ENTRY_CONTROLS, 32)
-BUILD_CONTROLS_SHADOW(vm_exit, VM_EXIT_CONTROLS, 32)
-BUILD_CONTROLS_SHADOW(pin, PIN_BASED_VM_EXEC_CONTROL, 32)
-BUILD_CONTROLS_SHADOW(exec, CPU_BASED_VM_EXEC_CONTROL, 32)
-BUILD_CONTROLS_SHADOW(secondary_exec, SECONDARY_VM_EXEC_CONTROL, 32)
-BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
-
 /*
  * VMX_REGS_LAZY_LOAD_SET - The set of registers that will be updated in the
  * cache on demand.  Other registers not listed here are synced to

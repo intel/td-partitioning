@@ -14,8 +14,6 @@
 #include "tdx.h"
 #include "td_part.h"
 
-#ifdef CONFIG_INTEL_TDX_HOST
-
 #define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
 static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
 					 unsigned long field)		   \
@@ -24,7 +22,8 @@ static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
 		if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))		   \
 			return 0;					   \
 		return td_vmcs_read##tdbits(to_tdx(vcpu), field);	   \
-	}								   \
+	} else if (unlikely(is_td_part_vcpu(vcpu)))				\
+		return tdg_vmcs_read##tdbits(vcpu, field); 			\
 	return vmcs_read##bits(field);					   \
 }									   \
 static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
@@ -34,31 +33,76 @@ static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
 		if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))		   \
 			return;						   \
 		return td_vmcs_write##tdbits(to_tdx(vcpu), field, value);  \
-	}								   \
+	} else if (unlikely(is_td_part_vcpu(vcpu))) 			\
+		return tdg_vmcs_write##tdbits(vcpu, field, value);	\
 	vmcs_write##bits(field, value);					   \
 }
-
-#else /* !CONFIG_INTEL_TDX_HOST */
-
-#define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
-static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
-					 unsigned long field)		   \
-{									   \
-	return vmcs_read##bits(field);					   \
-}									   \
-static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
-					  unsigned long field, type value) \
-{									   \
-	vmcs_write##bits(field, value);					   \
-}
-
-#endif
 
 VT_BUILD_VMCS_HELPERS(u16, 16, 16);
 VT_BUILD_VMCS_HELPERS(u32, 32, 32);
 VT_BUILD_VMCS_HELPERS(u64, 64, 64);
 VT_BUILD_VMCS_HELPERS(unsigned long, l, 64);
 
+#define BUILD_CONTROLS_SHADOW(lname, uname, bits)				\
+static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)	\
+{										\
+	if (vmx->loaded_vmcs->controls_shadow.lname != val) {			\
+		if (unlikely(is_td_part_vcpu(&vmx->vcpu))) {			\
+			tdg_##lname##_controls_set(vmx, val);			\
+		} else {							\
+			vmwrite##bits(&vmx->vcpu, uname, val);			\
+			vmx->loaded_vmcs->controls_shadow.lname = val;		\
+		}								\
+	} \
+}										\
+static inline u##bits __##lname##_controls_get(struct loaded_vmcs *vmcs)	\
+{										\
+	return vmcs->controls_shadow.lname;					\
+}										\
+static inline u##bits lname##_controls_get(struct vcpu_vmx *vmx)		\
+{										\
+	return __##lname##_controls_get(vmx->loaded_vmcs);			\
+}										\
+static inline void lname##_controls_setbit(struct vcpu_vmx *vmx, u##bits val)	\
+{										\
+	lname##_controls_set(vmx, lname##_controls_get(vmx) | val);		\
+}										\
+static inline void lname##_controls_clearbit(struct vcpu_vmx *vmx, u##bits val)	\
+{										\
+	lname##_controls_set(vmx, lname##_controls_get(vmx) & ~val);		\
+}
+BUILD_CONTROLS_SHADOW(vm_entry, VM_ENTRY_CONTROLS, 32)
+BUILD_CONTROLS_SHADOW(vm_exit, VM_EXIT_CONTROLS, 32)
+BUILD_CONTROLS_SHADOW(pin, PIN_BASED_VM_EXEC_CONTROL, 32)
+BUILD_CONTROLS_SHADOW(exec, CPU_BASED_VM_EXEC_CONTROL, 32)
+BUILD_CONTROLS_SHADOW(secondary_exec, SECONDARY_VM_EXEC_CONTROL, 32)
+BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
+
+static __always_inline void vmcs_clear_bits(struct kvm_vcpu *vcpu, unsigned long field, u32 mask)
+{
+	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x2000,
+			 "vmcs_clear_bits does not support 64-bit fields");
+	if (static_branch_unlikely(&enable_evmcs))
+		return evmcs_write32(field, evmcs_read32(field) & ~mask);
+
+	if (enable_td_part)
+		return tdg_vmcs_write32(vcpu, field, tdg_vmcs_read32(vcpu, field) & ~mask);
+
+	__vmcs_writel(field, __vmcs_readl(field) & ~mask);
+}
+
+static __always_inline void vmcs_set_bits(struct kvm_vcpu *vcpu, unsigned long field, u32 mask)
+{
+	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x2000,
+			 "vmcs_set_bits does not support 64-bit fields");
+	if (static_branch_unlikely(&enable_evmcs))
+		return evmcs_write32(field, evmcs_read32(field) | mask);
+
+	if (enable_td_part)
+		return tdg_vmcs_write32(vcpu, field, tdg_vmcs_read32(vcpu, field) | mask);
+
+	__vmcs_writel(field, __vmcs_readl(field) | mask);
+}
 
 struct kvm_vmx_segment_field {
 	unsigned int selector;

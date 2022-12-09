@@ -41,8 +41,11 @@ extern bool enable_td_part;
 #define BUILD_TDG_FIELD_NON_ARCH(class, context, field)			\
 	__BUILD_TDG_FIELD(true, (class), (context), (field))
 
+#define MD_TDVPS_VMCS_1_CLASS_CODE	36
+#define MD_TDVPS_VMCS_CLASS(field)	(MD_TDVPS_VMCS_1_CLASS_CODE + (((field) >> 32)- 1) * 8)
+
 /* @field is the VMCS field encoding */
-#define TDG_TDVPS_VMCS(field)		BUILD_TDG_FIELD(0, 2, (field))
+#define TDG_TDVPS_VMCS(field)		BUILD_TDG_FIELD(MD_TDVPS_VMCS_CLASS(field), 2, (field))
 #define TDG_TDVPS_GPR(gpr)		BUILD_TDG_FIELD(16, 2, (gpr))
 
 static u64 guest_tdcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
@@ -173,6 +176,81 @@ static inline u64 tdg_vp_invvpid(union tdx_vmid_flags flags,
 	return guest_tdcall(TDG_VP_INVVPID, flags.bits, list.bits, 0, 0, out);
 }
 
+#define TDG_BUILD_TDVPS_ACCESSORS(bits, elem_size, uclass, lclass)		\
+static __always_inline u##bits tdg_##lclass##_read##bits(struct kvm_vcpu *vcpu, \
+							 u64 field)		\
+{										\
+	struct tdx_module_output out;						\
+	u64 err;								\
+										\
+	field |= ((u64)vcpu->kvm->arch.vm_id << 32);				\
+	tdvps_##lclass##_check(field, bits);				\
+	err = tdg_vp_read(TDG_TDVPS_##uclass(field) | ((u64)elem_size << 32), &out);	\
+	if (unlikely(err)) {							\
+		pr_err_ratelimited("TDG_VP_RD["#uclass".0x%llx] failed: 0x%llx\n", \
+			field, err);						\
+		dump_stack();							\
+		return 0;							\
+	}									\
+	return (u##bits)out.r8;							\
+}										\
+static __always_inline void tdg_##lclass##_write##bits(struct kvm_vcpu *vcpu,	\
+							u64 field, u##bits val)	\
+{										\
+	struct tdx_module_output out;						\
+	u64 err;								\
+										\
+	field |= ((u64)vcpu->kvm->arch.vm_id << 32);				\
+	tdvps_##lclass##_check(field, bits);				\
+	err = tdg_vp_write(TDG_TDVPS_##uclass(field) | ((u64)elem_size << 32) | (1UL << 51),	\
+			val, GENMASK_ULL(bits - 1, 0), &out);			\
+	if (unlikely(err)) {							\
+		pr_err_ratelimited("TDG_VP_WR["#uclass".0x%llx] = 0x%llx failed: 0x%llx\n", \
+			field, (u64)val, err);					\
+		dump_stack();							\
+	}									\
+}
+
+TDG_BUILD_TDVPS_ACCESSORS(16, 1, VMCS, vmcs);
+TDG_BUILD_TDVPS_ACCESSORS(32, 2, VMCS, vmcs);
+TDG_BUILD_TDVPS_ACCESSORS(64, 3, VMCS, vmcs);
+
+TDG_BUILD_TDVPS_ACCESSORS(64, 3, GPR, gpr);
+
+#ifdef CONFIG_X86_64
+#define tdg_vmcs_writel tdg_vmcs_write64
+#define tdg_vmcs_readl tdg_vmcs_read64
+#endif
+
+#define TDG_BUILD_CONTROLS_SHADOW(lname, uname, bits)				\
+static inline void tdg_##lname##_controls_set(struct vcpu_vmx *vmx, u##bits val) \
+{										\
+	tdg_vmcs_write##bits(&vmx->vcpu, uname, val);				\
+	vmx->loaded_vmcs->controls_shadow.lname = val;				\
+}										\
+static inline u##bits __tdg_##lname##_controls_get(struct loaded_vmcs *vmcs)	\
+{										\
+	return vmcs->controls_shadow.lname;					\
+}										\
+static inline u##bits tdg_##lname##_controls_get(struct vcpu_vmx *vmx)		\
+{										\
+	return __tdg_##lname##_controls_get(vmx->loaded_vmcs);			\
+}										\
+static inline void tdg_##lname##_controls_setbit(struct vcpu_vmx *vmx, u##bits val)	\
+{										\
+	tdg_##lname##_controls_set(vmx, tdg_##lname##_controls_get(vmx) | val);	\
+}										\
+static inline void tdg_##lname##_controls_clearbit(struct vcpu_vmx *vmx, u##bits val)	\
+{										\
+	tdg_##lname##_controls_set(vmx, tdg_##lname##_controls_get(vmx) & ~val); \
+}
+TDG_BUILD_CONTROLS_SHADOW(vm_entry, VM_ENTRY_CONTROLS, 32)
+TDG_BUILD_CONTROLS_SHADOW(vm_exit, VM_EXIT_CONTROLS, 32)
+TDG_BUILD_CONTROLS_SHADOW(pin, PIN_BASED_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(exec, CPU_BASED_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(secondary_exec, SECONDARY_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
+
 static inline bool is_td_part(struct kvm *kvm)
 {
 	return kvm->arch.vm_type == KVM_X86_TD_PART_VM;
@@ -187,6 +265,32 @@ noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx);
 
 #else /* CONFIG_INTEL_TD_PART_GUEST */
+
+#define TDG_BUILD_TDVPS_ACCESSORS(bits, elem_size, uclass, lclass)			\
+static __always_inline u##bits tdg_##lclass##_read##bits(struct kvm_vcpu *vcpu,		\
+							 u64 field) { return 0; }	\
+static __always_inline void tdg_##lclass##_write##bits(struct kvm_vcpu *vcpu,		\
+							u64 field, u##bits val) {}
+
+TDG_BUILD_TDVPS_ACCESSORS(16, 1, VMCS, vmcs);
+TDG_BUILD_TDVPS_ACCESSORS(32, 2, VMCS, vmcs);
+TDG_BUILD_TDVPS_ACCESSORS(64, 3, VMCS, vmcs);
+
+TDG_BUILD_TDVPS_ACCESSORS(64, 3, GPR, gpr);
+
+#define TDG_BUILD_CONTROLS_SHADOW(lname, uname, bits)					\
+static inline void tdg_##lname##_controls_set(struct vcpu_vmx *vmx, u##bits val) {}	\
+static inline u##bits __tdg_##lname##_controls_get(struct loaded_vmcs *vmcs) { return 0; } \
+static inline u##bits tdg_##lname##_controls_get(struct vcpu_vmx *vmx) { return 0; }	\
+static inline void tdg_##lname##_controls_setbit(struct vcpu_vmx *vmx, u##bits val) {}	\
+static inline void tdg_##lname##_controls_clearbit(struct vcpu_vmx *vmx, u##bits val) {}
+
+TDG_BUILD_CONTROLS_SHADOW(vm_entry, VM_ENTRY_CONTROLS, 32)
+TDG_BUILD_CONTROLS_SHADOW(vm_exit, VM_EXIT_CONTROLS, 32)
+TDG_BUILD_CONTROLS_SHADOW(pin, PIN_BASED_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(exec, CPU_BASED_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(secondary_exec, SECONDARY_VM_EXEC_CONTROL, 32)
+TDG_BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
 
 static inline bool is_td_part(struct kvm *kvm) { return false; }
 static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu) { return false; }

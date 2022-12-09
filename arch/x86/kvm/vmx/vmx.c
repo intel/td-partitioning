@@ -5026,10 +5026,10 @@ void vmx_set_nmi_mask(struct kvm_vcpu *vcpu, bool masked)
 	} else {
 		vmx->loaded_vmcs->nmi_known_unmasked = !masked;
 		if (masked)
-			vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO,
+			vmcs_set_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO,
 				      GUEST_INTR_STATE_NMI);
 		else
-			vmcs_clear_bits(GUEST_INTERRUPTIBILITY_INFO,
+			vmcs_clear_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO,
 					GUEST_INTR_STATE_NMI);
 	}
 }
@@ -5771,7 +5771,7 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	if (!(to_vmx(vcpu)->idt_vectoring_info & VECTORING_INFO_VALID_MASK) &&
 			enable_vnmi &&
 			(exit_qualification & INTR_INFO_UNBLOCK_NMI))
-		vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO, GUEST_INTR_STATE_NMI);
+		vmcs_set_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO, GUEST_INTR_STATE_NMI);
 
 	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
 	trace_kvm_page_fault(vcpu, gpa, exit_qualification);
@@ -5985,8 +5985,8 @@ static int handle_pml_full(struct kvm_vcpu *vcpu)
 	if (!(to_vmx(vcpu)->idt_vectoring_info & VECTORING_INFO_VALID_MASK) &&
 			enable_vnmi &&
 			(exit_qualification & INTR_INFO_UNBLOCK_NMI))
-		vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO,
-				GUEST_INTR_STATE_NMI);
+		vmcs_set_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO,
+			      GUEST_INTR_STATE_NMI);
 
 	/*
 	 * PML buffer already flushed at beginning of VMEXIT. Nothing to do
@@ -6060,7 +6060,7 @@ static int handle_notify(struct kvm_vcpu *vcpu)
 	 * "blocked by NMI" bit has to be set before next VM entry.
 	 */
 	if (enable_vnmi && (exit_qual & INTR_INFO_UNBLOCK_NMI))
-		vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO,
+		vmcs_set_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO,
 			      GUEST_INTR_STATE_NMI);
 
 	if (vcpu->kvm->arch.notify_vmexit_flags & KVM_X86_NOTIFY_VMEXIT_USER ||
@@ -6952,7 +6952,7 @@ static void vmx_recover_nmi_blocking(struct vcpu_vmx *vmx)
 		 */
 		if ((exit_intr_info & INTR_INFO_VALID_MASK) && unblock_nmi &&
 		    vector != DF_VECTOR && !idtv_info_valid)
-			vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO,
+			vmcs_set_bits(&vmx->vcpu, GUEST_INTERRUPTIBILITY_INFO,
 				      GUEST_INTR_STATE_NMI);
 		else
 			vmx->loaded_vmcs->nmi_known_unmasked =

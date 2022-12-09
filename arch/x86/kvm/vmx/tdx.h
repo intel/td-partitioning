@@ -320,46 +320,6 @@ static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
 	return container_of(vcpu, struct vcpu_tdx, vcpu);
 }
 
-static __always_inline void tdvps_vmcs_check(u32 field, u8 bits)
-{
-#define VMCS_ENC_ACCESS_TYPE_MASK	0x1UL
-#define VMCS_ENC_ACCESS_TYPE_FULL	0x0UL
-#define VMCS_ENC_ACCESS_TYPE_HIGH	0x1UL
-#define VMCS_ENC_ACCESS_TYPE(field)	((field) & VMCS_ENC_ACCESS_TYPE_MASK)
-
-	/* TDX is 64bit only.  HIGH field isn't supported. */
-	BUILD_BUG_ON_MSG(__builtin_constant_p(field) &&
-			 VMCS_ENC_ACCESS_TYPE(field) == VMCS_ENC_ACCESS_TYPE_HIGH,
-			 "Read/Write to TD VMCS *_HIGH fields not supported");
-
-	BUILD_BUG_ON(bits != 16 && bits != 32 && bits != 64);
-
-#define VMCS_ENC_WIDTH_MASK	GENMASK(14, 13)
-#define VMCS_ENC_WIDTH_16BIT	(0UL << 13)
-#define VMCS_ENC_WIDTH_64BIT	(1UL << 13)
-#define VMCS_ENC_WIDTH_32BIT	(2UL << 13)
-#define VMCS_ENC_WIDTH_NATURAL	(3UL << 13)
-#define VMCS_ENC_WIDTH(field)	((field) & VMCS_ENC_WIDTH_MASK)
-
-	/* TDX is 64bit only.  i.e. natural width = 64bit. */
-	BUILD_BUG_ON_MSG(bits != 64 && __builtin_constant_p(field) &&
-			 (VMCS_ENC_WIDTH(field) == VMCS_ENC_WIDTH_64BIT ||
-			  VMCS_ENC_WIDTH(field) == VMCS_ENC_WIDTH_NATURAL),
-			 "Invalid TD VMCS access for 64-bit field");
-	BUILD_BUG_ON_MSG(bits != 32 && __builtin_constant_p(field) &&
-			 VMCS_ENC_WIDTH(field) == VMCS_ENC_WIDTH_32BIT,
-			 "Invalid TD VMCS access for 32-bit field");
-	BUILD_BUG_ON_MSG(bits != 16 && __builtin_constant_p(field) &&
-			 VMCS_ENC_WIDTH(field) == VMCS_ENC_WIDTH_16BIT,
-			 "Invalid TD VMCS access for 16-bit field");
-}
-
-static __always_inline void tdvps_gpr_check(u64 field, u8 bits)
-{
-	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && (field) >= NR_VCPU_REGS,
-			 "Invalid TDX Guest GPR index");
-}
-
 static __always_inline void tdvps_state_non_arch_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_management_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_state_check(u64 field, u8 bits) {}
@@ -461,6 +421,21 @@ int tdx_td_vcpu_setup(struct kvm_vcpu *vcpu);
 void tdx_td_vcpu_post_init(struct vcpu_tdx *tdx);
 
 #else
+
+#define TDX_BUILD_TDVPS_ACCESSORS(bits, uclass, lclass)				\
+static __always_inline u##bits td_##lclass##_read##bits(void *tdx,		\
+						u32 field) { return 0; }	\
+static __always_inline void td_##lclass##_write##bits(void *tdx,		\
+						u32 field, u##bits val) {}	\
+static __always_inline void td_##lclass##_setbit##bits(void *tdx,		\
+						u32 field, u64 bit) {}		\
+static __always_inline void td_##lclass##_clearbit##bits(void *tdx,		\
+						u32 field, u64 bit) {}
+
+TDX_BUILD_TDVPS_ACCESSORS(16, VMCS, vmcs);
+TDX_BUILD_TDVPS_ACCESSORS(32, VMCS, vmcs);
+TDX_BUILD_TDVPS_ACCESSORS(64, VMCS, vmcs);
+
 struct kvm_tdx {
 	struct kvm kvm;
 };
