@@ -13,6 +13,33 @@ bool td_part_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_TD_PART_VM;
 }
 
+static void td_part_load_l2_gprs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	int i;
+
+	for (i = 0; i <= VCPU_REGS_R15; i++)
+		vcpu->arch.l2_guest_state.gpr_state.gprs[i] = vcpu->arch.regs[i];
+
+	vcpu->arch.l2_guest_state.rip = vcpu->arch.regs[VCPU_REGS_RIP];
+	vcpu->arch.l2_guest_state.rflags = vmx->rflags;
+}
+
+static void td_part_store_l2_gprs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	int i;
+
+	for (i = 0; i <= VCPU_REGS_R15; i++)
+		vcpu->arch.regs[i] = vcpu->arch.l2_guest_state.gpr_state.gprs[i];
+
+	vmx->rflags = vcpu->arch.l2_guest_state.rflags;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_RFLAGS);
+
+	vcpu->arch.regs[VCPU_REGS_RIP] = vcpu->arch.l2_guest_state.rip;
+	kvm_register_mark_available(vcpu, VCPU_REGS_RIP);
+}
+
 int td_part_vm_init(struct kvm *kvm)
 {
 	u16 vm_id;
