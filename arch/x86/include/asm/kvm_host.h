@@ -757,6 +757,36 @@ struct kvm_queued_exception {
 	bool has_payload;
 };
 
+typedef union gprs_state_u {
+    struct {
+        u64 rax;
+        u64 rcx;
+        u64 rdx;
+        u64 rbx;
+        u64 rsp;
+        u64 rbp;
+        u64 rsi;
+        u64 rdi;
+        u64 r8;
+        u64 r9;
+        u64 r10;
+        u64 r11;
+        u64 r12;
+        u64 r13;
+        u64 r14;
+        u64 r15;
+    };
+    u64 gprs[16];
+} gprs_state_t;
+
+struct l2_enter_guest_state {
+	gprs_state_t gpr_state;
+	u64 rflags;
+	u64 rip;
+	u64 ssp;
+	u16 intr_status;
+} __aligned(256);
+
 struct kvm_vcpu_arch {
 	/*
 	 * rip and regs accesses must go through
@@ -1060,6 +1090,16 @@ struct kvm_vcpu_arch {
 
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
+#endif
+
+#ifdef CONFIG_INTEL_TD_PART_GUEST
+	/*
+	 * L2_ENTER_GUEST_STATE is used as input and output of TDG.VP.ENTER.
+	 * It is an array of general-purpose (GPR) register values, organized
+	 * according to their architectural number, with additional values of
+	 * RFLAG, RIP and SSP.
+	 */
+	struct l2_enter_guest_state l2_guest_state;
 #endif
 };
 
