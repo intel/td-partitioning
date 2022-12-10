@@ -183,10 +183,15 @@ static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu)
 	return is_td_part(vcpu->kvm);
 }
 
+noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+				struct vcpu_vmx *vmx);
+
 #else /* CONFIG_INTEL_TD_PART_GUEST */
 
 static inline bool is_td_part(struct kvm *kvm) { return false; }
 static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu) { return false; }
+static inline void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+				struct vcpu_vmx *vmx) {}
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 
 #endif /* __KVM_X86_TD_PART_H */

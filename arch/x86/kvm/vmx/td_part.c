@@ -13,6 +13,21 @@ bool td_part_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_TD_PART_VM;
 }
 
+static bool is_tdg_enter_error(u64 error_code)
+{
+	switch (error_code & TDX_TDCALL_STATUS_MASK) {
+	case TDX_SUCCESS:
+	case TDX_L2_EXIT_HOST_ROUTED_ASYNC:
+	case TDX_L2_EXIT_HOST_ROUTED_TDVMCALL:
+	case TDX_L2_EXIT_PENDING_INTERRUPT:
+	case TDX_PENDING_INTERRUPT:
+	case TDX_TD_EXIT_BEFORE_L2_ENTRY:
+		return false;
+	default:
+		return true;
+	}
+}
+
 static void td_part_load_l2_gprs(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -38,6 +53,54 @@ static void td_part_store_l2_gprs(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.regs[VCPU_REGS_RIP] = vcpu->arch.l2_guest_state.rip;
 	kvm_register_mark_available(vcpu, VCPU_REGS_RIP);
+}
+
+static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
+{
+	struct tdx_module_output out;
+	u64 vm_flags, ret;
+
+	td_part_load_l2_gprs(vcpu);
+
+	vm_flags = ((u64)vcpu->kvm->arch.vm_id << 52);
+	ret = tdg_vp_enter(vm_flags, virt_to_phys(&vcpu->arch.l2_guest_state), &out);
+
+	/* TDG.VP.ENTER has special error checking */
+	if (is_tdg_enter_error(ret)) {
+		pr_err_ratelimited("TDG_VP_ENTER failed: 0x%llx\n", ret);
+		return 1;
+	}
+
+	/* Save all guest registers so that we can continue using
+	 * kvm_xxx_read/write APIs. */
+	td_part_store_l2_gprs(vcpu);
+
+	/* For now only save useful output from TDCALL (TDG.VP.ENTER) */
+
+	vmx->exit_reason.full = ret;
+
+	vmx->exit_qualification = out.rcx;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1);
+
+	vmx->exit_intr_info = out.r9 & TDG_VP_ENTER_OUTPUT_INFO_MASK;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_2);
+
+	return 0;
+}
+
+noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+				       struct vcpu_vmx *vmx)
+{
+	guest_state_enter_irqoff();
+
+	if (vcpu->arch.cr2 != native_read_cr2())
+		native_write_cr2(vcpu->arch.cr2);
+
+	vmx->fail = __td_part_vcpu_run(vcpu, vmx);
+
+	vcpu->arch.cr2 = native_read_cr2();
+
+	guest_state_exit_irqoff();
 }
 
 int td_part_vm_init(struct kvm *kvm)
