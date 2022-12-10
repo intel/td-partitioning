@@ -7339,8 +7339,11 @@ fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	kvm_wait_lapic_expire(vcpu);
 
-	/* The actual VMENTER/EXIT is in the .noinstr.text section. */
-	vmx_vcpu_enter_exit(to_vmx(vcpu), __vmx_vcpu_run_flags(vmx));
+	if (is_td_part_vcpu(vcpu))
+		td_part_vcpu_enter_exit(vcpu, vmx);
+	else
+		/* The actual VMENTER/EXIT is in the .noinstr.text section. */
+		vmx_vcpu_enter_exit(to_vmx(vcpu), __vmx_vcpu_run_flags(vmx));
 
 	/* All fields are clean at this point */
 	if (kvm_is_using_evmcs()) {
