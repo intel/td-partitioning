@@ -94,6 +94,8 @@ static int __init ifs_init(void)
 	for (i = 0; i < IFS_NUMTESTS; i++) {
 		if (!(msrval & BIT(ifs_devices[i].test_caps->integrity_cap_bit)))
 			continue;
+		ifs_devices[i].rw_data.test_gen = (msrval & MSR_INTEGRITY_CAPS_SAF_GEN_REV_MASK)
+							>> MSR_INTEGRITY_CAPS_SAF_GEN_REV_SHIFT;
 		ret = misc_register(&ifs_devices[i].misc);
 		if (ret)
 			goto err_exit;
