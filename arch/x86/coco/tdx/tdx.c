@@ -495,6 +495,7 @@ static bool tdx_fast_tdcall_path_msr(unsigned int msr)
 {
 	switch (msr) {
 	case MSR_IA32_TSC_DEADLINE:
+	case APIC_BASE_MSR + (APIC_ICR >> 4):
 		return true;
 	default:
 		return false;
