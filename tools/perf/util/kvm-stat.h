@@ -123,6 +123,16 @@ bool exit_event_end(struct evsel *evsel,
 void exit_event_decode_key(struct perf_kvm_stat *kvm,
 			   struct event_key *key,
 			   char *decode);
+bool tdcall_event_begin(struct evsel *evsel,
+		      struct perf_sample *sample,
+		      struct event_key *key);
+bool tdcall_event_end(struct evsel *evsel,
+		    struct perf_sample *sample,
+		    struct event_key *key);
+void tdcall_event_decode_key(struct perf_kvm_stat *kvm,
+			   struct event_key *key,
+			   char *decode);
+
 
 bool kvm_exit_event(struct evsel *evsel);
 bool kvm_entry_event(struct evsel *evsel);

@@ -17,6 +17,37 @@ static struct kvm_events_ops exit_events = {
 	.name = "VM-EXIT"
 };
 
+static void tdcall_get_key(struct evsel *evsel,
+			   struct perf_sample *sample,
+			   struct event_key *key)
+{
+
+	unsigned long exit_reason;
+
+	exit_reason = evsel__intval(evsel, sample, "subfunction");
+	key->key = exit_reason;
+}
+
+bool tdcall_event_begin(struct evsel *evsel,
+			struct perf_sample *sample, struct event_key *key)
+{
+	return exit_event_begin(evsel, sample, key) && key->key == EXIT_REASON_TDCALL;
+}
+
+static struct child_event_ops child_events[] = {
+	{ .name = "kvm:kvm_tdx_hypercall",
+	  .get_key = tdcall_get_key },
+	{ NULL, NULL },
+};
+
+static struct kvm_events_ops tdcall_events = {
+	.is_begin_event = tdcall_event_begin,
+	.is_end_event = exit_event_end,
+	.child_ops = child_events,
+	.decode_key = tdcall_event_decode_key,
+	.name = "TDCALL"
+};
+
 const char *vcpu_id_str = "vcpu_id";
 const int decode_str_len = 20;
 const char *kvm_exit_reason = "exit_reason";
@@ -183,6 +214,7 @@ const char *kvm_events_tp[] = {
 	"kvm:kvm_mmio",
 	"kvm:kvm_pio",
 	"kvm:kvm_msr",
+	"kvm:kvm_tdx_hypercall",
 	NULL,
 };
 
@@ -191,6 +223,7 @@ struct kvm_reg_events_ops kvm_reg_events_ops[] = {
 	{ .name = "mmio", .ops = &mmio_events },
 	{ .name = "ioport", .ops = &ioport_events },
 	{ .name = "msr", .ops = &msr_events },
+	{ .name = "tdcall", .ops = &tdcall_events },
 	{ NULL, NULL },
 };
 

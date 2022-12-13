@@ -126,6 +126,16 @@ void exit_event_decode_key(struct perf_kvm_stat *kvm,
 	scnprintf(decode, decode_str_len, "%s", exit_reason);
 }
 
+void tdcall_event_decode_key(struct perf_kvm_stat *kvm,
+			     struct event_key *key,
+			     char *decode)
+{
+	const char *exit_reason = get_exit_reason(kvm, key->exit_reasons,
+						  key->key);
+
+	scnprintf(decode, decode_str_len, "%s", exit_reason);
+}
+
 static bool register_kvm_events_ops(struct perf_kvm_stat *kvm)
 {
 	struct kvm_reg_events_ops *events_ops = kvm_reg_events_ops;
