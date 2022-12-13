@@ -12,6 +12,7 @@
 #include "vmx_ops.h"
 #include "x86.h"
 #include "tdx.h"
+#include "td_part.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
