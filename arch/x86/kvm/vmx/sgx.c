@@ -495,5 +495,5 @@ void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 		if (vmcs12 && nested_cpu_has_encls_exit(vmcs12))
 			bitmap |= vmcs12->encls_exiting_bitmap;
 	}
-	vmcs_write64(ENCLS_EXITING_BITMAP, bitmap);
+	vmwrite64(vcpu, ENCLS_EXITING_BITMAP, bitmap);
 }

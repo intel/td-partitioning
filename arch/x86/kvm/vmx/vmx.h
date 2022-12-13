@@ -383,7 +383,8 @@ int allocate_vpid(void);
 void free_vpid(int vpid);
 void vmx_set_constant_host_state(struct vcpu_vmx *vmx);
 void vmx_prepare_switch_to_guest(struct kvm_vcpu *vcpu);
-void vmx_set_host_fs_gs(struct vmcs_host_state *host, u16 fs_sel, u16 gs_sel,
+void vmx_set_host_fs_gs(struct vcpu_vmx *vmx, struct vmcs_host_state *host,
+			u16 fs_sel, u16 gs_sel,
 			unsigned long fs_base, unsigned long gs_base);
 int vmx_get_cpl(struct kvm_vcpu *vcpu);
 bool vmx_emulation_required(struct kvm_vcpu *vcpu);
@@ -461,10 +462,7 @@ BUILD_VMX_MSR_BITMAP_HELPERS(bool, test, test)
 BUILD_VMX_MSR_BITMAP_HELPERS(void, clear, __clear)
 BUILD_VMX_MSR_BITMAP_HELPERS(void, set, __set)
 
-static inline u8 vmx_get_rvi(void)
-{
-	return vmcs_read16(GUEST_INTR_STATUS) & 0xff;
-}
+u8 vmx_get_rvi(struct kvm_vcpu *vcpu);
 
 #define __KVM_REQUIRED_VMX_VM_ENTRY_CONTROLS				\
 	(VM_ENTRY_LOAD_DEBUG_CONTROLS)
@@ -613,27 +611,8 @@ void intel_pmu_cross_mapped_check(struct kvm_pmu *pmu);
 int intel_pmu_create_guest_lbr_event(struct kvm_vcpu *vcpu);
 void vmx_passthrough_lbr_msrs(struct kvm_vcpu *vcpu);
 
-static inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-
-	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_1)) {
-		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1);
-		vmx->exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
-	}
-	return vmx->exit_qualification;
-}
-
-static inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-
-	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_2)) {
-		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_2);
-		vmx->exit_intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
-	}
-	return vmx->exit_intr_info;
-}
+unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu);
+u32 vmx_get_intr_info(struct kvm_vcpu *vcpu);
 
 struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags);
 void free_vmcs(struct vmcs *vmcs);

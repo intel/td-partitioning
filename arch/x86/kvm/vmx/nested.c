@@ -255,7 +255,7 @@ static void vmx_sync_vmcs_host_state(struct vcpu_vmx *vmx,
 	src = &prev->host_state;
 	dest = &vmx->loaded_vmcs->host_state;
 
-	vmx_set_host_fs_gs(dest, src->fs_sel, src->gs_sel, src->fs_base, src->gs_base);
+	vmx_set_host_fs_gs(vmx, dest, src->fs_sel, src->gs_sel, src->fs_base, src->gs_base);
 	dest->ldt_sel = src->ldt_sel;
 #ifdef CONFIG_X86_64
 	dest->ds_sel = src->ds_sel;
@@ -3359,7 +3359,7 @@ static int nested_vmx_check_permission(struct kvm_vcpu *vcpu)
 
 static u8 vmx_has_apicv_interrupt(struct kvm_vcpu *vcpu)
 {
-	u8 rvi = vmx_get_rvi();
+	u8 rvi = vmx_get_rvi(vcpu);
 	u8 vppr = kvm_lapic_get_reg(vcpu->arch.apic, APIC_PROCPRI);
 
 	return ((rvi & 0xf0) > (vppr & 0xf0));
