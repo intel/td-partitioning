@@ -81,6 +81,9 @@ static int vt_vm_init(struct kvm *kvm)
 	if (is_td(kvm))
 		return tdx_vm_init(kvm);
 
+	if (is_td_part(kvm))
+		return td_part_vm_init(kvm);
+
 	return vmx_vm_init(kvm);
 }
 
@@ -94,6 +97,9 @@ static void vt_vm_destroy(struct kvm *kvm)
 {
 	if (is_td(kvm))
 		return;
+
+	if (is_td_part(kvm))
+		return td_part_vm_destroy(kvm);
 
 	vmx_vm_destroy(kvm);
 }

@@ -1502,6 +1502,10 @@ struct kvm_arch {
 #ifdef CONFIG_KVM_MMU_PRIVATE
 	gfn_t gfn_shared_mask;
 #endif
+
+#ifdef CONFIG_INTEL_TD_PART_GUEST
+	u8 vm_id;
+#endif
 };
 
 struct kvm_vm_stat {

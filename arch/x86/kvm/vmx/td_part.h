@@ -19,6 +19,9 @@ extern bool enable_td_part;
 
 #ifdef CONFIG_INTEL_TD_PART_GUEST
 
+/* vm_id: 0 - L1; 1 - 3: L2 VMs */
+#define TD_PART_MAX_NUM_VMS			4
+
 /* TDX control structure (TDR/TDCS/TDVPS) field access codes */
 #define TDG_NON_ARCH			BIT_ULL(63)
 #define TDG_CLASS_SHIFT			56
