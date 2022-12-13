@@ -73,6 +73,8 @@ static bool swiotlb_force_disable;
 
 struct io_tlb_mem io_tlb_default_mem;
 
+static bool default_mem_unaccepted;
+
 phys_addr_t swiotlb_unencrypted_base;
 
 static unsigned long default_nslabs = IO_TLB_DEFAULT_SIZE >> IO_TLB_SHIFT;
@@ -276,7 +278,10 @@ void __init swiotlb_update_mem_attributes(void)
 		return;
 	vaddr = phys_to_virt(mem->start);
 	bytes = PAGE_ALIGN(mem->nslabs << IO_TLB_SHIFT);
-	set_memory_decrypted((unsigned long)vaddr, bytes >> PAGE_SHIFT);
+	if (default_mem_unaccepted)
+		set_memory_decrypted_noflush((unsigned long)vaddr, bytes >> PAGE_SHIFT);
+	else
+		set_memory_decrypted((unsigned long)vaddr, bytes >> PAGE_SHIFT);
 
 	mem->vaddr = swiotlb_mem_remap(mem, bytes);
 	if (!mem->vaddr)
@@ -323,7 +328,6 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 	if (swiotlb_unencrypted_base)
 		return;
 
-	memset(vaddr, 0, bytes);
 	mem->vaddr = vaddr;
 	return;
 }
@@ -333,17 +337,24 @@ static void __init *swiotlb_memblock_alloc(unsigned long nslabs,
 		int (*remap)(void *tlb, unsigned long nslabs))
 {
 	size_t bytes = PAGE_ALIGN(nslabs << IO_TLB_SHIFT);
-	void *tlb;
+	void *tlb = NULL;
 
 	/*
 	 * By default allocate the bounce buffer memory from low memory, but
 	 * allow to pick a location everywhere for hypervisors with guest
 	 * memory encryption.
 	 */
-	if (flags & SWIOTLB_ANY)
-		tlb = memblock_alloc(bytes, PAGE_SIZE);
-	else
-		tlb = memblock_alloc_low(bytes, PAGE_SIZE);
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
+		tlb = memblock_alloc_raw_unaccepted(bytes, PMD_SIZE);
+		if (tlb)
+			default_mem_unaccepted = true;
+	}
+	if (!tlb) {
+		if (flags & SWIOTLB_ANY)
+			tlb = memblock_alloc(bytes, PAGE_SIZE);
+		else
+			tlb = memblock_alloc_low(bytes, PAGE_SIZE);
+	}
 
 	if (!tlb) {
 		pr_warn("%s: Failed to allocate %zu bytes tlb structure\n",

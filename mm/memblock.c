@@ -1372,7 +1372,7 @@ __next_mem_pfn_range_in_zone(u64 *idx, struct zone *zone,
 phys_addr_t __init memblock_alloc_range_nid(phys_addr_t size,
 					phys_addr_t align, phys_addr_t start,
 					phys_addr_t end, int nid,
-					bool exact_nid)
+					bool exact_nid, bool accept)
 {
 	enum memblock_flags flags = choose_memblock_flags();
 	phys_addr_t found;
@@ -1430,7 +1430,14 @@ done:
 	 *
 	 * Accept the memory of the allocated buffer.
 	 */
-	accept_memory(found, found + size);
+	if (accept) {
+		accept_memory(found, found + size);
+	} else {
+		if (!unaccept_memory(found, found + size)) {
+			memblock_free(__va(found), size);
+			found = 0;
+		}
+	}
 
 	return found;
 }
@@ -1456,7 +1463,7 @@ phys_addr_t __init memblock_phys_alloc_range(phys_addr_t size,
 		     __func__, (u64)size, (u64)align, &start, &end,
 		     (void *)_RET_IP_);
 	return memblock_alloc_range_nid(size, align, start, end, NUMA_NO_NODE,
-					false);
+					false, true);
 }
 
 /**
@@ -1475,7 +1482,7 @@ phys_addr_t __init memblock_phys_alloc_range(phys_addr_t size,
 phys_addr_t __init memblock_phys_alloc_try_nid(phys_addr_t size, phys_addr_t align, int nid)
 {
 	return memblock_alloc_range_nid(size, align, 0,
-					MEMBLOCK_ALLOC_ACCESSIBLE, nid, false);
+					MEMBLOCK_ALLOC_ACCESSIBLE, nid, false, true);
 }
 
 /**
@@ -1501,7 +1508,7 @@ phys_addr_t __init memblock_phys_alloc_try_nid(phys_addr_t size, phys_addr_t ali
 static void * __init memblock_alloc_internal(
 				phys_addr_t size, phys_addr_t align,
 				phys_addr_t min_addr, phys_addr_t max_addr,
-				int nid, bool exact_nid)
+				int nid, bool exact_nid, bool accept)
 {
 	phys_addr_t alloc;
 
@@ -1517,12 +1524,12 @@ static void * __init memblock_alloc_internal(
 		max_addr = memblock.current_limit;
 
 	alloc = memblock_alloc_range_nid(size, align, min_addr, max_addr, nid,
-					exact_nid);
+					exact_nid, accept);
 
 	/* retry allocation without lower limit */
 	if (!alloc && min_addr)
 		alloc = memblock_alloc_range_nid(size, align, 0, max_addr, nid,
-						exact_nid);
+						exact_nid, accept);
 
 	if (!alloc)
 		return NULL;
@@ -1558,7 +1565,7 @@ void * __init memblock_alloc_exact_nid_raw(
 		     &max_addr, (void *)_RET_IP_);
 
 	return memblock_alloc_internal(size, align, min_addr, max_addr, nid,
-				       true);
+				       true, true);
 }
 
 /**
@@ -1590,7 +1597,20 @@ void * __init memblock_alloc_try_nid_raw(
 		     &max_addr, (void *)_RET_IP_);
 
 	return memblock_alloc_internal(size, align, min_addr, max_addr, nid,
-				       false);
+				       false, true);
+}
+
+void * __init memblock_alloc_try_nid_raw_unaccepted(
+			phys_addr_t size, phys_addr_t align,
+			phys_addr_t min_addr, phys_addr_t max_addr,
+			int nid)
+{
+	memblock_dbg("%s: %llu bytes align=0x%llx nid=%d from=%pa max_addr=%pa %pS\n",
+		     __func__, (u64)size, (u64)align, nid, &min_addr,
+		     &max_addr, (void *)_RET_IP_);
+
+	return memblock_alloc_internal(size, align, min_addr, max_addr, nid,
+				       false, false);
 }
 
 /**
@@ -1621,7 +1641,7 @@ void * __init memblock_alloc_try_nid(
 		     __func__, (u64)size, (u64)align, nid, &min_addr,
 		     &max_addr, (void *)_RET_IP_);
 	ptr = memblock_alloc_internal(size, align,
-					   min_addr, max_addr, nid, false);
+					   min_addr, max_addr, nid, false, true);
 	if (ptr)
 		memset(ptr, 0, size);
 

@@ -858,6 +858,10 @@ static inline bool range_contains_unaccepted_memory(phys_addr_t start,
 static inline void accept_memory(phys_addr_t start, phys_addr_t end)
 {
 }
+
+static inline bool unaccept_memory(phys_addr_t start, phys_addr_t end)
+{
+}
 #endif
 
 #endif	/* __MM_INTERNAL_H */

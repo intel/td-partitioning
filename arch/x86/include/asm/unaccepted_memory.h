@@ -10,6 +10,7 @@ void process_unaccepted_memory(struct boot_params *params, u64 start, u64 num);
 #ifdef CONFIG_UNACCEPTED_MEMORY
 
 void accept_memory(phys_addr_t start, phys_addr_t end);
+bool unaccept_memory(phys_addr_t start, phys_addr_t end);
 bool range_contains_unaccepted_memory(phys_addr_t start, phys_addr_t end);
 
 #endif
