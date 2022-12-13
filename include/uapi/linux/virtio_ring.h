@@ -43,6 +43,8 @@
 #define VRING_DESC_F_WRITE	2
 /* This means the buffer contains a list of buffer descriptors. */
 #define VRING_DESC_F_INDIRECT	4
+/* This means the buffer uses a pre-mapped DMA memory as bounce buffer */
+#define VRING_DESC_F_FAST_MAP	8
 
 /*
  * Mark a descriptor as available or used in packed ring.

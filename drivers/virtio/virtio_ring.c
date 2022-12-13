@@ -82,10 +82,24 @@ struct vring_desc_state_packed {
 
 struct vring_desc_extra {
 	dma_addr_t addr;		/* Descriptor DMA addr. */
+	void *orig_vaddr;		/* Original vaddr. Valid when fast mapping is in use */
 	u32 len;			/* Descriptor length. */
 	u16 flags;			/* Descriptor flags. */
 	u16 next;			/* The next desc state in a list. */
 };
+
+#define VRING_DESC_FAST_MAP_SIZE 16
+struct vring_desc_fast_map {
+	u8 data[VRING_DESC_FAST_MAP_SIZE];
+};
+
+/*
+ * Bounce small buffer (<16B) via a pre-mapped DMA buffer, thus avoid the
+ * need to call expensive DMA map/unmap APIs. This switch only impacts VQs
+ * using DMA api (i.e., use_dma_api is true)
+ */
+static bool bounce_small_buffer __read_mostly;
+module_param(bounce_small_buffer, bool, 0644);
 
 struct vring_virtqueue_split {
 	/* Actual memory layout for this queue. */
@@ -103,6 +117,10 @@ struct vring_virtqueue_split {
 	/* Per-descriptor state. */
 	struct vring_desc_state_split *desc_state;
 	struct vring_desc_extra *desc_extra;
+
+	struct vring_desc_fast_map *fast_map;
+	dma_addr_t fast_map_handle;
+	size_t fast_map_size;
 
 	/* DMA address and size information */
 	dma_addr_t queue_dma_addr;
@@ -434,6 +452,26 @@ static void vring_unmap_one_split_indirect(const struct vring_virtqueue *vq,
 		       DMA_FROM_DEVICE : DMA_TO_DEVICE);
 }
 
+static dma_addr_t fast_map(const struct vring_virtqueue *vq, unsigned int i,
+			   void *addr, size_t size, bool from_device)
+{
+	struct vring_desc_fast_map *fast_map = vq->split.fast_map;
+
+	if (!from_device)
+		memcpy(fast_map[i].data, addr, size);
+
+	return vq->split.fast_map_handle + i * sizeof(struct vring_desc_fast_map);
+}
+
+static void fast_unmap(const struct vring_virtqueue *vq, unsigned int i,
+		       void *addr, size_t size, bool from_device)
+{
+	struct vring_desc_fast_map *fast_map = vq->split.fast_map;
+
+	if (from_device)
+		memcpy(addr, fast_map[i].data, size);
+}
+
 static unsigned int vring_unmap_one_split(const struct vring_virtqueue *vq,
 					  unsigned int i)
 {
@@ -444,6 +482,12 @@ static unsigned int vring_unmap_one_split(const struct vring_virtqueue *vq,
 		goto out;
 
 	flags = extra[i].flags;
+
+	if (flags & VRING_DESC_F_FAST_MAP) {
+		fast_unmap(vq, i, extra[i].orig_vaddr, extra[i].len,
+			   flags & VRING_DESC_F_WRITE);
+		goto out;
+	}
 
 	if (flags & VRING_DESC_F_INDIRECT) {
 		dma_unmap_single(vring_dma_dev(vq),
@@ -490,6 +534,7 @@ static inline unsigned int virtqueue_add_desc_split(struct virtqueue *vq,
 						    struct vring_desc *desc,
 						    unsigned int i,
 						    dma_addr_t addr,
+						    void *orig_vaddr,
 						    unsigned int len,
 						    u16 flags,
 						    bool indirect)
@@ -498,7 +543,7 @@ static inline unsigned int virtqueue_add_desc_split(struct virtqueue *vq,
 	struct vring_desc_extra *extra = vring->split.desc_extra;
 	u16 next;
 
-	desc[i].flags = cpu_to_virtio16(vq->vdev, flags);
+	desc[i].flags = cpu_to_virtio16(vq->vdev, flags & ~VRING_DESC_F_FAST_MAP);
 	desc[i].addr = cpu_to_virtio64(vq->vdev, addr);
 	desc[i].len = cpu_to_virtio32(vq->vdev, len);
 
@@ -509,10 +554,17 @@ static inline unsigned int virtqueue_add_desc_split(struct virtqueue *vq,
 		extra[i].addr = addr;
 		extra[i].len = len;
 		extra[i].flags = flags;
+		extra[i].orig_vaddr = orig_vaddr;
 	} else
 		next = virtio16_to_cpu(vq->vdev, desc[i].next);
 
 	return next;
+}
+
+static inline bool can_fast_map(struct vring_virtqueue *vq, int len)
+{
+	return bounce_small_buffer && vq->use_dma_api &&
+	       len <= VRING_DESC_FAST_MAP_SIZE;
 }
 
 static inline int virtqueue_add_split(struct virtqueue *_vq,
@@ -583,33 +635,53 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 
 	for (n = 0; n < out_sgs; n++) {
 		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
-			dma_addr_t addr = vring_map_one_sg(vq, sg, DMA_TO_DEVICE);
-			if (vring_mapping_error(vq, addr))
-				goto unmap_release;
+			dma_addr_t addr;
+			u16 flags = VRING_DESC_F_NEXT;
 
-			prev = i;
-			/* Note that we trust indirect descriptor
-			 * table since it use stream DMA mapping.
-			 */
-			i = virtqueue_add_desc_split(_vq, desc, i, addr, sg->length,
-						     VRING_DESC_F_NEXT,
-						     indirect);
-		}
-	}
-	for (; n < (out_sgs + in_sgs); n++) {
-		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
-			dma_addr_t addr = vring_map_one_sg(vq, sg, DMA_FROM_DEVICE);
-			if (vring_mapping_error(vq, addr))
-				goto unmap_release;
+			/* indirect desc has no associated slot */
+			if (can_fast_map(vq, sg->length) && !indirect) {
+				flags |= VRING_DESC_F_FAST_MAP;
+				addr = fast_map(vq, i, sg_virt(sg), sg->length, false);
+			} else {
+				addr = vring_map_one_sg(vq, sg, DMA_TO_DEVICE);
+				if (vring_mapping_error(vq, addr))
+					goto unmap_release;
+			}
 
 			prev = i;
 			/* Note that we trust indirect descriptor
 			 * table since it use stream DMA mapping.
 			 */
 			i = virtqueue_add_desc_split(_vq, desc, i, addr,
+						     sg_virt(sg),
 						     sg->length,
-						     VRING_DESC_F_NEXT |
-						     VRING_DESC_F_WRITE,
+						     flags,
+						     indirect);
+		}
+	}
+	for (; n < (out_sgs + in_sgs); n++) {
+		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
+			dma_addr_t addr;
+			u16 flags = VRING_DESC_F_NEXT | VRING_DESC_F_WRITE;
+
+			/* indirect desc has no associated slot */
+			if (can_fast_map(vq, sg->length) && !indirect) {
+				flags |= VRING_DESC_F_FAST_MAP;
+				addr = fast_map(vq, i, sg_virt(sg), sg->length, true);
+			} else {
+				addr = vring_map_one_sg(vq, sg, DMA_FROM_DEVICE);
+				if (vring_mapping_error(vq, addr))
+					goto unmap_release;
+			}
+
+			prev = i;
+			/* Note that we trust indirect descriptor
+			 * table since it use stream DMA mapping.
+			 */
+			i = virtqueue_add_desc_split(_vq, desc, i, addr,
+						     sg_virt(sg),
+						     sg->length,
+						     flags,
 						     indirect);
 		}
 	}
@@ -629,6 +701,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 
 		virtqueue_add_desc_split(_vq, vq->split.vring.desc,
 					 head, addr,
+					 NULL,
 					 total_sg * sizeof(struct vring_desc),
 					 VRING_DESC_F_INDIRECT,
 					 false);
@@ -1014,7 +1087,32 @@ static void virtqueue_vring_attach_split(struct vring_virtqueue *vq,
 	vq->free_head = 0;
 }
 
-static int vring_alloc_state_extra_split(struct vring_virtqueue_split *vring_split)
+static struct vring_desc_fast_map *vring_alloc_desc_fast_map(struct vring_virtqueue *vq,
+							     unsigned int num,
+							     dma_addr_t *dma_handle)
+{
+	struct vring_desc_fast_map *dma;
+
+	/* Don't check "bounce_small_buffer" since it can be toggled at runtime */
+	if (!vq->use_dma_api)
+		return NULL;
+	return dma_alloc_coherent(vq->vq.vdev->dev.parent,
+				  PAGE_ALIGN(num * sizeof(*dma)),
+				  dma_handle,
+				  GFP_KERNEL|__GFP_NOWARN|__GFP_ZERO);
+}
+
+static void vring_free_desc_fast_map(struct vring_virtqueue *vq, size_t size,
+				     void *cpu_addr, dma_addr_t dma_handle)
+{
+	/* Don't check "bounce_small_buffer" since it can be toggled at runtime */
+	if (!vq->use_dma_api)
+		return;
+	dma_free_coherent(vq->vq.vdev->dev.parent, size, cpu_addr, dma_handle);
+}
+
+static int vring_alloc_state_extra_split(struct vring_virtqueue_split *vring_split,
+					 struct vring_virtqueue *vq)
 {
 	struct vring_desc_state_split *state;
 	struct vring_desc_extra *extra;
@@ -1028,12 +1126,23 @@ static int vring_alloc_state_extra_split(struct vring_virtqueue_split *vring_spl
 	if (!extra)
 		goto err_extra;
 
+	vring_split->fast_map = vring_alloc_desc_fast_map(vq, num,
+						       &vring_split->fast_map_handle);
+	if (vq->use_dma_api && !vring_split->fast_map)
+		goto err_fast_map;
+
+	if (vring_split->fast_map)
+		vring_split->fast_map_size = PAGE_ALIGN(num *
+						     sizeof(struct vring_desc_fast_map));
+
 	memset(state, 0, num * sizeof(struct vring_desc_state_split));
 
 	vring_split->desc_state = state;
 	vring_split->desc_extra = extra;
 	return 0;
 
+err_fast_map:
+	kfree(extra);
 err_extra:
 	kfree(state);
 err_state:
@@ -1145,7 +1254,7 @@ static int virtqueue_resize_split(struct virtqueue *_vq, u32 num)
 	if (err)
 		goto err;
 
-	err = vring_alloc_state_extra_split(&vring_split);
+	err = vring_alloc_state_extra_split(&vring_split, vq);
 	if (err)
 		goto err_state_extra;
 
@@ -2527,7 +2636,7 @@ static struct virtqueue *__vring_new_virtqueue(unsigned int index,
 	if (virtio_has_feature(vdev, VIRTIO_F_ORDER_PLATFORM))
 		vq->weak_barriers = false;
 
-	err = vring_alloc_state_extra_split(vring_split);
+	err = vring_alloc_state_extra_split(vring_split, vq);
 	if (err) {
 		kfree(vq);
 		return NULL;
@@ -2691,6 +2800,11 @@ static void vring_free(struct virtqueue *_vq)
 		}
 	}
 	if (!vq->packed_ring) {
+		vring_free_desc_fast_map(vq,
+					 vq->split.fast_map_size,
+					 vq->split.fast_map,
+					 vq->split.fast_map_handle);
+
 		kfree(vq->split.desc_state);
 		kfree(vq->split.desc_extra);
 	}
