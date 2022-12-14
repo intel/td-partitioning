@@ -252,6 +252,11 @@ enum tdx_ext_exit_qualification_type {
 #define TDX_MD_TDCS_NUM_L2_VMS			0x9010000100000005
 #define TDX_MD_TDVPS_L2_CTLS			0xA020000300000050
 
+#define TDX_MD_TDVPS_MSR_BITMAPS_1		0x2520000300000000
+#define TDX_MD_TDVPS_MSR_BITMAPS_2		0x2D20000300000000
+#define TDX_MD_TDVPS_MSR_BITMAPS_3		0x3520000300000000
+#define TDX_MD_TDVPS_MSR_BITMAPS_WRMASK		-1ULL
+
 union tdx_l2_vcpu_ctls {
 	struct {
 		u64 enable_shared_eptp	: 1;

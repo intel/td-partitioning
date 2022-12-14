@@ -278,6 +278,8 @@ static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu)
 
 noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx);
+void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type);
+int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset);
 
 #else /* CONFIG_INTEL_TD_PART_GUEST */
 
@@ -311,6 +313,8 @@ static inline bool is_td_part(struct kvm *kvm) { return false; }
 static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu) { return false; }
 static inline void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx) {}
+static inline void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type) {}
+static inline int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset) { return 0; }
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 
 #endif /* __KVM_X86_TD_PART_H */

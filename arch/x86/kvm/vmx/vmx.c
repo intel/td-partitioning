@@ -4152,6 +4152,9 @@ void vmx_disable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 
 	if (type & MSR_TYPE_W)
 		vmx_clear_msr_bitmap_write(msr_bitmap, msr);
+
+	if (is_td_part_vcpu(vcpu))
+		td_part_intercept_msr(vcpu, msr, type);
 }
 
 void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
@@ -4184,6 +4187,9 @@ void vmx_enable_intercept_for_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 
 	if (type & MSR_TYPE_W)
 		vmx_set_msr_bitmap_write(msr_bitmap, msr);
+
+	if (is_td_part_vcpu(vcpu))
+		td_part_intercept_msr(vcpu, msr, type);
 }
 
 static void vmx_reset_x2apic_msrs(struct kvm_vcpu *vcpu, u8 mode)
@@ -4200,6 +4206,11 @@ static void vmx_reset_x2apic_msrs(struct kvm_vcpu *vcpu, u8 mode)
 
 		msr_bitmap[read_idx] = read_intercept;
 		msr_bitmap[write_idx] = ~0ul;
+
+		if (is_td_part_vcpu(vcpu)) {
+			tdg_write_msr_bitmap(vcpu->kvm, msr_bitmap, read_idx);
+			tdg_write_msr_bitmap(vcpu->kvm, msr_bitmap, write_idx);
+		}
 	}
 }
 

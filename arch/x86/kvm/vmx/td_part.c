@@ -217,6 +217,77 @@ noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	guest_state_exit_irqoff();
 }
 
+int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset)
+{
+	struct tdx_module_output out;
+	u64 field_id, ret;
+
+	switch (kvm->arch.vm_id)
+	{
+		case 1:
+			field_id = TDX_MD_TDVPS_MSR_BITMAPS_1;
+			break;
+		case 2:
+			field_id = TDX_MD_TDVPS_MSR_BITMAPS_2;
+			break;
+		case 3:
+			field_id = TDX_MD_TDVPS_MSR_BITMAPS_2;
+			break;
+
+		default:
+			return -ENODEV;
+	}
+
+	/*
+	 * The field code of MSR Bitmap is the offset (8B units) from the
+	 * beginning of the architectural MSR bitmaps page structure
+	 */
+	field_id += offset;
+
+	/* Copy the content from KVM bitmap to TDX bitmap. */
+	ret = tdg_vp_write(field_id, msr_bitmap[offset],
+		TDX_MD_TDVPS_MSR_BITMAPS_WRMASK, &out);
+	if (ret != TDX_SUCCESS) {
+		pr_err("%s: tdg_vp_write failed, field %llx err=%llx\n",
+			__func__, field_id, ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
+	struct kvm *kvm = vcpu->kvm;
+	unsigned long offset;
+
+	/*
+	 * MSRs 0x00000000-0x0000:
+	 * bytes 0-0x3ff for reads and 0x800-0xbff for writes
+	 * MSRs 0xc0000000-0xc0001fff:
+	 * bytes 0x400-0xr73ff for reads and 0xc00-0xfff for writes
+	 * MSRs not covered by either of the ranges always VM-Exit.
+	 */
+	if ((msr >= 0x2000) && ((msr < 0xc0000000) || (msr >= 0xc0002000)))
+		return;
+
+	/* one 8-bytes word has 64 MSRs */
+	offset = (msr & 0x1fff) / 64;
+
+	if ((msr >= 0xc0000000) && (msr <= 0xc0001fff))
+		offset += 0x400 / 8;
+
+	if (type & MSR_TYPE_R)
+		tdg_write_msr_bitmap(kvm, msr_bitmap, offset);
+
+	if (type & MSR_TYPE_W) {
+		offset += 0x800 / 8;
+		tdg_write_msr_bitmap(kvm, msr_bitmap, offset);
+	}
+}
+
 static bool set_control_cond(int cpu, void *data)
 {
 	struct kvm *kvm = data;
