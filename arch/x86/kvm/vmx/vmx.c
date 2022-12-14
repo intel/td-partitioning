@@ -244,6 +244,22 @@ static void *vmx_l1d_flush_pages;
 /* Control for disabling CPU Fill buffer clear */
 static bool __read_mostly vmx_fb_clear_ctrl_available;
 
+static bool vmx_has_waitpkg(struct vcpu_vmx *vmx)
+{
+	return secondary_exec_controls_get(vmx) &
+		SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE;
+}
+static bool is_unrestricted_guest(struct kvm_vcpu *vcpu)
+{
+	return enable_unrestricted_guest && (!is_guest_mode(vcpu) ||
+	    (secondary_exec_controls_get(to_vmx(vcpu)) &
+	    SECONDARY_EXEC_UNRESTRICTED_GUEST));
+}
+bool __vmx_guest_state_valid(struct kvm_vcpu *vcpu);
+bool vmx_guest_state_valid(struct kvm_vcpu *vcpu)
+{
+	return is_unrestricted_guest(vcpu) || __vmx_guest_state_valid(vcpu);
+}
 static int vmx_setup_l1d_flush(enum vmx_l1d_flush_state l1tf)
 {
 	struct page *page;

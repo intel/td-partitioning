@@ -647,12 +647,6 @@ static inline struct vmcs *alloc_vmcs(bool shadow)
 			      GFP_KERNEL_ACCOUNT);
 }
 
-static inline bool vmx_has_waitpkg(struct vcpu_vmx *vmx)
-{
-	return secondary_exec_controls_get(vmx) &
-		SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE;
-}
-
 static inline bool vmx_need_pf_intercept(struct kvm_vcpu *vcpu)
 {
 	if (!enable_ept)
@@ -661,18 +655,7 @@ static inline bool vmx_need_pf_intercept(struct kvm_vcpu *vcpu)
 	return allow_smaller_maxphyaddr && cpuid_maxphyaddr(vcpu) < boot_cpu_data.x86_phys_bits;
 }
 
-static inline bool is_unrestricted_guest(struct kvm_vcpu *vcpu)
-{
-	return enable_unrestricted_guest && (!is_guest_mode(vcpu) ||
-	    (secondary_exec_controls_get(to_vmx(vcpu)) &
-	    SECONDARY_EXEC_UNRESTRICTED_GUEST));
-}
-
-bool __vmx_guest_state_valid(struct kvm_vcpu *vcpu);
-static inline bool vmx_guest_state_valid(struct kvm_vcpu *vcpu)
-{
-	return is_unrestricted_guest(vcpu) || __vmx_guest_state_valid(vcpu);
-}
+bool vmx_guest_state_valid(struct kvm_vcpu *vcpu);
 
 void dump_vmcs(struct kvm_vcpu *vcpu);
 
