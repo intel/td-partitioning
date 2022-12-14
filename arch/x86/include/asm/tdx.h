@@ -57,6 +57,8 @@ bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc);
 
 u64 tdx_mcall_verify_report(u8 *reportmac);
 
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
 bool tdx_allowed_port(short int port);
 
 #else
