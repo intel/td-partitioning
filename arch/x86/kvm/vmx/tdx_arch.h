@@ -250,5 +250,17 @@ enum tdx_ext_exit_qualification_type {
 #define TDX_MD_FID_VP_STATE_PAGES		0xA000000000000022
 
 #define TDX_MD_TDCS_NUM_L2_VMS			0x9010000100000005
+#define TDX_MD_TDVPS_L2_CTLS			0xA020000300000050
+
+union tdx_l2_vcpu_ctls {
+	struct {
+		u64 enable_shared_eptp	: 1;
+		u64 enable_tdvmcall	: 1;
+		u64 enable_extended_ve	: 1;
+		u64 reserved		: 61;
+	};
+	u64 full;
+};
+#define TDX_L2_CTLS_MASK			0x7ULL
 
 #endif /* __KVM_X86_TDX_ARCH_H */

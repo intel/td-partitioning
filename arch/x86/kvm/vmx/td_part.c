@@ -217,6 +217,34 @@ noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	guest_state_exit_irqoff();
 }
 
+static bool set_control_cond(int cpu, void *data)
+{
+	struct kvm *kvm = data;
+
+	return !kvm->vm_bugged;
+}
+
+static void set_control(void *data)
+{
+	struct kvm *kvm = data;
+	struct tdx_module_output out;
+	union tdx_l2_vcpu_ctls l2_ctls;
+	u16 vm_id = kvm->arch.vm_id;
+	u64 ret;
+
+	/*
+	 * Turn off TDVMCALL and #VE for TD partitioning guests.
+	 * TODO: turn on enable_shared_eptp later
+	 */
+	l2_ctls.full = 0;
+	ret = tdg_vp_write(TDX_MD_TDVPS_L2_CTLS + vm_id, l2_ctls.full, TDX_L2_CTLS_MASK, &out);
+	if (KVM_BUG_ON(ret != TDX_SUCCESS, kvm)) {
+		pr_err("%s: tdg_vp_write L2 CTLS field failed, err=%llx\n",
+			__func__, ret);
+		kvm_vm_bugged(kvm);
+	}
+}
+
 int td_part_vm_init(struct kvm *kvm)
 {
 	u16 vm_id;
@@ -232,6 +260,9 @@ int td_part_vm_init(struct kvm *kvm)
 
 	set_bit(vm_id, td_part_vm_id_bitmap);
 	kvm->arch.vm_id = vm_id;
+
+	/* L2 control field is per-CPU */
+	on_each_cpu_cond(set_control_cond, set_control, kvm, 1);
 
 	KVM_BUG_ON(!enable_ept, kvm);
 	KVM_BUG_ON(!enable_unrestricted_guest, kvm);
