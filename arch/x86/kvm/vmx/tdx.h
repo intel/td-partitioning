@@ -188,6 +188,15 @@ struct vcpu_tdx {
 	unsigned long dr6;
 };
 
+/* Table 3-42, GHCI spec */
+struct tdvmcall_service {
+	guid_t   guid;
+	/* Length of the hdr and payload */
+	uint32_t length;
+	uint32_t status;
+	uint8_t  data[0];
+};
+
 static inline bool is_td(struct kvm *kvm)
 {
 	return kvm->arch.vm_type == KVM_X86_TDX_VM;
