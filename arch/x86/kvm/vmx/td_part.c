@@ -297,7 +297,8 @@ int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	 * To emulate this MSR, ignoring R/W from the guests seems is the
 	 * correct way, other than throw a #GP.
 	 */
-	if (msr->index == MSR_CSTAR)
+	if ((msr->index == MSR_CSTAR) ||
+	    (msr->index == MSR_IA32_TSC))
 		return 0;
 
 	return vmx_set_msr(vcpu, msr);

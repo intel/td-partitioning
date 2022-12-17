@@ -883,6 +883,14 @@ static void vt_write_tsc_multiplier(struct kvm_vcpu *vcpu, u64 multiplier)
 	vmx_write_tsc_multiplier(vcpu, multiplier);
 }
 
+static bool vt_is_l1_tsc_adjustable(struct kvm_vcpu *vcpu)
+{
+	if (unlikely(is_td_part_vcpu(vcpu)))
+		return false;
+
+	return true;
+}
+
 static void vt_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 {
 	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
@@ -1093,6 +1101,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.get_l2_tsc_multiplier = vt_get_l2_tsc_multiplier,
 	.write_tsc_offset = vt_write_tsc_offset,
 	.write_tsc_multiplier = vt_write_tsc_multiplier,
+	.is_l1_tsc_adjustable = vt_is_l1_tsc_adjustable,
 
 	.load_mmu_pgd = vt_load_mmu_pgd,
 

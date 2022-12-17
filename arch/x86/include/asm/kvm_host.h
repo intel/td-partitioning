@@ -1788,6 +1788,8 @@ struct kvm_x86_ops {
 	void (*write_tsc_offset)(struct kvm_vcpu *vcpu, u64 offset);
 	void (*write_tsc_multiplier)(struct kvm_vcpu *vcpu, u64 multiplier);
 
+	bool (*is_l1_tsc_adjustable)(struct kvm_vcpu *vcpu);
+
 	/*
 	 * Retrieve somewhat arbitrary exit information.  Intended to
 	 * be used only from within tracepoints or error paths.

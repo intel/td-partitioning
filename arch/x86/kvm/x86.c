@@ -2632,6 +2632,9 @@ static void __kvm_synchronize_tsc(struct kvm_vcpu *vcpu, u64 offset, u64 tsc,
 {
 	struct kvm *kvm = vcpu->kvm;
 
+	if (!static_call(kvm_x86_is_l1_tsc_adjustable)(vcpu))
+		return;
+
 	lockdep_assert_held(&kvm->arch.tsc_write_lock);
 
 	/*
