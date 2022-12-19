@@ -1126,18 +1126,6 @@ static int __init vt_init(void)
 	 */
 	hv_init_evmcs();
 
-	r = kvm_x86_vendor_init(&vt_init_ops);
-	if (r)
-		return r;
-
-	r = vmx_init();
-	if (r)
-		goto err_vmx_init;
-
-	r = tdx_init();
-	if (r)
-		goto err_tdx_init;
-
 	/*
 	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
 	 * exposed to userspace!
@@ -1153,6 +1141,19 @@ static int __init vt_init(void)
 		vcpu_align = max_t(unsigned int, vcpu_align,
 				   __alignof__(struct vcpu_tdx));
 	}
+
+	r = kvm_x86_vendor_init(&vt_init_ops);
+	if (r)
+		return r;
+
+	r = vmx_init();
+	if (r)
+		goto err_vmx_init;
+
+	r = tdx_init();
+	if (r)
+		goto err_tdx_init;
+
 	r = kvm_init(vcpu_size, vcpu_align, THIS_MODULE);
 	if (r)
 		goto err_kvm_init;
