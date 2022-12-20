@@ -163,6 +163,67 @@ static int doscan(void *data)
 	return 0;
 }
 
+static void ifs_test_core_gen2(int cpu, struct device *dev)
+{
+	union ifs_scan_gen2 activate;
+	union ifs_status_gen2 status;
+	unsigned long timeout;
+	struct ifs_data *ifsd;
+	u64 msrvals[2];
+	int retries;
+
+	ifsd = ifs_get_data(dev);
+
+	activate.delay = IFS_THREAD_WAIT;
+	activate.sigmce = 0;
+	activate.start = 0;
+	activate.stop = ifsd->valid_chunks - 1;
+
+	timeout = jiffies + HZ / 2;
+	retries = MAX_IFS_RETRIES;
+
+	while (activate.start <= activate.stop) {
+		if (time_after(jiffies, timeout)) {
+			status.error_code = IFS_SW_TIMEOUT;
+			break;
+		}
+
+		msrvals[0] = activate.data;
+		stop_core_cpuslocked(cpu, doscan, msrvals);
+
+		status.data = msrvals[1];
+
+		/* Some cases can be retried, give up for others */
+		if (!can_restart(status.data))
+			break;
+
+		if (status.chunk_num == activate.start) {
+			/* Check for forward progress */
+			if (--retries == 0) {
+				if (status.error_code == IFS_NO_ERROR)
+					status.error_code = IFS_SW_PARTIAL_COMPLETION;
+				break;
+			}
+		} else {
+			retries = MAX_IFS_RETRIES;
+			activate.start = status.chunk_num;
+		}
+	}
+
+	/* Update status for this core */
+	ifsd->scan_details = status.data;
+
+	if (status.control_error || status.signature_error) {
+		ifsd->status = SCAN_TEST_FAIL;
+		message_fail(dev, cpu, status.data);
+	} else if (status.error_code) {
+		ifsd->status = SCAN_NOT_TESTED;
+		message_not_tested(dev, cpu, status.data);
+	} else {
+		ifsd->status = SCAN_TEST_PASS;
+	}
+}
+
 /*
  * Use stop_core_cpuslocked() to synchronize writing to MSR_ACTIVATE_SCAN
  * on all threads of the core to be tested. Loop if necessary to complete
@@ -336,7 +397,10 @@ int do_core_test(int cpu, struct device *dev)
 	case IFS_TYPE_SAF:
 		if (!ifsd->loaded)
 			return -EPERM;
-		ifs_test_core(cpu, dev);
+		if (ifsd->test_gen == 0)
+			ifs_test_core(cpu, dev);
+		else
+			ifs_test_core_gen2(cpu, dev);
 		break;
 	case IFS_TYPE_ARRAY_BIST:
 		ifs_array_test_core(cpu, dev);

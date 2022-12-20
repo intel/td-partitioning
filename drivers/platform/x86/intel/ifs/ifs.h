@@ -207,6 +207,16 @@ union ifs_scan {
 	};
 };
 
+union ifs_scan_gen2 {
+	u64	data;
+	struct {
+		u32	start	:16;
+		u32	stop	:16;
+		u32	delay	:31;
+		u32	sigmce	:1;
+	};
+};
+
 /* MSR_SCAN_STATUS bit fields */
 union ifs_status {
 	u64	data;
@@ -214,6 +224,18 @@ union ifs_status {
 		u32	chunk_num		:8;
 		u32	chunk_stop_index	:8;
 		u32	rsvd1			:16;
+		u32	error_code		:8;
+		u32	rsvd2			:22;
+		u32	control_error		:1;
+		u32	signature_error		:1;
+	};
+};
+
+union ifs_status_gen2 {
+	u64	data;
+	struct {
+		u32	chunk_num		:16;
+		u32	chunk_stop_index	:16;
 		u32	error_code		:8;
 		u32	rsvd2			:22;
 		u32	control_error		:1;
