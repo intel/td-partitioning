@@ -57,8 +57,10 @@ static const char * const scan_test_status[] = {
 	[IFS_INTERRUPTED_DURING_EXECUTION] = "Interrupt occurred prior to SCAN start",
 };
 
-static void message_not_tested(struct device *dev, int cpu, union ifs_status status)
+static void message_not_tested(struct device *dev, int cpu, u64 status_data)
 {
+	union ifs_status status = (union ifs_status)status_data;
+
 	if (status.error_code < ARRAY_SIZE(scan_test_status)) {
 		dev_info(dev, "CPU(s) %*pbl: SCAN operation did not start. %s\n",
 			 cpumask_pr_args(cpu_smt_mask(cpu)),
@@ -76,9 +78,10 @@ static void message_not_tested(struct device *dev, int cpu, union ifs_status sta
 	}
 }
 
-static void message_fail(struct device *dev, int cpu, union ifs_status status)
+static void message_fail(struct device *dev, int cpu, u64 status_data)
 {
 	struct ifs_data *ifsd = ifs_get_data(dev);
+	union ifs_status status = (union ifs_status)status_data;
 
 	/*
 	 * control_error is set when the microcode runs into a problem
@@ -103,8 +106,9 @@ static void message_fail(struct device *dev, int cpu, union ifs_status status)
 	}
 }
 
-static bool can_restart(union ifs_status status)
+static bool can_restart(u64 status_data)
 {
+	union ifs_status status = (union ifs_status)status_data;
 	enum ifs_status_err_code err_code = status.error_code;
 
 	/* Signature for chunk is bad, or scan test failed */
@@ -199,7 +203,7 @@ static void ifs_test_core(int cpu, struct device *dev)
 		trace_ifs_status(cpu, activate, status);
 
 		/* Some cases can be retried, give up for others */
-		if (!can_restart(status))
+		if (!can_restart(status.data))
 			break;
 
 		if (status.chunk_num == activate.start) {
@@ -220,10 +224,10 @@ static void ifs_test_core(int cpu, struct device *dev)
 
 	if (status.control_error || status.signature_error) {
 		ifsd->status = SCAN_TEST_FAIL;
-		message_fail(dev, cpu, status);
+		message_fail(dev, cpu, status.data);
 	} else if (status.error_code) {
 		ifsd->status = SCAN_NOT_TESTED;
-		message_not_tested(dev, cpu, status);
+		message_not_tested(dev, cpu, status.data);
 	} else {
 		ifsd->status = SCAN_TEST_PASS;
 	}
