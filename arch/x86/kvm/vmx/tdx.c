@@ -703,16 +703,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+void tdx_add_vcpu_association(struct vcpu_tdx *tdx, int cpu)
 {
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-
-	vmx_vcpu_pi_load(vcpu, cpu);
-	if (vcpu->cpu == cpu)
-		return;
-
-	tdx_flush_vp_on_cpu(vcpu);
-
 	local_irq_disable();
 	/*
 	 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
@@ -722,6 +714,18 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
 	local_irq_enable();
+}
+
+void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	vmx_vcpu_pi_load(vcpu, cpu);
+	if (vcpu->cpu == cpu)
+		return;
+
+	tdx_flush_vp_on_cpu(vcpu);
+	tdx_add_vcpu_association(tdx, cpu);
 }
 
 bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
