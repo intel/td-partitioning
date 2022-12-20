@@ -13681,7 +13681,7 @@ EXPORT_SYMBOL_GPL(kvm_get_cr2);
 
 bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 {
-	return kvm->arch.vm_type != KVM_X86_TDX_VM;
+	return true;
 }
 
 bool kvm_arch_has_private_mem(struct kvm *kvm)
