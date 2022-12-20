@@ -1053,6 +1053,7 @@ static int tdx_mig_import_state_td(struct kvm_tdx *kvm_tdx,
 		return -EIO;
 	}
 
+	tdx_td_post_init(kvm_tdx);
 	return 0;
 }
 
