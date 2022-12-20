@@ -360,7 +360,7 @@ static void tdx_flush_vp(void *arg_)
 	tdx_disassociate_vp(vcpu);
 }
 
-static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
+void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
 	struct tdx_flush_vp_arg arg = {
 		.vcpu = vcpu,
