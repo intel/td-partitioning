@@ -3729,7 +3729,7 @@ free_hkid:
 	return ret;
 }
 
-static int tdx_td_post_init(struct kvm_tdx *kvm_tdx)
+int tdx_td_post_init(struct kvm_tdx *kvm_tdx)
 {
 	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
 	kvm_tdx->td_initialized = true;
