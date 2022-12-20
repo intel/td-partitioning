@@ -162,6 +162,7 @@ struct tdx_mig_state {
 	struct tdx_mig_stream backward_stream;
 	/* Indicate if TD is the source TD in the current migration session */
 	bool is_src;
+	bool bugged;
 	struct tdx_mig_gpa_list blockw_gpa_list;
 };
 
@@ -260,6 +261,7 @@ static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
 		} while (err == TDX_INTERRUPTED_RESUMABLE);
 
 		if (err != TDX_SUCCESS) {
+			mig_state->bugged = true;
 			pr_err("%s failed, err=%llx, gfn=%lx\n",
 				__func__, err, (long)gpa_list->entries[0].gfn);
 			return;
@@ -724,12 +726,17 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 					 struct tdx_mig_stream *stream,
 					 uint64_t __user *data)
 {
+	struct tdx_mig_state *mig_state =
+		container_of(stream, struct tdx_mig_state, stream);
 	/* Userspace is expected to fill the gpa_list.buf[i] fields */
 	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
 	struct tdx_mig_buf_list *mem_buf_list = &stream->mem_buf_list;
 	union tdx_mig_stream_info stream_info = {.val = 0};
 	struct tdx_module_output out;
 	uint64_t npages, err;
+
+	if (mig_state->bugged)
+		return -EBADF;
 
 	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;
