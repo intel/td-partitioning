@@ -3658,14 +3658,6 @@ static int handle_abnormal_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fau
 static bool page_fault_can_be_fast(struct kvm *kvm, struct kvm_page_fault *fault)
 {
 	/*
-	 * TDX private mapping doesn't support fast page fault because the EPT
-	 * entry is read/written with TDX SEAMCALLs instead of direct memory
-	 * access.
-	 */
-	if (kvm_is_private_gpa(kvm, fault->addr))
-		return false;
-
-	/*
 	 * Page faults with reserved bits set, i.e. faults on MMIO SPTEs, only
 	 * reach the common page fault handler if the SPTE has an invalid MMIO
 	 * generation number.  Refreshing the MMIO generation needs to go down
@@ -3699,14 +3691,31 @@ static bool page_fault_can_be_fast(struct kvm *kvm, struct kvm_page_fault *fault
 	return fault->write;
 }
 
+static void kvm_write_unblock_private_page(struct kvm *kvm,
+					   gfn_t gfn, int level)
+{
+	/*
+	 * Sanity check. When reaching here, write_unblock_private_page should
+	 * have been supported.
+	 */
+	if (!kvm_x86_ops.write_unblock_private_page) {
+		pr_warn("write_unblock_private_page not supported\n");
+		return;
+	}
+
+	kvm_x86_ops.write_unblock_private_page(kvm, gfn, level);
+}
+
 /*
  * Returns true if the SPTE was fixed successfully. Otherwise,
  * someone else modified the SPTE from its original value.
  */
 static bool
 fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
-			u64 *sptep, u64 old_spte, u64 new_spte)
+			u64 *sptep, u64 old_spte, u64 new_spte, int level)
 {
+	gfn_t gfn = fault->gfn;
+
 	/*
 	 * Theoretically we could also set dirty bit (and flush TLB) here in
 	 * order to eliminate unnecessary PML logging. See comments in
@@ -3722,8 +3731,12 @@ fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 	if (!try_cmpxchg64(sptep, &old_spte, new_spte))
 		return false;
 
-	if (is_writable_pte(new_spte) && !is_writable_pte(old_spte))
-		mark_page_dirty_in_slot(vcpu->kvm, fault->slot, fault->gfn);
+	if (is_writable_pte(new_spte) && !is_writable_pte(old_spte)) {
+		if (fault->is_private)
+			kvm_write_unblock_private_page(vcpu->kvm, gfn, level);
+
+		mark_page_dirty_in_slot(vcpu->kvm, fault->slot, gfn);
+	}
 
 	return true;
 }
@@ -3754,6 +3767,9 @@ static u64 *fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, gpa_t gpa, u64 *spte)
 	struct kvm_shadow_walk_iterator iterator;
 	u64 old_spte;
 	u64 *sptep = NULL;
+
+	/* Only support tdp_mmu for fast private page fault currently */
+	WARN_ON_ONCE(kvm_is_private_gpa(vcpu->kvm, gpa));
 
 	for_each_shadow_entry_lockless(vcpu, gpa, iterator, old_spte) {
 		sptep = iterator.sptep;
@@ -3859,7 +3875,8 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 * since the gfn is not stable for indirect shadow page. See
 		 * Documentation/virt/kvm/locking.rst to get more detail.
 		 */
-		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte, new_spte)) {
+		if (fast_pf_fix_direct_spte(vcpu, fault, sptep, spte,
+					    new_spte, sp->role.level)) {
 			ret = RET_PF_FIXED;
 			break;
 		}
