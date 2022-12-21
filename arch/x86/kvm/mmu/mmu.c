@@ -5792,6 +5792,10 @@ kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu,
 	role.direct = true;
 	role.has_4_byte_gpte = false;
 
+	if (IS_ENABLED(CONFIG_INTEL_TD_PART_GUEST) &&
+	    cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		kvm_mmu_page_role_set_td_part(&role);
+
 	return role;
 }
 
