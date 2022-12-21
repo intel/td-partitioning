@@ -381,6 +381,277 @@ void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu)
 	td_part_flush_tlb_current(vcpu);
 }
 
+static int td_part_free_private_spt(struct kvm *kvm, gfn_t gfn,
+				    enum pg_level level, void *private_spt)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	/*
+	 * Nothing to do here as we never allocate private SPTs
+	 * or manage SEPTs.
+	 */
+	return 0;
+}
+
+static int td_part_split_private_spt(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, void *private_spt)
+{
+	kvm_pr_unimpl("TD_PART: %s not supported\n", __func__);
+	kvm_vm_bugged(kvm);
+	return -EOPNOTSUPP;
+}
+
+static int td_part_merge_private_spt(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, void *private_spt)
+{
+	kvm_pr_unimpl("TD_PART: %s not supported\n", __func__);
+	kvm_vm_bugged(kvm);
+	return -EOPNOTSUPP;
+}
+
+static int add_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+		     bool is_writable, bool is_executable)
+{
+	u8 vm_id = kvm->arch.vm_id;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	union tdx_gpa_attr gpa_attr = { 0 };
+	union tdx_attr_flags attr_flags = { 0 };
+	struct tdx_module_output out;
+	int retry = 0;
+	u64 err;
+
+	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
+		return -EINVAL;
+
+	gpa_attr.fields[vm_id].valid = 1;
+	gpa_attr.fields[vm_id].read = 1;
+
+	if (is_writable)
+		gpa_attr.fields[vm_id].write = 1;
+	if (is_executable) {
+		/* TODO execute_u is not supported yet */
+		gpa_attr.fields[vm_id].execute_s = 1;
+	}
+	attr_flags.flags[vm_id].attr_mask = 0x7;
+
+	do {
+		/* TODO clear bottom gpa bits for large leaves */
+		err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
+					      attr_flags, &out);
+
+		switch (err & TDX_TDCALL_STATUS_MASK) {
+		case TDX_SUCCESS: break;
+		case TDX_PAGE_SIZE_MISMATCH:
+		case TDX_OPERAND_INVALID:
+		default:
+			kvm_pr_unimpl("TDG.MEM.PAGE.ATTR.WR "
+				      "error: 0x%llx\n", err);
+			KVM_BUG_ON(1, kvm);
+			return -EPERM;
+		}
+
+		/*
+		 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
+		 * successfully set the attribute or not. On success, RDX
+		 * returns the updated guest-visible page attributes.
+		 */
+		if (out.rdx == gpa_attr.bits)
+			break;
+		retry++;
+	} while (retry < PG_LEVEL_NUM);
+
+	if (KVM_BUG_ON(out.rdx != gpa_attr.bits, kvm))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int modify_alias_w(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+			  bool is_writable)
+{
+	u8 vm_id = kvm->arch.vm_id;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	union tdx_gpa_attr gpa_attr = { 0 };
+	union tdx_attr_flags attr_flags = { 0 };
+	struct tdx_module_output out;
+	u64 err;
+
+	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
+		return -EINVAL;
+
+	gpa_attr.fields[vm_id].valid = 1;
+
+	if (is_writable)
+		gpa_attr.fields[vm_id].write = 1;
+	attr_flags.flags[vm_id].attr_mask = 0x2;
+
+	/* TODO clear bottom gpa bits for large leaves */
+	err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
+				      attr_flags, &out);
+
+	switch (err & TDX_TDCALL_STATUS_MASK) {
+	case TDX_SUCCESS: break;
+	case TDX_PAGE_SIZE_MISMATCH:
+	case TDX_OPERAND_INVALID:
+	default:
+		kvm_pr_unimpl("TDG.MEM.PAGE.ATTR.WR "
+			      "error: 0x%llx\n", err);
+		KVM_BUG_ON(1, kvm);
+		return -EPERM;
+	}
+
+	/*
+	 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
+	 * successfully set the attribute or not. On success, RDX
+	 * returns the updated guest-visible page attributes.
+	 */
+	if (KVM_BUG_ON((out.rdx & (gpa_attr.bits | attr_flags.bits)) !=
+		       gpa_attr.bits, kvm))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int drop_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level)
+{
+	u8 vm_id = kvm->arch.vm_id;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	union tdx_gpa_attr gpa_attr = { 0 };
+	union tdx_attr_flags attr_flags = { 0 };
+	struct tdx_module_output out;
+	u64 err;
+
+	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
+		return -EINVAL;
+
+	gpa_attr.fields[vm_id].valid = 1;
+	attr_flags.flags[vm_id].attr_mask = 0x7;
+
+	/* TODO clear bottom gpa bits for large leaves */
+	err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
+				      attr_flags, &out);
+
+	switch (err & TDX_TDCALL_STATUS_MASK) {
+	case TDX_SUCCESS: break;
+	case TDX_PAGE_SIZE_MISMATCH:
+	case TDX_OPERAND_INVALID:
+	default:
+		kvm_pr_unimpl("TDG.MEM.PAGE.ATTR.WR "
+			      "error: 0x%llx\n", err);
+		KVM_BUG_ON(1, kvm);
+		return -EPERM;
+	}
+
+	/*
+	 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
+	 * successfully set the attribute or not. On success, RDX
+	 * returns the updated guest-visible page attributes.
+	 */
+	if (KVM_BUG_ON((out.rdx & (gpa_attr.bits | attr_flags.bits)) !=
+		       gpa_attr.bits, kvm))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int td_part_set_private_spte(struct kvm *kvm, gfn_t gfn,
+				    enum pg_level level, kvm_pfn_t pfn,
+				    unsigned int access)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	/* Must be identity mapped */
+	if (KVM_BUG_ON(gfn != pfn, kvm))
+		return -EFAULT;
+
+	WARN_ON(!(access & ACC_USER_MASK));
+	return add_alias(kvm, gfn, level, !!(access & ACC_WRITE_MASK),
+			 !!(access & ACC_EXEC_MASK));
+}
+
+static int td_part_drop_private_spte(
+	struct kvm *kvm, gfn_t gfn, enum pg_level level, kvm_pfn_t pfn)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	/* Must be identity mapped */
+	if (KVM_BUG_ON(gfn != pfn, kvm))
+		return -EFAULT;
+
+	/* Nothing to do here as private zapped pages are already dropped */
+	return 0;
+}
+
+static int td_part_remove_private_spte(struct kvm *kvm, gfn_t gfn,
+				       enum pg_level level, kvm_pfn_t pfn)
+{
+	return td_part_drop_private_spte(kvm, gfn, level, pfn);
+}
+
+static int td_part_zap_private_spte(struct kvm *kvm, gfn_t gfn,
+				    enum pg_level level)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	return drop_alias(kvm, gfn, level);
+}
+
+static int td_part_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
+				      enum pg_level level, unsigned int access)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	WARN_ON(!(access & ACC_USER_MASK));
+	return add_alias(kvm, gfn, level, !!(access & ACC_WRITE_MASK),
+			 !!(access & ACC_EXEC_MASK));
+}
+
+static int td_part_link_private_spt(struct kvm *kvm, gfn_t gfn,
+				    enum pg_level level, void *private_spt)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return -EINVAL;
+
+	/* Not needed as SEPTs are linked by L0 VMM */
+	return 0;
+}
+
+static void td_part_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
+					      uint32_t num)
+{
+	uint32_t i;
+
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return;
+
+	for (i = 0; i < num; i++)
+		modify_alias_w(kvm, gfns[i], PG_LEVEL_4K, false);
+}
+
+static void td_part_write_unblock_private_page(struct kvm *kvm,
+					       gfn_t gfn, int level)
+{
+	if (KVM_BUG_ON(!is_td_part(kvm), kvm))
+		return;
+
+	modify_alias_w(kvm, gfn, level, true);
+}
+
+static int td_part_restore_private_page(struct kvm *kvm, gfn_t gfn)
+{
+	kvm_pr_unimpl("TD_PART: %s not supported\n", __func__);
+	kvm_vm_bugged(kvm);
+	return -EOPNOTSUPP;
+}
+
 static bool set_control_cond(int cpu, void *data)
 {
 	struct kvm *kvm = data;
@@ -464,6 +735,19 @@ __init int td_part_hardware_setup(struct kvm_x86_ops *x86_ops)
 	num_l2_vms = out.r8;
 	/* reserve VM ID 0, L2 virtual machine index must be 1 or higher */
 	set_bit(0, td_part_vm_id_bitmap);
+
+	x86_ops->free_private_spt = td_part_free_private_spt;
+	x86_ops->split_private_spt = td_part_split_private_spt;
+	x86_ops->merge_private_spt = td_part_merge_private_spt;
+	x86_ops->set_private_spte = td_part_set_private_spte;
+	x86_ops->remove_private_spte = td_part_remove_private_spte;
+	x86_ops->drop_private_spte = td_part_drop_private_spte;
+	x86_ops->zap_private_spte = td_part_zap_private_spte;
+	x86_ops->unzap_private_spte = td_part_unzap_private_spte;
+	x86_ops->link_private_spt = td_part_link_private_spt;
+	x86_ops->write_block_private_pages = td_part_write_block_private_pages;
+	x86_ops->write_unblock_private_page = td_part_write_unblock_private_page;
+	x86_ops->restore_private_page = td_part_restore_private_page;
 
 	return 0;
 }

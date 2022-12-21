@@ -28,6 +28,14 @@ static u8 __maybe_unused tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn,
 #endif
 }
 
+#if defined(CONFIG_INTEL_TDX_HOST) || defined(CONFIG_INTEL_TD_PART_GUEST)
+static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
+{
+	WARN_ON_ONCE(level == PG_LEVEL_NONE);
+	return level - 1;
+}
+#endif
+
 #ifdef CONFIG_INTEL_TDX_HOST
 
 #include "posted_intr.h"
@@ -424,12 +432,6 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 		return 0;
 	}
 	return out.r8;
-}
-
-static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
-{
-	WARN_ON_ONCE(level == PG_LEVEL_NONE);
-	return level - 1;
 }
 
 void tdx_reclaim_td_page(unsigned long td_page_pa);
