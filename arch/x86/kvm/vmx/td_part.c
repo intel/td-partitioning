@@ -652,6 +652,34 @@ static int td_part_restore_private_page(struct kvm *kvm, gfn_t gfn)
 	return -EOPNOTSUPP;
 }
 
+void td_part_update_reserved_gpa_bits(struct kvm_vcpu *vcpu)
+{
+	u64 shared_mask = tdx_get_cc_mask();
+	int gpaw, maxphyaddr;
+
+	if (!WARN_ON_ONCE(!shared_mask)) {
+		gpaw = __ffs64(shared_mask) + 1;
+		maxphyaddr = vcpu->arch.maxphyaddr;
+
+		/* TODO allow shared bit if supported */
+		vcpu->arch.maxphyaddr = min(maxphyaddr, gpaw - 1);
+		vcpu->arch.reserved_gpa_bits =
+			kvm_vcpu_reserved_gpa_bits_raw(vcpu);
+		/*
+		 * Restore the original value so that vmx_need_pf_intercept()
+		 * continues to work as expected.
+		 */
+		vcpu->arch.maxphyaddr = maxphyaddr;
+	}
+}
+
+int td_part_vcpu_create(struct kvm_vcpu *vcpu)
+{
+	td_part_update_reserved_gpa_bits(vcpu);
+
+	return 0;
+}
+
 static bool set_control_cond(int cpu, void *data)
 {
 	struct kvm *kvm = data;
@@ -748,6 +776,8 @@ __init int td_part_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->write_block_private_pages = td_part_write_block_private_pages;
 	x86_ops->write_unblock_private_page = td_part_write_unblock_private_page;
 	x86_ops->restore_private_page = td_part_restore_private_page;
+
+	allow_smaller_maxphyaddr = true;
 
 	return 0;
 }

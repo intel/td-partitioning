@@ -309,6 +309,7 @@ int __init td_part_hardware_setup(struct kvm_x86_ops *x86_ops);
 bool td_part_is_vm_type_supported(unsigned long type);
 int td_part_vm_init(struct kvm *kvm);
 void td_part_vm_destroy(struct kvm *kvm);
+int td_part_vcpu_create(struct kvm_vcpu *vcpu);
 int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
 int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
 void td_part_flush_tlb_all(struct kvm_vcpu *vcpu);
@@ -320,6 +321,7 @@ static inline int td_part_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0
 static inline bool td_part_is_vm_type_supported(unsigned long type) { return false; }
 static inline int td_part_vm_init(struct kvm *kvm) { return 0; }
 static inline void td_part_vm_destroy(struct kvm *kvm) {}
+static inline int td_part_vcpu_create(struct kvm_vcpu *vcpu) { return 0; }
 static inline int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
 static inline int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
 static inline void td_part_flush_tlb_all(struct kvm_vcpu *vcpu) {}

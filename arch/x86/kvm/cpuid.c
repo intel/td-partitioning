@@ -398,6 +398,7 @@ u64 kvm_vcpu_reserved_gpa_bits_raw(struct kvm_vcpu *vcpu)
 {
 	return rsvd_bits(cpuid_maxphyaddr(vcpu), 63);
 }
+EXPORT_SYMBOL_GPL(kvm_vcpu_reserved_gpa_bits_raw);
 
 static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
                         int nent)
