@@ -7549,6 +7549,9 @@ int vmx_vcpu_create(struct kvm_vcpu *vcpu)
 		WRITE_ONCE(to_kvm_vmx(vcpu->kvm)->pid_table[vcpu->vcpu_id],
 			   __pa(&vmx->pi_desc) | PID_TABLE_ENTRY_VALID);
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_vcpu_create(vcpu);
+
 	return 0;
 
 free_vmcs:
@@ -8037,6 +8040,9 @@ static void vmx_update_intercept_for_cet_msr(struct kvm_vcpu *vcpu)
 void vmx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (is_td_part_vcpu(vcpu))
+		td_part_update_reserved_gpa_bits(vcpu);
 
 	/*
 	 * XSAVES is effectively enabled if and only if XSAVE is also exposed
