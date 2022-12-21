@@ -359,7 +359,12 @@ union kvm_mmu_page_role {
 		unsigned is_io_compat:1;
 #ifdef CONFIG_KVM_MMU_PRIVATE
 		unsigned is_private:1;
-		unsigned:3;
+#ifdef CONFIG_INTEL_TD_PART_GUEST
+		unsigned td_part_mode:1;
+		unsigned :2;
+#else
+		unsigned :3;
+#endif
 #else
 		unsigned:4;
 #endif
@@ -391,6 +396,28 @@ static inline bool kvm_mmu_page_role_is_private(union kvm_mmu_page_role role)
 }
 
 static inline void kvm_mmu_page_role_set_private(union kvm_mmu_page_role *role)
+{
+	WARN_ON_ONCE(1);
+}
+#endif
+
+#ifdef CONFIG_INTEL_TD_PART_GUEST
+static inline bool kvm_mmu_page_role_is_td_part(union kvm_mmu_page_role role)
+{
+	return !!role.td_part_mode;
+}
+
+static inline void kvm_mmu_page_role_set_td_part(union kvm_mmu_page_role *role)
+{
+	role->td_part_mode = 1;
+}
+#else
+static inline bool kvm_mmu_page_role_is_td_part(union kvm_mmu_page_role role)
+{
+	return false;
+}
+
+static inline void kvm_mmu_page_role_set_td_part(union kvm_mmu_page_role *role)
 {
 	WARN_ON_ONCE(1);
 }
