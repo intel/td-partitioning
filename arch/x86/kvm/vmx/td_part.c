@@ -312,6 +312,75 @@ int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	return vmx_get_msr(vcpu, msr);
 }
 
+void td_part_flush_tlb_all(struct kvm_vcpu *vcpu)
+{
+	struct tdx_module_output out;
+	u64 bitmap, err;
+
+	/* Bit 0 (VMID 0) must be 0 */
+	bitmap = (1ull << (num_l2_vms + 1)) - 2;
+	err = tdg_vp_invept(bitmap, &out);
+	WARN_ON(err);
+}
+
+void td_part_flush_tlb_current(struct kvm_vcpu *vcpu)
+{
+	struct tdx_module_output out;
+	u8 vm_id = vcpu->kvm->arch.vm_id;
+	u64 bitmap, err;
+
+	if (!WARN_ON(!vm_id || vm_id > 3)) {
+		bitmap = 1ull << vm_id;
+		err = tdg_vp_invept(bitmap, &out);
+		WARN_ON(err);
+	}
+}
+
+void td_part_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
+{
+	union tdx_vmid_flags vmid_flags = { 0 };
+	union tdx_gla_list gla_list = { 0 };
+	struct tdx_module_output out;
+	u8 vm_id = vcpu->kvm->arch.vm_id;
+	u64 err;
+
+	if (!WARN_ON(!vm_id || vm_id > 3)) {
+		vmid_flags.vm_id = vm_id;
+		gla_list.base = addr >> 12;
+		err = tdg_vp_invvpid(vmid_flags, gla_list, &out);
+		WARN_ON(err);
+	}
+}
+
+void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * This can't be fulfilled by TDG.VP.INVVPID, as it only takes a list of
+	 * GLAs and not the entire VPID context (i.e.
+	 * single-context/all-contexts invalidation is not supported).
+	 *
+	 * Use TDG.VP.INVEPT instead, as it should invalidate a superset of our
+	 * target (combined mappings).
+	 *
+	 * Intel SDM 28.4.2 Creating and Using Cached Translation Information:
+	 *
+	 * - No linear mappings are created while EPT is in use.
+	 * - Combined mappings may be created while EPT is in use.
+	 * - If EPT is in use, for accesses using linear addresses, it may use
+	 *   combined mappings associated with the current VPID, the current
+	 *   PCID, and the current EP4TA. It may also use global TLB entries
+	 *   (combined mappings) associated with the current VPID, the current
+	 *   EP4TA, and any PCID.
+	 * - No linear mappings are used while EPT is in use.
+	 *
+	 * Intel SDM 28.4.3.1 Operations that Invalidate Cached Mappings:
+	 *
+	 * Execution of the INVEPT instruction invalidates guest-physical
+	 * mappings and combined mappings.
+	 */
+	td_part_flush_tlb_current(vcpu);
+}
+
 static bool set_control_cond(int cpu, void *data)
 {
 	struct kvm *kvm = data;

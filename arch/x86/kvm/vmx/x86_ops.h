@@ -311,6 +311,10 @@ int td_part_vm_init(struct kvm *kvm);
 void td_part_vm_destroy(struct kvm *kvm);
 int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
 int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
+void td_part_flush_tlb_all(struct kvm_vcpu *vcpu);
+void td_part_flush_tlb_current(struct kvm_vcpu *vcpu);
+void td_part_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr);
+void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu);
 #else /* CONFIG_INTEL_TD_PART_GUEST */
 static inline int td_part_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
 static inline bool td_part_is_vm_type_supported(unsigned long type) { return false; }
@@ -318,6 +322,10 @@ static inline int td_part_vm_init(struct kvm *kvm) { return 0; }
 static inline void td_part_vm_destroy(struct kvm *kvm) {}
 static inline int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
 static inline int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
+static inline void td_part_flush_tlb_all(struct kvm_vcpu *vcpu) {}
+static inline void td_part_flush_tlb_current(struct kvm_vcpu *vcpu) {}
+static inline void td_part_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr) {}
+static inline void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu) {}
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

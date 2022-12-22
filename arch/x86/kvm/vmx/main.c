@@ -599,6 +599,9 @@ static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
 	if (is_td_vcpu(vcpu))
 		return tdx_flush_tlb(vcpu);
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_flush_tlb_all(vcpu);
+
 	vmx_flush_tlb_all(vcpu);
 }
 
@@ -606,6 +609,9 @@ static void vt_flush_tlb_current(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
 		return tdx_flush_tlb(vcpu);
+
+	if (is_td_part_vcpu(vcpu))
+		return td_part_flush_tlb_current(vcpu);
 
 	vmx_flush_tlb_current(vcpu);
 }
@@ -632,6 +638,9 @@ static void vt_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
 	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
 		return;
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_flush_tlb_gva(vcpu, addr);
+
 	vmx_flush_tlb_gva(vcpu, addr);
 }
 
@@ -639,6 +648,9 @@ static void vt_flush_tlb_guest(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
 		return;
+
+	if (is_td_part_vcpu(vcpu))
+		return td_part_flush_tlb_guest(vcpu);
 
 	vmx_flush_tlb_guest(vcpu);
 }
