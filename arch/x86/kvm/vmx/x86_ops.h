@@ -164,7 +164,6 @@ bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu);
 void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu);
 int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		enum exit_fastpath_completion fastpath);
-u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio);
 
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 			   int trig_mode, int vector);
@@ -233,7 +232,6 @@ static inline bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu) { ret
 static inline void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu) {}
 static inline int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		enum exit_fastpath_completion fastpath) { return 0; }
-static inline u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio) { return 0; }
 
 static inline void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 					 int trig_mode, int vector) {}

@@ -841,7 +841,7 @@ static int vt_set_identity_map_addr(struct kvm *kvm, u64 ident_addr)
 
 static u8 vt_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 {
-	if (is_td_vcpu(vcpu))
+	if (is_td_vcpu(vcpu) || is_td_part_vcpu(vcpu))
 		return tdx_get_mt_mask(vcpu, gfn, is_mmio);
 
 	return vmx_get_mt_mask(vcpu, gfn, is_mmio);
