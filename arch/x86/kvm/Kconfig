@@ -148,7 +148,7 @@ config KVM_EXTERNAL_WRITE_TRACKING
 
 config KVM_MMU_PRIVATE
 	def_bool y
-	depends on INTEL_TDX_HOST && KVM_INTEL
+	depends on (INTEL_TDX_HOST || INTEL_TD_PART_GUEST) && KVM_INTEL
 
 config KVM_TDX_OPERAND_BUSY_INJECTION
 	def_bool n
