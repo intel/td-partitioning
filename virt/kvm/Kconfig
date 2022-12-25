@@ -101,3 +101,6 @@ config KVM_GENERIC_HARDWARE_ENABLING
 
 config HAVE_KVM_RESTRICTED_MEM
        bool
+
+config HAVE_KVM_FIRMWARE
+       bool
