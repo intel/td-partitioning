@@ -2383,6 +2383,7 @@ static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 void kvm_arch_memory_mce(struct kvm *kvm);
 #endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
 
+#define KVM_FIRMWARE_TDX_MODULE		0
 struct kvm_firmware {
 	int id;				/* Identity of the firmware */
 
@@ -2399,9 +2400,11 @@ int kvm_update_fw(struct kvm_firmware *fw);
 #ifdef CONFIG_HAVE_KVM_FIRMWARE
 struct kvm_firmware *kvm_register_fw(int fw_id);
 int kvm_unregister_fw(struct kvm_firmware *kvm_fw);
+void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu);
 #else
 static inline struct kvm_firmware *kvm_register_fw(int fw_id) { return NULL; }
 static inline int kvm_unregister_fw(struct kvm_firmware *kvm_fw) { return 0; }
+static inline void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu) {}
 #endif
 
 int hardware_enable_all(void);

@@ -200,3 +200,16 @@ int kvm_update_fw(struct kvm_firmware *fw)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kvm_update_fw);
+
+void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * preempt_nofitier callbacks may interact with the firmware. Put the
+	 * vcpu to unregister the calls to avoid such interactions.
+	 */
+	vcpu_put(vcpu);
+	kvm_vcpu_put_fw(vcpu);
+	wait_for_completion(&vcpu->kvm->fw->completion);
+	kvm_vcpu_get_fw(vcpu);
+	vcpu_load(vcpu);
+}

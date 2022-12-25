@@ -10648,6 +10648,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			r = 0;
 			goto out;
 		}
+		if (kvm_check_request(KVM_REQ_FW_UPDATE, vcpu))
+			kvm_vcpu_fw_update(vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
@@ -13716,6 +13718,21 @@ unsigned long kvm_get_xcr(struct kvm_vcpu *vcpu, int index)
 	}
 }
 EXPORT_SYMBOL_GPL(kvm_get_xcr);
+
+void kvm_arch_start_update_fw(struct kvm *kvm)
+{
+	kvm_make_all_cpus_request(kvm, KVM_REQ_FW_UPDATE);
+}
+
+int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update)
+{
+	return static_call(kvm_x86_update_fw)(fw, live_update);
+}
+
+bool kvm_arch_match_fw(struct kvm *kvm, struct kvm_firmware *fw)
+{
+	return static_call(kvm_x86_match_fw)(kvm, fw);
+}
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
