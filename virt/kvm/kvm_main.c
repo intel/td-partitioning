@@ -61,6 +61,7 @@
 #include "async_pf.h"
 #include "kvm_mm.h"
 #include "vfio.h"
+#include "firmware.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvm.h>
@@ -1433,6 +1434,7 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 
 	preempt_notifier_inc();
 	kvm_init_pm_notifier(kvm);
+	kvm_attach_fw(kvm);
 
 	return kvm;
 
@@ -1527,6 +1529,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 #endif
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	cleanup_srcu_struct(&kvm->srcu);
+	kvm_detach_fw(kvm);
 	kvm_arch_free_vm(kvm);
 	preempt_notifier_dec();
 	hardware_disable_all();

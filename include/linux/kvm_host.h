@@ -830,6 +830,11 @@ struct kvm {
 #ifdef __KVM_HAVE_READONLY_MEM
 	bool readonly_mem_unsupported;
 #endif
+
+#ifdef CONFIG_HAVE_KVM_FIRMWARE
+	struct kvm_firmware *fw;
+	struct list_head fw_list;
+#endif
 };
 
 #define kvm_err(fmt, ...) \
@@ -2375,5 +2380,20 @@ static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 
 void kvm_arch_memory_mce(struct kvm *kvm);
 #endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
+struct kvm_firmware {
+	int id;				/* Identity of the firmware */
+
+	spinlock_t lock;		/* Protect vm_list */
+	struct list_head vm_list;	/* Guests associated with this firmware */
+};
+
+#ifdef CONFIG_HAVE_KVM_FIRMWARE
+struct kvm_firmware *kvm_register_fw(int fw_id);
+int kvm_unregister_fw(struct kvm_firmware *kvm_fw);
+#else
+static inline struct kvm_firmware *kvm_register_fw(int fw_id) { return NULL; }
+static inline int kvm_unregister_fw(struct kvm_firmware *kvm_fw) { return 0; }
+#endif
 
 #endif
