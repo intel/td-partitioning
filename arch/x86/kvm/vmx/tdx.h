@@ -8,6 +8,8 @@
 #include "pmu_intel.h"
 #include "tdx_ops.h"
 
+extern bool enable_tdx;
+
 struct kvm_tdx {
 	struct kvm kvm;
 

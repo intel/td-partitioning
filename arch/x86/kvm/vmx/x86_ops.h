@@ -299,9 +299,11 @@ static inline void tdx_enable_smi_window(struct kvm_vcpu *vcpu) {}
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
 int __init tdx_module_update_init(void);
 void tdx_module_update_destroy(void);
+int tdx_update_fw(bool live_update);
 #else
 static inline int __init tdx_module_update_init(void) { return 0; }
 static inline void tdx_module_update_destroy(void) {}
+static inline int tdx_update_fw(bool live_update) { return 0; }
 #endif
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

@@ -19,6 +19,8 @@
 #include <trace/events/kvm.h>
 #include "trace.h"
 
+static struct kvm_firmware *tdx_module;
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -3787,7 +3789,7 @@ static enum tdx_module_version tdx_get_module_version(u16 major_version,
 	}
 }
 
-static int __init tdx_module_setup(void)
+static int tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
 	int ret = 0;
@@ -4221,6 +4223,10 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		return -EINVAL;
 	}
 
+	tdx_module = kvm_register_fw(KVM_FIRMWARE_TDX_MODULE);
+	if (IS_ERR(tdx_module))
+		return PTR_ERR(tdx_module);
+
 	for (i = 0; i < ARRAY_SIZE(tdx_uret_msrs); i++) {
 		/*
 		 * Here it checks if MSRs (tdx_uret_msrs) can be saved/restored
@@ -4297,6 +4303,7 @@ void tdx_hardware_unsetup(void)
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 	kvm_set_tdx_guest_pmi_handler(NULL);
 	tdx_module_update_destroy();
+	kvm_unregister_fw(tdx_module);
 }
 
 int tdx_offline_cpu(void)
@@ -4343,9 +4350,20 @@ int __init tdx_init(void)
 }
 
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
-static int tdx_update_fw(void)
+int tdx_update_fw(bool live_update)
 {
-	return -EINVAL;
+	int ret;
+	bool recoverable = false;
+
+	ret = tdx_module_update(live_update, &recoverable);
+	if (!ret) {
+		ret = tdx_module_setup();
+		enable_tdx = !ret;
+	} else if (!recoverable) {
+		enable_tdx = false;
+	}
+
+	return ret;
 }
 
 static ssize_t reload_store(struct device *dev,
@@ -4355,7 +4373,7 @@ static ssize_t reload_store(struct device *dev,
 	if (!sysfs_streq(buf, "update"))
 		return -EINVAL;
 
-	return tdx_update_fw() ? : size;
+	return kvm_update_fw(tdx_module) ? : size;
 }
 static DEVICE_ATTR_WO(reload);
 
