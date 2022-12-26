@@ -1803,7 +1803,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
 			   struct kvm_mmu_page *sp, bool shared)
 {
-	u64 spte = make_nonleaf_spte(sp->spt, !kvm_ad_enabled());
+	u64 spte = make_nonleaf_spte(sp->spt, !kvm_ad_enabled(), sp_mmu_present_mask(sp));
 	int ret = 0;
 
 	if (shared) {

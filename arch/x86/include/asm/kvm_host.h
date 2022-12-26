@@ -350,11 +350,12 @@ union kvm_mmu_page_role {
 		unsigned ad_disabled:1;
 		unsigned guest_mode:1;
 		unsigned passthrough:1;
+		unsigned is_io_compat:1;
 #ifdef CONFIG_KVM_MMU_PRIVATE
 		unsigned is_private:1;
-		unsigned :4;
+		unsigned:3;
 #else
-		unsigned :5;
+		unsigned:4;
 #endif
 
 		/*

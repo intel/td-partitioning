@@ -142,7 +142,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	       bool host_writable, u64 *new_spte)
 {
 	int level = sp->role.level;
-	u64 spte = SPTE_MMU_PRESENT_MASK;
+	u64 spte = sp_mmu_present_mask(sp);
 	bool wrprot = false;
 
 	WARN_ON_ONCE(!pte_access && !shadow_present_mask);
@@ -309,9 +309,9 @@ u64 make_huge_page_split_spte(struct kvm *kvm, u64 huge_spte, union kvm_mmu_page
 }
 
 
-u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled)
+u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled, u64 spte_mmu_present_mask)
 {
-	u64 spte = SPTE_MMU_PRESENT_MASK;
+	u64 spte = spte_mmu_present_mask;
 
 	spte |= __pa(child_pt) | shadow_present_mask | PT_WRITABLE_MASK |
 		shadow_user_mask | shadow_x_mask | shadow_me_value;

@@ -13,7 +13,9 @@
  * better code than for a high bit, e.g. 56+.  MMU present checks are pervasive
  * enough that the improved code generation is noticeable in KVM's footprint.
  */
-#define SPTE_MMU_PRESENT_MASK		BIT_ULL(11)
+#define SPTE_MMU_PRESENT_HIGH_MASK	BIT_ULL(61)
+#define SPTE_MMU_PRESENT_LOW_MASK	BIT_ULL(11)
+#define SPTE_MMU_PRESENT_MASK		(SPTE_MMU_PRESENT_LOW_MASK | SPTE_MMU_PRESENT_HIGH_MASK)
 
 /* Masks that used to track metadata for not-present SPTEs. */
 #define SPTE_PRIVATE_ZAPPED		BIT_ULL(62)
@@ -118,7 +120,7 @@ static_assert(!(EPT_SPTE_MMU_WRITABLE & SHADOW_ACC_TRACK_SAVED_MASK));
 #define MMIO_SPTE_GEN_LOW_END		10
 
 #define MMIO_SPTE_GEN_HIGH_START	52
-#define MMIO_SPTE_GEN_HIGH_END		61
+#define MMIO_SPTE_GEN_HIGH_END		60
 
 #define MMIO_SPTE_GEN_LOW_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_END, \
 						    MMIO_SPTE_GEN_LOW_START)
@@ -145,7 +147,7 @@ static_assert(!(SPTE_MMIO_ALLOWED_MASK &
 #define MMIO_SPTE_GEN_HIGH_BITS		(MMIO_SPTE_GEN_HIGH_END - MMIO_SPTE_GEN_HIGH_START + 1)
 
 /* remember to adjust the comment above as well if you change these */
-static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 10);
+static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 9);
 
 #define MMIO_SPTE_GEN_LOW_SHIFT		(MMIO_SPTE_GEN_LOW_START - 0)
 #define MMIO_SPTE_GEN_HIGH_SHIFT	(MMIO_SPTE_GEN_HIGH_START - MMIO_SPTE_GEN_LOW_BITS)
@@ -286,6 +288,12 @@ static inline bool is_mmio_spte(struct kvm *kvm, u64 spte)
 static inline bool is_shadow_present_pte(u64 pte)
 {
 	return !!(pte & SPTE_MMU_PRESENT_MASK);
+}
+
+static inline u64 sp_mmu_present_mask(struct kvm_mmu_page *sp)
+{
+	return !!sp->role.is_io_compat ?
+	       SPTE_MMU_PRESENT_HIGH_MASK : SPTE_MMU_PRESENT_LOW_MASK;
 }
 
 /*
@@ -511,7 +519,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	       bool host_writable, u64 *new_spte);
 u64 make_huge_page_split_spte(struct kvm *kvm, u64 huge_spte,
 		      	      union kvm_mmu_page_role role, int index);
-u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled);
+u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled, u64 spte_mmu_present_mask);
 u64 make_mmio_spte(struct kvm_vcpu *vcpu, u64 gfn, unsigned int access);
 u64 mark_spte_for_access_track(u64 spte);
 

@@ -2663,7 +2663,7 @@ static void __link_shadow_page(struct kvm *kvm,
 	if (is_shadow_present_pte(*sptep))
 		drop_large_spte(kvm, sptep, flush);
 
-	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp));
+	spte = make_nonleaf_spte(sp->spt, sp_ad_disabled(sp), sp_mmu_present_mask(sp));
 
 	mmu_spte_set(sptep, spte);
 
@@ -5988,6 +5988,7 @@ kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu,
 	role.level = kvm_mmu_get_tdp_level(vcpu);
 	role.direct = true;
 	role.has_4_byte_gpte = false;
+	role.is_io_compat = true;
 
 	return role;
 }
