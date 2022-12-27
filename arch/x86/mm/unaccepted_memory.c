@@ -97,6 +97,23 @@ bool unaccept_memory(phys_addr_t start, phys_addr_t end)
 			set_bit(i, bitmap);
 		}
 	}
+
+	/*
+	 * To avoid load_unaligned_zeropad() stepping into unaccepted memory,
+	 * the next 2MB page of the memory range supplied to accept_memory()
+	 * may be accepted.
+	 *
+	 * But if the next 2MB page is unaccepted because it is converted to
+	 * shared directly, trying to accept it would block shared accesses.
+	 * Some failure is observed because the first 2MB page of swiotlb pool
+	 * is converted to private at runtime when kernel tries to accept the
+	 * preceding 2MB page.
+	 *
+	 * Mark the first page as accepted to avoid it being accepted due to
+	 * the quirk of accept_memory().
+	 */
+	clear_bit(start / PMD_SIZE, bitmap);
+
 	spin_unlock_irqrestore(&unaccepted_memory_lock, flags);
 	pr_err("IO TLB: %llx-%llx accepted %d\n", start, end, accepted);
 
