@@ -2457,16 +2457,32 @@ struct kvm_firmware {
 
 	spinlock_t lock;		/* Protect vm_list */
 	struct list_head vm_list;	/* Guests associated with this firmware */
+
+	struct srcu_struct srcu;	/* Protect activities relying the firmware */
+	bool update;			/* Is this firmware being updated? */
+	struct completion completion;	/* Wait for firmware update completion */
 };
+
+int kvm_update_fw(struct kvm_firmware *fw);
 
 #ifdef CONFIG_HAVE_KVM_FIRMWARE
 struct kvm_firmware *kvm_register_fw(int fw_id);
 int kvm_unregister_fw(struct kvm_firmware *kvm_fw);
 bool kvm_arch_match_fw(struct kvm *kvm, struct kvm_firmware *fw);
+void kvm_start_update_fw(struct kvm_firmware *fw);
+void kvm_end_update_fw(struct kvm_firmware *fw);
+void kvm_arch_start_update_fw(struct kvm *kvm);
+void kvm_arch_end_update_fw(struct kvm *kvm);
+int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update);
 #else
 static inline struct kvm_firmware *kvm_register_fw(int fw_id) { return NULL; }
 static inline int kvm_unregister_fw(struct kvm_firmware *kvm_fw) { return 0; }
 static inline bool kvm_arch_match_fw(struct kvm *kvm, struct kvm_firmware *fw) { return false; }
+static inline void kvm_start_update_fw(struct kvm_firmware *fw) {}
+static inline void kvm_end_update_fw(struct kvm_firmware *fw) {}
+static inline void kvm_arch_start_update_fw(struct kvm *kvm) {}
+static inline void kvm_arch_end_update_fw(struct kvm *kvm) {}
+static inline int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update) { return -EOPNOTSUPP; }
 #endif
 
 #endif
