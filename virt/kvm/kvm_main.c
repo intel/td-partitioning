@@ -964,6 +964,7 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 	int idx;
 	int i;
+	int fw_idx;
 
 	/*
 	 * Avoide race with kvm_gmem_release().
@@ -972,7 +973,9 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 	 */
 	mutex_lock(&kvm->slots_lock);
 	idx = srcu_read_lock(&kvm->srcu);
+	fw_idx = kvm_get_fw(kvm);
 	kvm_flush_shadow_all(kvm);
+	kvm_put_fw(kvm, fw_idx);
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	/* Break circular reference count: kvm->gmem, gmem->kvm. */
