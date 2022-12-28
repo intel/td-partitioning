@@ -1487,9 +1487,10 @@ static void kvm_destroy_devices(struct kvm *kvm)
 
 static void kvm_destroy_vm(struct kvm *kvm)
 {
-	int i;
+	int i, fw_idx;
 	struct mm_struct *mm = kvm->mm;
 
+	fw_idx = kvm_get_fw(kvm);
 	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
@@ -1534,6 +1535,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 #endif
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	cleanup_srcu_struct(&kvm->srcu);
+	kvm_put_fw(kvm, fw_idx);
 	kvm_detach_fw(kvm);
 	kvm_arch_free_vm(kvm);
 	preempt_notifier_dec();
