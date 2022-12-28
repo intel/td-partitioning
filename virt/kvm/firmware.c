@@ -107,6 +107,25 @@ void kvm_put_fw(struct kvm *kvm, int idx)
 	srcu_read_unlock(&kvm->fw->srcu, idx);
 }
 
+void kvm_vcpu_get_fw(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_PROVE_RCU
+	WARN_ONCE(vcpu->fw_srcu_depth++,
+		  "KVM: Illegal vCPU fw_srcu_idx LOCK, depth=%d", vcpu->fw_srcu_depth - 1);
+#endif
+	vcpu->____fw_srcu_idx = kvm_get_fw(vcpu->kvm);
+}
+
+void kvm_vcpu_put_fw(struct kvm_vcpu *vcpu)
+{
+	kvm_put_fw(vcpu->kvm, vcpu->____fw_srcu_idx);
+
+#ifdef CONFIG_PROVE_RCU
+	WARN_ONCE(--vcpu->fw_srcu_depth,
+		  "KVM: Illegal vCPU fw_srcu_idx UNLOCK, depth=%d", vcpu->fw_srcu_depth);
+#endif
+}
+
 __weak void kvm_arch_start_update_fw(struct kvm *kvm)
 {
 }
