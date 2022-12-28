@@ -22,6 +22,7 @@
 #define TDH_VP_CREATE			10
 #define TDH_MNG_RD			11
 #define TDH_MEM_RD			12
+#define TDH_MNG_WR			13
 #define TDH_MEM_WR			14
 #define TDH_MEM_PAGE_DEMOTE		15
 #define TDH_MR_EXTEND			16
@@ -99,10 +100,22 @@
 
 enum tdx_tdcs_execution_control {
 	TD_TDCS_EXEC_TSC_OFFSET = 10,
+	TD_TDCS_EXEC_VM_CTLS	= 18,
 };
+
+union tdx_tdcs_exec_vm_ctls {
+	struct {
+		u64 ept_violation_on_l2sept	: 1;
+		u64 reserved2_63		: 61;
+	};
+	u64 full;
+};
+
+#define TDX_TDCS_EXEC_VM_CTLS_VALID_MASK	(1ULL)
 
 /* @field is any of enum tdx_tdcs_execution_control */
 #define TDCS_EXEC(field)		BUILD_TDX_FIELD(TD_CLASS_EXECUTION_CONTROLS, (field))
+#define TDCS_EXEC_NON_ARCH(field)	BUILD_TDX_FIELD_NON_ARCH(17, (field))
 
 /* @field is the VMCS field encoding */
 #define TDVPS_VMCS(field)		BUILD_TDX_FIELD(TDVPS_CLASS_VMCS, (field))

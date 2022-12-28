@@ -342,6 +342,13 @@ static inline u64 tdh_mng_rd(hpa_t tdr, u64 field, struct tdx_module_output *out
 			    tdr, field, 0, 0, 0, 0, 0, 0, out);
 }
 
+static inline u64 tdh_mng_wr(hpa_t tdr, u64 field, u64 data, u64 mask,
+			     struct tdx_module_output *out)
+{
+	return kvm_seamcall(TDH_MNG_WR, tdr,
+			    field, data, mask, 0, 0, 0, 0, out);
+}
+
 static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 				      struct tdx_module_output *out)
 {
