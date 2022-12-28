@@ -1116,9 +1116,14 @@ static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
 				void *unused)
 {
+	int ret, fw_idx;
 	struct kvm *kvm = container_of(bl, struct kvm, pm_notifier);
 
-	return kvm_arch_pm_notifier(kvm, state);
+	fw_idx = kvm_get_fw(kvm);
+	ret = kvm_arch_pm_notifier(kvm, state);
+	kvm_put_fw(kvm, fw_idx);
+
+	return ret;
 }
 
 static void kvm_init_pm_notifier(struct kvm *kvm)
