@@ -139,8 +139,6 @@ static int kvm_no_compat_open(struct inode *inode, struct file *file)
 #define KVM_COMPAT(c)	.compat_ioctl	= kvm_no_compat_ioctl,	\
 			.open		= kvm_no_compat_open
 #endif
-static int hardware_enable_all(void);
-static void hardware_disable_all(void);
 
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
 
@@ -5655,7 +5653,7 @@ static void hardware_disable_all_nolock(void)
 		on_each_cpu(hardware_disable_nolock, NULL, 1);
 }
 
-static void hardware_disable_all(void)
+void hardware_disable_all(void)
 {
 	cpus_read_lock();
 	mutex_lock(&kvm_lock);
@@ -5664,7 +5662,7 @@ static void hardware_disable_all(void)
 	cpus_read_unlock();
 }
 
-static int hardware_enable_all(void)
+int hardware_enable_all(void)
 {
 	atomic_t failed = ATOMIC_INIT(0);
 	int r = 0;
