@@ -896,10 +896,12 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 				     struct mm_struct *mm)
 {
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
-	int idx;
+	int idx, fw_idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
+	fw_idx = kvm_get_fw(kvm);
 	kvm_flush_shadow_all(kvm);
+	kvm_put_fw(kvm, fw_idx);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
