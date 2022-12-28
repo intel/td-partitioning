@@ -245,4 +245,7 @@ enum tdx_vm_index {
 	TDX_MAX_L2_VMS = TDX_L2TD_3,
 };
 
+#define TDX_TDCS_PAGES_PER_L2			1
+#define TDX_TDVPS_PAGES_PER_L2			3
+
 #endif /* __KVM_X86_TDX_ARCH_H */

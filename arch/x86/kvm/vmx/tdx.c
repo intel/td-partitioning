@@ -4595,6 +4595,15 @@ static int tdx_module_setup(void)
 		.max_num_l2_vms = max_num_l2_vms,
 	};
 
+	/*
+	 * With L2 VM supported, tdcs_nr_pages and tdvpx_nr_pages need
+	 * to be extended to support L2 VMs when add pages.
+	 */
+	if (tdx_caps.max_num_l2_vms) {
+		tdx_caps.tdcs_nr_pages += tdx_caps.max_num_l2_vms * TDX_TDCS_PAGES_PER_L2;
+		tdx_caps.tdvpx_nr_pages += tdx_caps.max_num_l2_vms * TDX_TDVPS_PAGES_PER_L2;
+	}
+
 	err = tdh_sys_rd(TDX_MD_FID_SERVTD_MAX_SERVTDS, &out);
 	/*
 	 * If error happens, it isn't critical and no need to fail the entire
