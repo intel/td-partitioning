@@ -3844,7 +3844,11 @@ bool kvm_vcpu_block(struct kvm_vcpu *vcpu)
 			break;
 
 		waited = true;
+		vcpu_put(vcpu);
+		kvm_vcpu_put_fw(vcpu);
 		schedule();
+		kvm_vcpu_get_fw(vcpu);
+		vcpu_load(vcpu);
 	}
 
 	preempt_disable();
@@ -4457,16 +4461,19 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
 		return -EINVAL;
 
+	kvm_vcpu_get_fw(vcpu);
 	/*
 	 * Some architectures have vcpu ioctls that are asynchronous to vcpu
 	 * execution; mutex_lock() would break them.
 	 */
 	r = kvm_arch_vcpu_async_ioctl(filp, ioctl, arg);
 	if (r != -ENOIOCTLCMD)
-		return r;
+		goto put_fw;
 
-	if (mutex_lock_killable(&vcpu->mutex))
-		return -EINTR;
+	if (mutex_lock_killable(&vcpu->mutex)) {
+		r = -EINTR;
+		goto put_fw;
+	}
 	switch (ioctl) {
 	case KVM_RUN: {
 		struct pid *oldpid;
@@ -4650,6 +4657,8 @@ out:
 	mutex_unlock(&vcpu->mutex);
 	kfree(fpu);
 	kfree(kvm_sregs);
+put_fw:
+	kvm_vcpu_put_fw(vcpu);
 	return r;
 }
 
