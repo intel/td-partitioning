@@ -125,6 +125,8 @@ enum tdvmcall_service_id {
 	TDVMCALL_SERVICE_ID_VTPM,
 	TDVMCALL_SERVICE_ID_VTPMTD,
 	TDVMCALL_SERVICE_ID_TDCM,
+	TDVMCALL_SERVICE_ID_SPDM,
+	TDVMCALL_SERVICE_ID_TPA,
 
 	TDVMCALL_SERVICE_ID_MAX,
 };
@@ -145,6 +147,12 @@ static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
 	[TDVMCALL_SERVICE_ID_TDCM]	= GUID_INIT(0x6270da51, 0x9a23, 0x4b6b,
 						    0x81, 0xce, 0xdd, 0xd8,
 						    0x69, 0x70, 0xf2, 0x96),
+	[TDVMCALL_SERVICE_ID_SPDM]	= GUID_INIT(0xa148b5dd, 0x50c, 0x4be4,
+						    0xa6, 0x30, 0xe5, 0xe5,
+						    0x30, 0x1f, 0x2a, 0x9b),
+	[TDVMCALL_SERVICE_ID_TPA]	= GUID_INIT(0x0320dae8, 0x75b6, 0x4ac8,
+						    0xa9, 0xda, 0x2d, 0xe6,
+						    0x9d, 0x18, 0x59, 0xda),
 };
 
 enum tdvmcall_service_status {
@@ -2243,6 +2251,8 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	case TDVMCALL_SERVICE_ID_VTPM:
 	case TDVMCALL_SERVICE_ID_VTPMTD:
 	case TDVMCALL_SERVICE_ID_TDCM:
+	case TDVMCALL_SERVICE_ID_TPA:
+	case TDVMCALL_SERVICE_ID_SPDM:
 		ret = 0;
 		break;
 	default:
