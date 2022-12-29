@@ -66,6 +66,7 @@ struct tdmr_info_list {
 	int tdmr_sz;
 	int max_tdmrs;
 	int nr_tdmrs;	/* Actual number of TDMRs */
+	int pamt_entry_size;
 };
 
 struct tdmr_info_list tdmr_list;
@@ -588,6 +589,7 @@ static int alloc_tdmr_list(struct tdmr_info_list *tdmr_list,
 	tdmr_list->tdmr_sz = tdmr_sz;
 	tdmr_list->max_tdmrs = sysinfo->max_tdmrs;
 	tdmr_list->nr_tdmrs = 0;
+	tdmr_list->pamt_entry_size = sysinfo->pamt_entry_size;
 
 	return 0;
 }
@@ -597,6 +599,7 @@ static void free_tdmr_list(struct tdmr_info_list *tdmr_list)
 	free_pages_exact(tdmr_list->first_tdmr,
 			tdmr_list->max_tdmrs * tdmr_list->tdmr_sz);
 	tdmr_list->nr_tdmrs = 0;
+	tdmr_list->pamt_entry_size = 0;
 }
 
 /* Get the TDMR from the list at the given index. */
@@ -1616,6 +1619,14 @@ static int tdx_module_sysfs_init(void)
 #endif
 
 #ifdef CONFIG_INTEL_TDX_MODULE_UPDATE
+static inline int get_pamt_entry_size(const struct seam_sigstruct *sig)
+{
+	WARN_ON_ONCE(sig->pamt_entry_size_4K != sig->pamt_entry_size_2M ||
+		     sig->pamt_entry_size_4K != sig->pamt_entry_size_1G);
+	/* Per TDX loader spec, 0 means PAMT entry size is 16 bytes. */
+	return sig->pamt_entry_size_4K ? : 16;
+}
+
 static void free_seamldr_params(struct seamldr_params *params)
 {
 	int i;
@@ -1638,6 +1649,14 @@ static struct seamldr_params *alloc_seamldr_params(const void *module, int modul
 	if ((module_size >> PAGE_SHIFT) > SEAMLDR_MAX_NR_MODULE_PAGES ||
 	    sig_size != SEAMLDR_SIGSTRUCT_SIZE)
 		return ERR_PTR(-EINVAL);
+
+	/* Check if PAMTs can be reused */
+	if (tdmr_list.pamt_entry_size &&
+	    (tdmr_list.pamt_entry_size != get_pamt_entry_size(sig))) {
+		pr_err("Cannot reuse PAMTs: entry size old %d new %d\n",
+		       tdmr_list.pamt_entry_size, get_pamt_entry_size(sig));
+		return ERR_PTR(-EINVAL);
+	}
 
 	params = (struct seamldr_params *)get_zeroed_page(GFP_KERNEL);
 	if (!params)
