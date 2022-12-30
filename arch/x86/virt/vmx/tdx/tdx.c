@@ -61,6 +61,15 @@ static inline int tdx_module_sysfs_init(void) { return 0; }
 /* All TDX-usable memory regions */
 static LIST_HEAD(tdx_memlist);
 
+struct tdmr_info_list {
+	struct tdmr_info *first_tdmr;
+	int tdmr_sz;
+	int max_tdmrs;
+	int nr_tdmrs;	/* Actual number of TDMRs */
+};
+
+struct tdmr_info_list tdmr_list;
+
 /* TDX module global KeyID.  Used in TDH.SYS.CONFIG ABI. */
 u32 tdx_global_keyid __read_mostly;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
@@ -537,13 +546,6 @@ err:
 	return ret;
 }
 
-struct tdmr_info_list {
-	struct tdmr_info *first_tdmr;
-	int tdmr_sz;
-	int max_tdmrs;
-	int nr_tdmrs;	/* Actual number of TDMRs */
-};
-
 /* Calculate the actual TDMR size */
 static int tdmr_size_single(u16 max_reserved_per_tdmr)
 {
@@ -594,6 +596,7 @@ static void free_tdmr_list(struct tdmr_info_list *tdmr_list)
 {
 	free_pages_exact(tdmr_list->first_tdmr,
 			tdmr_list->max_tdmrs * tdmr_list->tdmr_sz);
+	tdmr_list->nr_tdmrs = 0;
 }
 
 /* Get the TDMR from the list at the given index. */
@@ -1292,6 +1295,24 @@ static void tdx_trace_seamcalls(u64 level)
 	}
 }
 
+static int allocate_and_construct_tdmrs(struct list_head *tmb_list,
+					struct tdmr_info_list *tdmr_list,
+					struct tdsysinfo_struct *sysinfo)
+{
+	int ret;
+
+	if (tdmr_list->nr_tdmrs)
+		return 0;
+
+	/* Allocate enough space for constructing TDMRs */
+	ret = alloc_tdmr_list(tdmr_list, sysinfo);
+	if (ret)
+		return ret;
+
+	/* Cover all TDX-usable memory regions in TDMRs */
+	return construct_tdmrs(tmb_list, tdmr_list, sysinfo);
+}
+
 static int init_tdx_module(void)
 {
 	/*
@@ -1301,7 +1322,6 @@ static int init_tdx_module(void)
 	 */
 	struct cmr_info cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
-	struct tdmr_info_list tdmr_list;
 	u64 tsx_ctrl;
 	int ret;
 
@@ -1343,13 +1363,7 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	/* Allocate enough space for constructing TDMRs */
-	ret = alloc_tdmr_list(&tdmr_list, sysinfo);
-	if (ret)
-		goto out_free_tdx_mem;
-
-	/* Cover all TDX-usable memory regions in TDMRs */
-	ret = construct_tdmrs(&tdx_memlist, &tdmr_list, sysinfo);
+	ret = allocate_and_construct_tdmrs(&tdx_memlist, &tdmr_list, sysinfo);
 	if (ret)
 		goto out_free_tdmrs;
 
@@ -1406,15 +1420,15 @@ out_free_pamts:
 		pr_info("%lu pages allocated for PAMT.\n",
 				tdmrs_count_pamt_pages(&tdmr_list));
 out_free_tdmrs:
-	/*
-	 * Free the space for the TDMRs no matter the initialization is
-	 * successful or not.  They are not needed anymore after the
-	 * module initialization.
-	 */
-	free_tdmr_list(&tdmr_list);
-out_free_tdx_mem:
-	if (ret)
+	if (ret) {
+		/*
+		 * Free the space for the TDMRs no matter the initialization is
+		 * successful or not.  They are not needed anymore after the
+		 * module initialization.
+		 */
+		free_tdmr_list(&tdmr_list);
 		free_tdx_memlist(&tdx_memlist);
+	}
 out:
 	/*
 	 * @tdx_memlist is written here and read at memory hotplug time.
