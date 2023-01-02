@@ -299,3 +299,13 @@ time it will be set using the Dirty tracking mechanism described above.
     taken outside of kvm_lock, e.g. in KVM's CPU online/offline callbacks, and
     many operations need to take cpu_hotplug_lock when loading a vendor module,
     e.g. updating static calls.
+
+``kvm_firmware->srcu``
+^^^^^^^^^^^^^^^^^^^^^^
+:Type:		srcu lock
+:Arch:		any
+:Protects:	- any operations on guests associated with the firmware
+:Comments:	The srcu read lock should be held while doing any operations
+		on guests associated with the firmware. The srcu index can be
+		stored in kvm_vcpu->fw_srcu_idx if it is needed by multiple
+		functions.
