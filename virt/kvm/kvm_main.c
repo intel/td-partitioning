@@ -5154,10 +5154,11 @@ static long kvm_vm_ioctl(struct file *filp,
 {
 	struct kvm *kvm = filp->private_data;
 	void __user *argp = (void __user *)arg;
-	int r;
+	int r, fw_idx;
 
 	if (kvm->mm != current->mm || kvm->vm_dead)
 		return -EIO;
+	fw_idx = kvm_get_fw(kvm);
 	switch (ioctl) {
 	case KVM_CREATE_VCPU:
 		r = kvm_vm_ioctl_create_vcpu(kvm, arg);
@@ -5380,6 +5381,7 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
 out:
+	kvm_put_fw(kvm, fw_idx);
 	return r;
 }
 
