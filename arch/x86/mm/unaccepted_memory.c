@@ -86,6 +86,11 @@ bool unaccept_memory(phys_addr_t start, phys_addr_t end)
 	if (!boot_params.unaccepted_memory)
 		return false;
 
+	if (!IS_ALIGNED(start, PMD_SIZE) || !IS_ALIGNED(end, PMD_SIZE)) {
+		pr_err("Error: requested memory range isn't 2MB aligned\n");
+		return false;
+	}
+
 	spin_lock_irqsave(&unaccepted_memory_lock, flags);
 	bitmap = __va(boot_params.unaccepted_memory);
 	for (i = start / PMD_SIZE; i < DIV_ROUND_UP(end, PMD_SIZE); i++) {

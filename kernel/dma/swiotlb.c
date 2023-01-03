@@ -336,7 +336,7 @@ static void __init *swiotlb_memblock_alloc(unsigned long nslabs,
 		unsigned int flags,
 		int (*remap)(void *tlb, unsigned long nslabs))
 {
-	size_t bytes = PAGE_ALIGN(nslabs << IO_TLB_SHIFT);
+	size_t bytes = ALIGN(nslabs << IO_TLB_SHIFT, PMD_SIZE);
 	void *tlb = NULL;
 
 	/*
