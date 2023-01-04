@@ -15,12 +15,16 @@
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
+#define TDX_EXTEND_RTMR			2
 #define TDX_GET_VEINFO			3
 #define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
+#define TDX_VERIFYREPORT		22
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
+#define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
+#define TDVMCALL_GET_QUOTE		0x10002
 
 #ifndef __ASSEMBLY__
 
