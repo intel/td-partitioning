@@ -2656,6 +2656,20 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	if (!cpu_has_sgx())
 		_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_ENCLS_EXITING;
 
+	/*
+	 * TODO: Writing to VMCS PLE_GAP field (0x4020) results in
+	 * TDX_METADATA_FIELD_VALUE_NOT_VALID error from TDX module.
+	 *
+	 * Which might be caused by calculate_native_tsc() when it's dealing
+	 * the native/virtual TSC conversion, implying that we may have
+	 * problems on handling some of the TSC MSRs.
+	 *
+	 * For now, we don't care if we pause inside TD Partitioning guests
+	 * or not. Enable pause_in_guest to avoid writing to PLE_GAP.
+	 */
+	if (enable_td_part)
+		_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_PAUSE_LOOP_EXITING;
+
 	if (_cpu_based_exec_control & CPU_BASED_ACTIVATE_TERTIARY_CONTROLS)
 		_cpu_based_3rd_exec_control =
 			adjust_vmx_controls64(KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL,
