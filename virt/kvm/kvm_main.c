@@ -963,7 +963,7 @@ static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *no
 	struct kvm *kvm = slot->kvm;
 	gfn_t gfn_start, gfn_end;
 	struct kvm_gfn_range gfn_range;
-	int idx;
+	int idx, fw_idx;
 
 	if (!restrictedmem_range_is_valid(slot, start, end,
 					  &gfn_start, &gfn_end))
@@ -977,6 +977,7 @@ static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *no
 	gfn_range.flags = KVM_GFN_RANGE_FLAGS_RESTRICTED_MEM;
 
 	idx = srcu_read_lock(&kvm->srcu);
+	fw_idx = kvm_get_fw(kvm);
 	KVM_MMU_LOCK(kvm);
 
 	kvm_mmu_invalidate_begin(kvm);
@@ -985,6 +986,7 @@ static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *no
 		kvm_flush_remote_tlbs(kvm);
 
 	KVM_MMU_UNLOCK(kvm);
+	kvm_put_fw(kvm, fw_idx);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
@@ -996,14 +998,17 @@ static void kvm_restrictedmem_invalidate_end(struct restrictedmem_notifier *noti
 						    notifier);
 	struct kvm *kvm = slot->kvm;
 	gfn_t gfn_start, gfn_end;
+	int fw_idx;
 
 	if (!restrictedmem_range_is_valid(slot, start, end,
 					  &gfn_start, &gfn_end))
 		return;
 
+	fw_idx = kvm_get_fw(kvm);
 	KVM_MMU_LOCK(kvm);
 	kvm_mmu_invalidate_end(kvm);
 	KVM_MMU_UNLOCK(kvm);
+	kvm_put_fw(kvm, fw_idx);
 }
 
 static void kvm_restrictedmem_error(struct restrictedmem_notifier *notifier,
@@ -1012,7 +1017,12 @@ static void kvm_restrictedmem_error(struct restrictedmem_notifier *notifier,
 	struct kvm_memory_slot *slot = container_of(notifier,
 						    struct kvm_memory_slot,
 						    notifier);
+	struct kvm *kvm = slot->kvm;
+	int fw_idx;
+
+	fw_idx = kvm_get_fw(kvm);
 	kvm_arch_memory_mce(slot->kvm);
+	kvm_put_fw(kvm, fw_idx);
 }
 
 static struct restrictedmem_notifier_ops kvm_restrictedmem_notifier_ops = {
