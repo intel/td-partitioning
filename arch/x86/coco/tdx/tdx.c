@@ -52,6 +52,7 @@
 #define TDREPORT_SUBTYPE_0	0
 
 int tdx_notify_irq = -1;
+EXPORT_SYMBOL_GPL(tdx_notify_irq);
 
 /* Caches TD Attributes from TDG.VP.INFO TDCALL */
 static u64 td_attr;
