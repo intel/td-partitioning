@@ -8,6 +8,7 @@
 #include <uapi/linux/magic.h>
 
 #include "kvm_mm.h"
+#include "firmware.h"
 
 static struct vfsmount *kvm_gmem_mnt;
 
@@ -92,7 +93,9 @@ static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 	struct kvm *kvm = gmem->kvm;
 	unsigned long index;
 	bool flush = false;
+	int fw_idx;
 
+	fw_idx = kvm_get_fw(kvm);
 	KVM_MMU_LOCK(kvm);
 
 	kvm_mmu_invalidate_begin(kvm);
@@ -116,17 +119,22 @@ static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 		kvm_flush_remote_tlbs(kvm);
 
 	KVM_MMU_UNLOCK(kvm);
+	kvm_put_fw(kvm, fw_idx);
 }
 
 static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
 				    pgoff_t end)
 {
 	struct kvm *kvm = gmem->kvm;
+	int fw_idx;
+
+	fw_idx = kvm_get_fw(kvm);
 
 	KVM_MMU_LOCK(kvm);
 	if (xa_find(&gmem->bindings, &start, end - 1, XA_PRESENT))
 		kvm_mmu_invalidate_end(kvm);
 	KVM_MMU_UNLOCK(kvm);
+	kvm_put_fw(kvm, fw_idx);
 }
 
 void __weak kvm_arch_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
@@ -139,8 +147,11 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct inode *inode,
 {
 	pgoff_t file_end = i_size_read(inode) >> PAGE_SHIFT;
 	pgoff_t index = start;
+	int fw_idx;
 
 	end = min(end, file_end);
+
+	fw_idx = kvm_get_fw(kvm);
 
 	while (index < end) {
 		struct folio *folio;
@@ -167,6 +178,8 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct inode *inode,
 
 		cond_resched();
 	}
+
+	kvm_put_fw(kvm, fw_idx);
 }
 
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
