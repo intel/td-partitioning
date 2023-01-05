@@ -16,6 +16,7 @@
 
 #include "tdx_errno.h"
 #include "tdx_arch.h"
+#include "x86.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
@@ -28,6 +29,15 @@ static inline uint64_t kvm_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8,
 	do {
 		err = __seamcall(op, rcx, rdx, r8, r9,
 				 r10, r11, r12, r13, out);
+
+		/*
+		 * If seamcall happens after VMXOFF during reboot,
+		 * the instruction is ignored.
+		 */
+		if (err == TDX_SEAMCALL_UD) {
+			kvm_spurious_fault();
+			return 0;
+		}
 		/*
 		 * On success, non-recoverable errors, or recoverable errors
 		 * that don't expect retries, hand it over to the caller.
