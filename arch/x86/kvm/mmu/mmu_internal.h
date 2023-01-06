@@ -270,7 +270,8 @@ static inline void kvm_mmu_alloc_private_spt(struct kvm_vcpu *vcpu, struct kvm_m
 {
 }
 
-static inline int kvm_alloc_private_spt_for_split(struct kvm_mmu_page *sp, gfp_t gfp)
+static inline int kvm_alloc_private_spt_for_split(struct kvm *kvm, struct kvm_mmu_page *sp,
+						  gfp_t gfp, bool can_yield)
 {
 	return -ENOMEM;
 }
