@@ -1784,10 +1784,6 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (likely(is_td_finalized(kvm_tdx))) {
 		err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
-		if (err == TDX_ERROR_SEPT_BUSY) {
-			tdx_unpin(kvm, gfn, pfn, level);
-			return -EAGAIN;
-		}
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
 			tdx_unpin(kvm, gfn, pfn, level);
@@ -1821,14 +1817,8 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	measure = kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION;
 	kvm_tdx->source_pa = INVALID_PAGE;
 
-	do {
-		err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa,
-				       source_pa, &out);
-		/*
-		 * This path is executed during populating initial guest memory
-		 * image. i.e. before running any vcpu.  Race is rare.
-		 */
-	} while (err == TDX_ERROR_SEPT_BUSY);
+	err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa,
+			       source_pa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &out);
 		tdx_unpin(kvm, gfn, pfn, level);
@@ -1867,14 +1857,12 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		return 0;
 	}
 
-	do {
-		/*
-		 * When zapping private page, write lock is held. So no race
-		 * condition with other vcpu sept operation.  Race only with
-		 * TDH.VP.ENTER.
-		 */
-		err = tdh_mem_page_remove(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
-	} while (err == TDX_ERROR_SEPT_BUSY);
+	/*
+	 * When zapping private page, write lock is held. So no race
+	 * condition with other vcpu sept operation.  Race only with
+	 * TDH.VP.ENTER.
+	 */
+	err = tdh_mem_page_remove(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &out);
 		return -EIO;
@@ -1914,8 +1902,6 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	u64 err;
 
 	err = tdh_mem_sept_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
-	if (err == TDX_ERROR_SEPT_BUSY)
-		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_SEPT_ADD, err, &out);
 		return -EIO;
@@ -1936,8 +1922,6 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn,
 
 	/* See comment in tdx_sept_set_private_spte() */
 	err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
-	if (err == TDX_ERROR_SEPT_BUSY)
-		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
 		return -EIO;
@@ -1957,8 +1941,6 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 
 	/* See comment in tdx_sept_set_private_spte() */
 	err = tdh_mem_page_promote(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
-	if (err == TDX_ERROR_SEPT_BUSY)
-		return -EAGAIN;
 	if (err == TDX_EPT_INVALID_PROMOTE_CONDITIONS)
 		/*
 		 * Some pages are accepted, some pending.  Need to wait for TD
@@ -1998,14 +1980,12 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	u64 err;
 
 	err = tdh_mem_range_block(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
-	if (err == TDX_ERROR_SEPT_BUSY)
-		return -EAGAIN;
-
-	WRITE_ONCE(kvm_tdx->has_range_blocked, true);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
 		return -EIO;
 	}
+	WRITE_ONCE(kvm_tdx->has_range_blocked, true);
+
 	return 0;
 }
 
@@ -2077,8 +2057,6 @@ static int tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * tdh_mem_range_block() to complete TDX track.
 		 */
 	} while (err == (TDX_TLB_TRACKING_NOT_DONE | TDX_OPERAND_ID_SEPT));
-	if (err == TDX_ERROR_SEPT_BUSY)
-		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_RANGE_UNBLOCK, err, &out);
 		return -EIO;
@@ -2113,10 +2091,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * guest page.   private guest page can be zapped during TD is active.
 	 * shared <-> private conversion and slot move/deletion.
 	 */
-	do {
-		err = tdh_mem_range_block(kvm_tdx->tdr_pa, parent_gpa,
-					  parent_tdx_level, &out);
-	} while (err == TDX_ERROR_SEPT_BUSY);
+	err = tdh_mem_range_block(kvm_tdx->tdr_pa, parent_gpa,
+				  parent_tdx_level, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
 		return -EIO;
