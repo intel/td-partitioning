@@ -552,6 +552,7 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm->arch.tdp_max_page_level = PG_LEVEL_2M;
 
 	kvm_tdx->has_range_blocked = false;
+	spin_lock_init(&kvm_tdx->binding_slot_lock);
 
 	/*
 	 * This function initializes only KVM software construct.  It doesn't
@@ -3604,6 +3605,35 @@ static int tdx_servtd_do_bind(struct kvm_tdx *usertd_tdx,
 	return 0;
 }
 
+static int tdx_servtd_add_binding_slot(struct kvm_tdx *servtd_tdx,
+				       struct tdx_binding_slot *slot)
+{
+	int i, ret = 0;
+
+	spin_lock(&servtd_tdx->binding_slot_lock);
+	for (i = 0; i < SERVTD_SLOTS_MAX; i++) {
+		if (!servtd_tdx->usertd_binding_slots[i])
+			break;
+	}
+
+	/*
+	 * Unlikely. The arrary should be big enough to have an
+	 * entry for each TD on the same host to add its binding
+	 * slot.
+	 */
+	if (i == SERVTD_SLOTS_MAX) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
+
+	servtd_tdx->usertd_binding_slots[i] = slot;
+	slot->servtd_tdx = servtd_tdx;
+	slot->req_id = i;
+out_unlock:
+	spin_unlock(&servtd_tdx->binding_slot_lock);
+	return ret;
+}
+
 static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm *servtd_kvm;
@@ -3612,6 +3642,7 @@ static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 	struct kvm_tdx_servtd servtd;
 	struct tdx_binding_slot *slot;
 	uint16_t slot_id;
+	int ret;
 
 	if (copy_from_user(&servtd, (void __user *)cmd->data,
 			   sizeof(struct kvm_tdx_servtd)))
@@ -3634,7 +3665,12 @@ static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 	slot_id = servtd.type;
 	slot = &usertd_tdx->binding_slots[slot_id];
 
-	return tdx_servtd_do_bind(usertd_tdx, servtd_tdx, &servtd, slot);
+	ret = tdx_servtd_do_bind(usertd_tdx, servtd_tdx, &servtd, slot);
+	if (ret)
+		return ret;
+
+	return tdx_servtd_add_binding_slot(servtd_tdx, slot);
+
 }
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
