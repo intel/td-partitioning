@@ -208,4 +208,7 @@ enum tdx_ext_exit_qualification_type {
 	NUM_EXT_EXIT_QUAL,
 };
 
+/* The field id used to access the metadata. Section 5 of the ABI spec */
+#define TDX_MD_FID_SERVTD_MAX_SERVTDS		0xA100000100000000
+
 #endif /* __KVM_X86_TDX_ARCH_H */
