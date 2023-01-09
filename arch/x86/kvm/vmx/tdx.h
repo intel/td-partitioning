@@ -10,6 +10,17 @@
 
 extern bool enable_tdx;
 
+enum tdx_binding_slot_state {
+	/* Slot is available for a new user */
+	TDX_BINDING_SLOT_STATE_INIT = 0,
+
+	TDX_BINDING_SLOT_STATE_UNKNOWN
+};
+
+struct tdx_binding_slot {
+	enum tdx_binding_slot_state state;
+};
+
 struct kvm_tdx {
 	struct kvm kvm;
 
@@ -30,6 +41,14 @@ struct kvm_tdx {
 
 	/* TDP MMU */
 	bool has_range_blocked;
+
+	/*
+	 * Pointer to an array of tdx binding slots. Each servtd type has one
+	 * binding slot in the array, and the slot is indexed using the servtd
+	 * type. Each binding slot corresponds to an entry in the binding table
+	 * held by TDCS (see TDX module v1.5 Base Architecture Spec, 13.2.1).
+	 */
+	struct tdx_binding_slot binding_slots[KVM_TDX_SERVTD_TYPE_MAX];
 };
 
 union tdx_exit_reason {
