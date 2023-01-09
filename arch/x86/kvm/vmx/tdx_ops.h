@@ -45,6 +45,8 @@ static inline uint64_t kvm_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8,
 	return err;
 }
 
+bool is_sys_rd_supported(void);
+
 void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_output *out);
 
 static inline enum pg_level tdx_sept_level_to_pg_level(int tdx_level)
@@ -327,6 +329,14 @@ static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,
 {
 	return kvm_seamcall(TDH_MEM_PAGE_REMOVE,
 			    gpa | level, tdr, 0, 0, 0, 0, 0, 0, out);
+}
+
+static inline u64 tdh_sys_rd(u64 fid, struct tdx_module_output *out)
+{
+	if (!is_sys_rd_supported())
+		return TDX_SYS_NOT_READY;
+
+	return kvm_seamcall(TDH_SYS_RD, 0, fid, 0, 0, 0, 0, 0, 0, out);
 }
 
 static inline u64 tdh_sys_lp_shutdown(void)

@@ -35,6 +35,7 @@ static struct kvm_firmware *tdx_module;
 struct tdx_capabilities {
 	u8 tdcs_nr_pages;
 	u8 tdvpx_nr_pages;
+	u8 sys_rd;
 
 	u64 attrs_fixed0;
 	u64 attrs_fixed1;
@@ -3761,6 +3762,11 @@ static struct notifier_block tdx_mce_nb = {
 	.priority = MCE_PRIO_CEC,
 };
 
+bool is_sys_rd_supported(void)
+{
+	return !!tdx_caps.sys_rd;
+}
+
 static int tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
@@ -3791,6 +3797,7 @@ static int tdx_module_setup(void)
 		.xfam_fixed0 =	tdsysinfo->xfam_fixed0,
 		.xfam_fixed1 = tdsysinfo->xfam_fixed1,
 		.nr_cpuid_configs = tdsysinfo->num_cpuid_config,
+		.sys_rd = tdsysinfo->sys_rd,
 	};
 	if (!memcpy(tdx_caps.cpuid_configs, tdsysinfo->cpuid_configs,
 			tdsysinfo->num_cpuid_config *
