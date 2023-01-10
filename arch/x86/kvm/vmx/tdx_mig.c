@@ -1162,6 +1162,8 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 	vcpu->cpu = cpu;
 	put_cpu();
 
+	tdx_td_vcpu_post_init(vcpu_tdx);
+
 	return 0;
 }
 
