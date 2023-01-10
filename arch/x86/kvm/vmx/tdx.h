@@ -105,6 +105,8 @@ struct kvm_tdx {
 	 * for the two purposes.
 	 */
 	spinlock_t binding_slot_lock;
+
+	void *mig_state;
 };
 
 union tdx_exit_reason {
@@ -443,6 +445,8 @@ static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
 	WARN_ON_ONCE(level == PG_LEVEL_NONE);
 	return level - 1;
 }
+
+void tdx_reclaim_td_page(unsigned long td_page_pa);
 
 #else
 struct kvm_tdx {
