@@ -456,6 +456,8 @@ void tdx_add_vcpu_association(struct vcpu_tdx *tdx, int cpu);
 
 void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu);
 
+int tdx_td_vcpu_setup(struct kvm_vcpu *vcpu);
+
 #else
 struct kvm_tdx {
 	struct kvm kvm;
