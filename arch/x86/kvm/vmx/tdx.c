@@ -4273,6 +4273,55 @@ int tdx_td_vcpu_setup(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+void tdx_td_vcpu_post_init(struct vcpu_tdx *tdx)
+{
+	struct kvm_vcpu *vcpu = &tdx->vcpu;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	if (!kvm_tdx->td_initialized)
+		return;
+
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+
+	/*
+	 * Check if VM_{ENTRY, EXIT}_LOAD_IA32_PERF_GLOBAL_CTRL are set in case
+	 * of a TDX module bug. It is required to monitor TD with PMU events.
+	 * Note that these two bits are read-only even for debug TD.
+	 */
+	if ((td_profile_state == TD_PROFILE_NONE) &&
+	    (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_DEBUG) &&
+	    !(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON))	{
+		u32 exit, entry;
+
+		exit = td_vmcs_read32(tdx, VM_EXIT_CONTROLS);
+		entry = td_vmcs_read32(tdx, VM_ENTRY_CONTROLS);
+
+		if ((exit & VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL) &&
+		    (entry & VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL))
+			td_profile_state = TD_PROFILE_ENABLE;
+		else {
+			pr_warn_once("Cannot monitor TD with PMU events\n");
+			td_profile_state = TD_PROFILE_DISABLE;
+		}
+	}
+
+	if (vcpu->kvm->arch.bus_lock_detection_enabled)
+		td_vmcs_setbit32(tdx,
+				 SECONDARY_VM_EXEC_CONTROL,
+				 SECONDARY_EXEC_BUS_LOCK_DETECTION);
+
+	if (is_debug_td(vcpu)) {
+		td_vmcs_setbit32(tdx,
+				 CPU_BASED_VM_EXEC_CONTROL,
+				 CPU_BASED_MOV_DR_EXITING);
+	}
+
+	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	tdx->vcpu_initialized = true;
+}
+
 static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
@@ -4325,8 +4374,6 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		pr_tdx_error(TDH_VP_INIT, err, NULL);
 		goto td_bugged;
 	}
-
-	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 
 	return 0;
 
@@ -4381,47 +4428,8 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	if (ret)
 		return ret;
 
-	if (!kvm_tdx->td_initialized)
-		return 0;
+	tdx_td_vcpu_post_init(tdx);
 
-	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
-	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
-	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
-
-	/*
-	 * Check if VM_{ENTRY, EXIT}_LOAD_IA32_PERF_GLOBAL_CTRL are set in case
-	 * of a TDX module bug. It is required to monitor TD with PMU events.
-	 * Note that these two bits are read-only even for debug TD.
-	 */
-	if ((td_profile_state == TD_PROFILE_NONE) &&
-	    (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_DEBUG) &&
-	    !(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON))	{
-		u32 exit, entry;
-
-		exit = td_vmcs_read32(tdx, VM_EXIT_CONTROLS);
-		entry = td_vmcs_read32(tdx, VM_ENTRY_CONTROLS);
-
-		if ((exit & VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL) &&
-		    (entry & VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL))
-			td_profile_state = TD_PROFILE_ENABLE;
-		else {
-			pr_warn_once("Cannot monitor TD with PMU events\n");
-			td_profile_state = TD_PROFILE_DISABLE;
-		}
-	}
-
-	if (vcpu->kvm->arch.bus_lock_detection_enabled)
-		td_vmcs_setbit32(tdx,
-				 SECONDARY_VM_EXEC_CONTROL,
-				 SECONDARY_EXEC_BUS_LOCK_DETECTION);
-
-	if (is_debug_td(vcpu)) {
-		td_vmcs_setbit32(tdx,
-				 CPU_BASED_VM_EXEC_CONTROL,
-				 CPU_BASED_MOV_DR_EXITING);
-	}
-
-	tdx->vcpu_initialized = true;
 	return 0;
 }
 
