@@ -299,7 +299,7 @@ static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
 	return 0;
 }
 
-static void tdx_reclaim_td_page(unsigned long td_page_pa)
+void tdx_reclaim_td_page(unsigned long td_page_pa)
 {
 	if (!td_page_pa)
 		return;
@@ -543,6 +543,7 @@ void tdx_vm_free(struct kvm *kvm)
 		return;
 
 	tdx_binding_slots_cleanup(kvm_tdx);
+	tdx_mig_state_destroy(kvm_tdx);
 
 	if (kvm_tdx->tdcs_pa) {
 		for (i = 0; i < tdx_caps.tdcs_nr_pages; i++)
