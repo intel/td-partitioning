@@ -26,14 +26,11 @@
 	 */
 
 	/* Callee saved, so preserve it */
-	push %r10
-	push %r11
+	push %rbx
 	push %r12
 	push %r13
+	push %r14
 	push %r15
-
-	/* Move output pointer to R15 */
-	mov (FRAME_OFFSET+0x48)(%rsp), %r15
 
 	/* Mangle function call ABI into TDCALL/SEAMCALL ABI: */
 	/* Move Leaf ID to RAX */
@@ -94,7 +91,7 @@
 	 * Fetch output pointer from stack to R15 (It is used
 	 * as temporary storage)
 	 */
-	/*pop %r15*/
+	mov (FRAME_OFFSET+0x48)(%rsp), %r15
 
 	/*
 	 * Since this macro can be invoked with NULL as an output pointer,
@@ -120,8 +117,8 @@
 .Lno_output_struct:
 	/* Restore the state of R12 register */
 	pop %r15
+	pop %r14
 	pop %r13
 	pop %r12
-	pop %r11
-	pop %r10
+	pop %rbx
 .endm
