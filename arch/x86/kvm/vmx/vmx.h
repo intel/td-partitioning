@@ -73,25 +73,32 @@ struct pt_desc {
 
 union vmx_exit_reason {
 	struct {
-		u32	basic			: 16;
-		u32	reserved16		: 1;
-		u32	reserved17		: 1;
-		u32	reserved18		: 1;
-		u32	reserved19		: 1;
-		u32	reserved20		: 1;
-		u32	reserved21		: 1;
-		u32	reserved22		: 1;
-		u32	reserved23		: 1;
-		u32	reserved24		: 1;
-		u32	reserved25		: 1;
-		u32	bus_lock_detected	: 1;
-		u32	enclave_mode		: 1;
-		u32	smi_pending_mtf		: 1;
-		u32	smi_from_vmx_root	: 1;
-		u32	reserved30		: 1;
-		u32	failed_vmentry		: 1;
+		u64	basic			: 16;
+		u64	reserved16		: 1;
+		u64	reserved17		: 1;
+		u64	reserved18		: 1;
+		u64	reserved19		: 1;
+		u64	reserved20		: 1;
+		u64	reserved21		: 1;
+		u64	reserved22		: 1;
+		u64	reserved23		: 1;
+		u64	reserved24		: 1;
+		u64	reserved25		: 1;
+		u64	bus_lock_detected	: 1;
+		u64	enclave_mode		: 1;
+		u64	smi_pending_mtf		: 1;
+		u64	smi_from_vmx_root	: 1;
+		u64	reserved30		: 1;
+		u64	failed_vmentry		: 1;
+
+		/* 63:32 are TDX specific */
+		u64	details_l1		: 8;
+		u64	class			: 8;
+		u64	reserved61_48		: 14; //Not applicable for TDCALL
+		u64	non_recoverable		: 1;
+		u64	error			: 1;
 	};
-	u32 full;
+	u64 full;
 };
 
 static inline bool intel_pmu_has_perf_global_ctrl(struct kvm_pmu *pmu)

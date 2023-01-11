@@ -6707,7 +6707,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	return kvm_vmx_exit_handlers[exit_handler_index](vcpu);
 
 unexpected_vmexit:
-	vcpu_unimpl(vcpu, "vmx: unexpected exit reason 0x%x\n",
+	vcpu_unimpl(vcpu, "vmx: unexpected exit reason 0x%llx\n",
 		    exit_reason.full);
 	dump_vmcs(vcpu);
 	vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
@@ -7258,6 +7258,8 @@ static fastpath_t vmx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 	case EXIT_REASON_PREEMPTION_TIMER:
 		return handle_fastpath_preemption_timer(vcpu);
 	default:
+		if (is_td_part_vcpu(vcpu))
+			return td_part_exit_handlers_fastpath(vcpu);
 		return EXIT_FASTPATH_NONE;
 	}
 }

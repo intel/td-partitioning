@@ -202,6 +202,20 @@ static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 	return 0;
 }
 
+fastpath_t td_part_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!is_td_part_vcpu(vcpu))
+		return EXIT_FASTPATH_NONE;
+
+	if ((vmx->exit_reason.full & TDX_TDCALL_STATUS_MASK) ==
+	    TDX_PENDING_INTERRUPT)
+		return EXIT_FASTPATH_EXIT_HANDLED;
+
+	return EXIT_FASTPATH_NONE;
+}
+
 noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				       struct vcpu_vmx *vmx)
 {
