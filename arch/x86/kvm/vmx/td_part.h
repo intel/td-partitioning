@@ -276,6 +276,7 @@ static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu)
 	return is_td_part(vcpu->kvm);
 }
 
+bool td_part_is_rdpmc_required(void);
 noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx);
 void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type);
@@ -314,6 +315,7 @@ TDG_BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
 
 static inline bool is_td_part(struct kvm *kvm) { return false; }
 static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu) { return false; }
+static inline bool td_part_is_rdpmc_required(void) { return false; }
 static inline void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx) {}
 static inline void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type) {}

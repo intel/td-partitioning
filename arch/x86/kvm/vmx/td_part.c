@@ -103,6 +103,23 @@ bool is_field_ignore_write(u32 field)
 	return true;
 }
 
+bool td_part_is_rdpmc_required(void)
+{
+	struct tdx_module_output out;
+
+	/* CPU_BASED_RDPMC_EXITING is supposed to be set as ~TDCS.ATTRIBUTES.PERFMON */
+	if (tdg_vm_read(TDX_MD_TDCS_ATTR, &out) != TDX_SUCCESS)
+		return false;
+
+	/*
+	 * TODO: it seems one bug in TDX module regarding the handling of
+	 * RDMSR ia32_vmx_true_pinbased_ctls from L1, we can't configure
+	 * CPU_BASED_RDPMC_EXITING inside setup_vmcs_config(), otherwise
+	 * adjust_vmx_controls() may returns EIO.
+	 */
+	return !(out.r8 & TDX_TD_ATTRIBUTE_PERFMON);
+}
+
 static bool is_tdg_enter_error(u64 error_code)
 {
 	switch (error_code & TDX_TDCALL_STATUS_MASK) {

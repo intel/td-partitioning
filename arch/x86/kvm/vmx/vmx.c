@@ -4608,6 +4608,10 @@ static u32 vmx_exec_control(struct vcpu_vmx *vmx)
 				CPU_BASED_MONITOR_EXITING);
 	if (kvm_hlt_in_guest(vmx->vcpu.kvm))
 		exec_control &= ~CPU_BASED_HLT_EXITING;
+
+	if (td_part_is_rdpmc_required())
+		exec_control |= CPU_BASED_RDPMC_EXITING;
+
 	return exec_control;
 }
 
