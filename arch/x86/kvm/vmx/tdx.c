@@ -21,6 +21,8 @@
 
 static struct kvm_firmware *tdx_module;
 
+#include "tdx_mig.c"
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -4968,11 +4970,18 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 	mce_register_decode_chain(&tdx_mce_nb);
 
+	r = kvm_tdx_mig_stream_ops_init();
+	if (r) {
+		pr_err("%s: failed to init tdx mig, %d\n", __func__, r);
+		return r;
+	}
+
 	return tdx_module_update_init();
 }
 
 void tdx_hardware_unsetup(void)
 {
+	kvm_tdx_mig_stream_ops_exit();
 	mce_unregister_decode_chain(&tdx_mce_nb);
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
