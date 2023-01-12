@@ -268,6 +268,9 @@ struct vcpu_vmx {
 	unsigned long         exit_qualification;
 	u32                   exit_intr_info;
 	u32                   idt_vectoring_info;
+	u32                   instr_len;
+	u16                   intr_status;
+	unsigned long         faulting_gpa;
 	ulong                 rflags;
 
 	/*
@@ -593,7 +596,11 @@ u8 vmx_get_rvi(struct kvm_vcpu *vcpu);
 				(1 << VCPU_EXREG_CR3) |         \
 				(1 << VCPU_EXREG_CR4) |         \
 				(1 << VCPU_EXREG_EXIT_INFO_1) | \
-				(1 << VCPU_EXREG_EXIT_INFO_2))
+				(1 << VCPU_EXREG_EXIT_INFO_2) | \
+				(1 << VCPU_EXREG_EXIT_INFO_3) | \
+				(1 << VCPU_EXREG_EXIT_INFO_4) | \
+				(1 << VCPU_EXREG_EXIT_INFO_5) | \
+				(1 << VCPU_EXREG_EXIT_INFO_6))
 
 static inline struct kvm_vmx *to_kvm_vmx(struct kvm *kvm)
 {
@@ -613,6 +620,9 @@ void vmx_passthrough_lbr_msrs(struct kvm_vcpu *vcpu);
 
 unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu);
 u32 vmx_get_intr_info(struct kvm_vcpu *vcpu);
+u64 vmx_get_faulting_gpa(struct kvm_vcpu *vcpu);
+u32 vmx_get_instr_len(struct kvm_vcpu *vcpu);
+u16 vmx_get_intr_status(struct kvm_vcpu *vcpu);
 
 struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags);
 void free_vmcs(struct vmcs *vmcs);

@@ -128,6 +128,7 @@ static void td_part_load_l2_gprs(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.l2_guest_state.rip = vcpu->arch.regs[VCPU_REGS_RIP];
 	vcpu->arch.l2_guest_state.rflags = vmx->rflags;
+	vcpu->arch.l2_guest_state.intr_status = vmx->intr_status;
 }
 
 static void td_part_store_l2_gprs(struct kvm_vcpu *vcpu)
@@ -143,6 +144,9 @@ static void td_part_store_l2_gprs(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.regs[VCPU_REGS_RIP] = vcpu->arch.l2_guest_state.rip;
 	kvm_register_mark_available(vcpu, VCPU_REGS_RIP);
+
+	vmx->intr_status = vcpu->arch.l2_guest_state.intr_status;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_6);
 }
 
 static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
@@ -170,6 +174,8 @@ static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 		return 1;
 	}
 
+	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+
 	/* Save all guest registers so that we can continue using
 	 * kvm_xxx_read/write APIs. */
 	td_part_store_l2_gprs(vcpu);
@@ -181,8 +187,17 @@ static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 	vmx->exit_qualification = out.rcx;
 	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1);
 
+	vmx->faulting_gpa = out.r8;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_3);
+
 	vmx->exit_intr_info = out.r9 & TDG_VP_ENTER_OUTPUT_INFO_MASK;
 	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_2);
+
+	vmx->idt_vectoring_info = out.r10 & TDG_VP_ENTER_OUTPUT_INFO_MASK;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_4);
+
+	vmx->instr_len = (out.r11 & TDG_VP_ENTER_OUTPUT_ADDL_INFO_MASK) >> 32;
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_5);
 
 	return 0;
 }

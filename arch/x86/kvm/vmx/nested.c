@@ -4427,7 +4427,7 @@ static void prepare_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 					  vm_exit_reason, exit_intr_info);
 
 		vmcs12->vm_exit_intr_info = exit_intr_info;
-		vmcs12->vm_exit_instruction_len = vmcs_read32(VM_EXIT_INSTRUCTION_LEN);
+		vmcs12->vm_exit_instruction_len = vmx_get_instr_len(vcpu);
 		vmcs12->vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
 
 		/*
@@ -6710,11 +6710,11 @@ error_guest_mode:
 	return ret;
 }
 
-void nested_vmx_set_vmcs_shadowing_bitmap(void)
+void nested_vmx_set_vmcs_shadowing_bitmap(struct kvm_vcpu *vcpu)
 {
 	if (enable_shadow_vmcs) {
-		vmcs_write64(VMREAD_BITMAP, __pa(vmx_vmread_bitmap));
-		vmcs_write64(VMWRITE_BITMAP, __pa(vmx_vmwrite_bitmap));
+		vmwrite64(vcpu, VMREAD_BITMAP, __pa(vmx_vmread_bitmap));
+		vmwrite64(vcpu, VMWRITE_BITMAP, __pa(vmx_vmwrite_bitmap));
 	}
 }
 
