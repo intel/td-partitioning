@@ -472,8 +472,9 @@ bool shmem_is_huge(struct vm_area_struct *vma, struct inode *inode,
 		   pgoff_t index, bool shmem_huge_force)
 {
 	loff_t i_size;
+	struct shmem_sb_info *sbinfo = SHMEM_SB(inode->i_sb);
 
-	if (!S_ISREG(inode->i_mode))
+	if (!sbinfo || !S_ISREG(inode->i_mode))
 		return false;
 	if (vma && ((vma->vm_flags & VM_NOHUGEPAGE) ||
 	    test_bit(MMF_DISABLE_THP, &vma->vm_mm->flags)))
@@ -483,7 +484,7 @@ bool shmem_is_huge(struct vm_area_struct *vma, struct inode *inode,
 	if (shmem_huge_force || shmem_huge == SHMEM_HUGE_FORCE)
 		return true;
 
-	switch (SHMEM_SB(inode->i_sb)->huge) {
+	switch (sbinfo->huge) {
 	case SHMEM_HUGE_ALWAYS:
 		return true;
 	case SHMEM_HUGE_WITHIN_SIZE:
