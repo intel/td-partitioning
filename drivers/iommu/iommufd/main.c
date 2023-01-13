@@ -547,6 +547,8 @@ static const struct iommufd_ioctl_op iommufd_ioctl_ops[] = {
 		 struct iommu_hwpt_get_dirty_iova, bitmap.data),
 	IOCTL_OP(IOMMU_DEVICE_GET_CAPS, iommufd_device_get_caps,
 		 struct iommu_device_get_caps, out_caps),
+	IOCTL_OP(IOMMU_PAGE_RESPONSE, iommufd_hwpt_page_response, struct iommu_hwpt_page_response,
+		 resp),
 #ifdef CONFIG_IOMMUFD_TEST
 	IOCTL_OP(IOMMU_TEST_CMD, iommufd_test, struct iommu_test_cmd, last),
 #endif

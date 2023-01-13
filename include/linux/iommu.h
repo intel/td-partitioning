@@ -1358,6 +1358,8 @@ void iopf_queue_free(struct iopf_queue *queue);
 int iopf_queue_discard_partial(struct iopf_queue *queue);
 void iopf_free_group(struct iopf_group *group);
 int iopf_queue_work(struct iopf_group *group, work_func_t func);
+int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
+			enum iommu_page_response_code status);
 #else /* CONFIG_IOMMU_IOPF */
 static inline int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 {

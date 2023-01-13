@@ -746,7 +746,8 @@ iommufd_device_auto_get_domain(struct iommufd_device *idev,
 
 	hwpt = iommufd_hw_pagetable_alloc(idev->ictx, ioas, idev,
 					  IOMMU_HWPT_TYPE_DEFAULT,
-					  NULL, NULL, immediate_attach, false);
+					  NULL, NULL, NULL, NULL,
+					  immediate_attach, false);
 	if (IS_ERR(hwpt)) {
 		destroy_hwpt = ERR_CAST(hwpt);
 		goto out_unlock;

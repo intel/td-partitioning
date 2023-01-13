@@ -212,23 +212,6 @@ void mm_pasid_drop(struct mm_struct *mm)
 	mm->pasid = INVALID_IOASID;
 }
 
-static int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
-			       enum iommu_page_response_code status)
-{
-	struct iommu_page_response resp = {
-		.version		= IOMMU_PAGE_RESP_VERSION_1,
-		.pasid			= iopf->fault.prm.pasid,
-		.grpid			= iopf->fault.prm.grpid,
-		.code			= status,
-	};
-
-	if ((iopf->fault.prm.flags & IOMMU_FAULT_PAGE_REQUEST_PASID_VALID) &&
-	    (iopf->fault.prm.flags & IOMMU_FAULT_PAGE_RESPONSE_NEEDS_PASID))
-		resp.flags = IOMMU_PAGE_RESP_PASID_VALID;
-
-	return iommu_page_response(dev, &resp);
-}
-
 static void iopf_handler(struct work_struct *work)
 {
 	struct iopf_fault *iopf;

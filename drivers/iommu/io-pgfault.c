@@ -60,6 +60,23 @@ int iopf_queue_work(struct iopf_group *group, work_func_t func)
 	return 0;
 }
 
+int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
+			enum iommu_page_response_code status)
+{
+	struct iommu_page_response resp = {
+		.version                = IOMMU_PAGE_RESP_VERSION_1,
+		.pasid                  = iopf->fault.prm.pasid,
+		.grpid                  = iopf->fault.prm.grpid,
+		.code                   = status,
+	};
+
+	if ((iopf->fault.prm.flags & IOMMU_FAULT_PAGE_REQUEST_PASID_VALID) &&
+			(iopf->fault.prm.flags & IOMMU_FAULT_PAGE_RESPONSE_NEEDS_PASID))
+		resp.flags = IOMMU_PAGE_RESP_PASID_VALID;
+
+	return iommu_page_response(dev, &resp);
+}
+
 /**
  * iommu_queue_iopf - IO Page Fault handler
  * @fault: fault event

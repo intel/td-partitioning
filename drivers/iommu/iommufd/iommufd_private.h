@@ -239,6 +239,44 @@ int iommufd_check_iova_range(struct iommufd_ioas *ioas,
 int iommufd_device_get_caps(struct iommufd_ucmd *ucmd);
 
 /*
+ * A iommufd_device object represents the binding relationship between a
+ * consuming driver and the iommufd. These objects are created/destroyed by
+ * external drivers, not by userspace.
+ */
+struct iommufd_device {
+	struct iommufd_object obj;
+	struct iommufd_ctx *ictx;
+	/* valid if this is a physical device */
+	struct iommufd_group *igroup;
+	struct list_head group_item;
+	/* always the physical device */
+	struct device *dev;
+	struct xarray pasid_hwpts;
+	/*
+	 * valid if this is a virtual device which gains pasid-granular
+	 * DMA isolation in IOMMU. The default pasid is used when attaching
+	 * this device to a IOAS/hwpt.
+	 */
+	u32 default_pasid;
+	bool enforce_cache_coherency;
+	bool has_user_data;
+	phys_addr_t sw_msi_start;
+	bool dma_owner_claimed;
+};
+
+int iommufd_device_get_info(struct iommufd_ucmd *ucmd);
+
+struct iommufd_fault {
+	struct file *fault_file;
+	int fault_fd;
+	struct mutex fault_queue_lock;
+	u8 *fault_pages;
+	size_t fault_region_size;
+	struct mutex notify_gate;
+	struct eventfd_ctx *trigger;
+};
+
+/*
  * A HW pagetable is called an iommu_domain inside the kernel. This user object
  * allows directly creating and inspecting the domains. Domains that have kernel
  * owned page tables will be associated with an iommufd_ioas that provides the
@@ -255,6 +293,14 @@ struct iommufd_hw_pagetable {
 	bool msi_cookie : 1;
 	/* Head at iommufd_ioas::hwpt_list */
 	struct list_head hwpt_item;
+	/*
+	 *  If hwpt->parent is valid, this buffer is pre-allocated to store
+	 *  the cache invaliation data from user as cache invalidation is
+	 *  normally supposed to be fast-path, needs to avoid memory allocation
+	 *  in such path.
+	 */
+	void *cache;
+	struct iommufd_fault *fault;
 };
 
 int iommufd_hwpt_set_dirty(struct iommufd_ucmd *ucmd);
@@ -265,7 +311,9 @@ iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 			   struct iommufd_device *idev,
 			   enum iommu_hwpt_type hwpt_type,
 			   struct iommufd_hw_pagetable *parent,
-			   union iommu_domain_user_data *user_data,
+			   union iommu_domain_user_data *domain_data,
+			   struct iommu_hwpt_user_data *user_data,
+			   struct iommu_hwpt_user_data __user *uptr,
 			   bool immediate_attach,
 			   bool enforce_dirty);
 int iommufd_hw_pagetable_enforce_cc(struct iommufd_hw_pagetable *hwpt);
@@ -307,32 +355,6 @@ struct iommufd_group {
 	struct list_head device_list;
 };
 
-/*
- * A iommufd_device object represents the binding relationship between a
- * consuming driver and the iommufd. These objects are created/destroyed by
- * external drivers, not by userspace.
- */
-struct iommufd_device {
-	struct iommufd_object obj;
-	struct iommufd_ctx *ictx;
-	/* valid if this is a physical device */
-	struct iommufd_group *igroup;
-	struct list_head group_item;
-	/* always the physical device */
-	struct device *dev;
-	struct xarray pasid_hwpts;
-	/*
-	 * valid if this is a virtual device which gains pasid-granular
-	 * DMA isolation in IOMMU. The default pasid is used when attaching
-	 * this device to a IOAS/hwpt.
-	 */
-	u32 default_pasid;
-	bool enforce_cache_coherency;
-	bool has_user_data;
-	phys_addr_t sw_msi_start;
-	bool dma_owner_claimed;
-};
-
 static inline struct iommufd_device *
 iommufd_get_device(struct iommufd_ucmd *ucmd, u32 id)
 {
@@ -340,6 +362,8 @@ iommufd_get_device(struct iommufd_ucmd *ucmd, u32 id)
 					       IOMMUFD_OBJ_DEVICE),
 			    struct iommufd_device, obj);
 }
+
+int iommufd_hwpt_page_response(struct iommufd_ucmd *ucmd);
 
 void iommufd_device_destroy(struct iommufd_object *obj);
 int iommufd_get_hw_info(struct iommufd_ucmd *ucmd);
