@@ -15,6 +15,9 @@
 #include <asm/setup.h>
 #include <asm/desc.h>
 #include <asm/boot.h>
+#include <asm/processor.h>
+#include <asm/tdx.h>
+#include <asm/unaccepted_memory.h>
 
 #include "efistub.h"
 
@@ -25,6 +28,25 @@ const efi_system_table_t *efi_system_table;
 const efi_dxe_services_table_t *efi_dxe_table;
 u32 image_offset __section(".data");
 static efi_loaded_image_t *image = NULL;
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+static bool intel_tdx_guest;
+
+static void detect_intel_tdx(void)
+{
+	u32 eax = TDX_CPUID_LEAF_ID, sig[3] = { 0 };
+
+	native_cpuid(&eax, &sig[0], &sig[2], &sig[1]);
+
+	if (memcmp(TDX_IDENT, sig, 12))
+		return;
+
+	intel_tdx_guest = true;
+}
+#else
+#define intel_tdx_guest false
+static void detect_intel_tdx(void) {}
+#endif
 
 static efi_status_t
 preserve_pci_rom_image(efi_pci_io_protocol_t *pci, struct pci_setup_rom **__rom)
@@ -419,6 +441,9 @@ static void setup_graphics(struct boot_params *boot_params)
 	void **gop_handle = NULL;
 	void **uga_handle = NULL;
 
+	if (intel_tdx_guest)
+		return;
+
 	si = &boot_params->screen_info;
 	memset(si, 0, sizeof(*si));
 
@@ -613,6 +638,16 @@ setup_e820(struct boot_params *params, struct setup_data *e820ext, u32 e820ext_s
 			e820_type = E820_TYPE_PMEM;
 			break;
 
+		case EFI_UNACCEPTED_MEMORY:
+			if (!IS_ENABLED(CONFIG_UNACCEPTED_MEMORY)) {
+				efi_warn_once(
+"The system has unaccepted memory,  but kernel does not support it\nConsider enabling CONFIG_UNACCEPTED_MEMORY\n");
+				continue;
+			}
+			e820_type = E820_TYPE_RAM;
+			process_unaccepted_memory(params, d->phys_addr,
+						  d->phys_addr + PAGE_SIZE * d->num_pages);
+			break;
 		default:
 			continue;
 		}
@@ -677,32 +712,92 @@ static efi_status_t alloc_e820ext(u32 nr_desc, struct setup_data **e820ext,
 	return status;
 }
 
+static efi_status_t allocate_unaccepted_bitmap(struct boot_params *params,
+					       __u32 nr_desc,
+					       struct efi_boot_memmap *map)
+{
+	unsigned long *mem = NULL;
+	u64 size, max_addr = 0;
+	efi_status_t status;
+	bool found = false;
+	int i;
+
+	/* Check if there's any unaccepted memory and find the max address */
+	for (i = 0; i < nr_desc; i++) {
+		efi_memory_desc_t *d;
+		unsigned long m = (unsigned long)map->map;
+
+		d = efi_early_memdesc_ptr(m, map->desc_size, i);
+		if (d->type == EFI_UNACCEPTED_MEMORY)
+			found = true;
+		if (d->phys_addr + d->num_pages * PAGE_SIZE > max_addr)
+			max_addr = d->phys_addr + d->num_pages * PAGE_SIZE;
+	}
+
+	if (!found) {
+		params->unaccepted_memory = 0;
+		return EFI_SUCCESS;
+	}
+
+	/*
+	 * range_contains_unaccepted_memory() may need to check one 2M chunk
+	 * beyond the end of RAM to deal with load_unaligned_zeropad(). Make
+	 * sure that the bitmap is large enough handle it.
+	 */
+	max_addr += PMD_SIZE;
+
+	/*
+	 * If unaccepted memory is present, allocate a bitmap to track what
+	 * memory has to be accepted before access.
+	 *
+	 * One bit in the bitmap represents 2MiB in the address space:
+	 * A 4k bitmap can track 64GiB of physical address space.
+	 *
+	 * In the worst case scenario -- a huge hole in the middle of the
+	 * address space -- It needs 256MiB to handle 4PiB of the address
+	 * space.
+	 *
+	 * TODO: handle situation if params->unaccepted_memory is already set.
+	 * It's required to deal with kexec.
+	 *
+	 * The bitmap will be populated in setup_e820() according to the memory
+	 * map after efi_exit_boot_services().
+	 */
+	size = DIV_ROUND_UP(max_addr, PMD_SIZE * BITS_PER_BYTE);
+	status = efi_allocate_pages(size, (unsigned long *)&mem, ULONG_MAX);
+	if (status == EFI_SUCCESS) {
+		memset(mem, 0, size);
+		params->unaccepted_memory = (unsigned long)mem;
+	}
+
+	return status;
+}
+
 static efi_status_t allocate_e820(struct boot_params *params,
 				  struct setup_data **e820ext,
 				  u32 *e820ext_size)
 {
-	unsigned long map_size, desc_size, map_key;
+	struct efi_boot_memmap *map;
 	efi_status_t status;
-	__u32 nr_desc, desc_version;
+	__u32 nr_desc;
 
-	/* Only need the size of the mem map and size of each mem descriptor */
-	map_size = 0;
-	status = efi_bs_call(get_memory_map, &map_size, NULL, &map_key,
-			     &desc_size, &desc_version);
-	if (status != EFI_BUFFER_TOO_SMALL)
-		return (status != EFI_SUCCESS) ? status : EFI_UNSUPPORTED;
+	status = efi_get_memory_map(&map, false);
+	if (status != EFI_SUCCESS)
+		return status;
 
-	nr_desc = map_size / desc_size + EFI_MMAP_NR_SLACK_SLOTS;
-
-	if (nr_desc > ARRAY_SIZE(params->e820_table)) {
-		u32 nr_e820ext = nr_desc - ARRAY_SIZE(params->e820_table);
+	nr_desc = map->map_size / map->desc_size;
+	if (nr_desc > ARRAY_SIZE(params->e820_table) - EFI_MMAP_NR_SLACK_SLOTS) {
+		u32 nr_e820ext = nr_desc - ARRAY_SIZE(params->e820_table) +
+			EFI_MMAP_NR_SLACK_SLOTS;
 
 		status = alloc_e820ext(nr_e820ext, e820ext, e820ext_size);
-		if (status != EFI_SUCCESS)
-			return status;
 	}
 
-	return EFI_SUCCESS;
+	if (IS_ENABLED(CONFIG_UNACCEPTED_MEMORY) && status == EFI_SUCCESS)
+		status = allocate_unaccepted_bitmap(params, nr_desc, map);
+
+	efi_bs_call(free_pool, map);
+	return status;
 }
 
 struct exit_boot_struct {
@@ -841,6 +936,8 @@ asmlinkage unsigned long efi_main(efi_handle_t handle,
 		image_offset = 0;
 	}
 
+	detect_intel_tdx();
+
 #ifdef CONFIG_CMDLINE_BOOL
 	status = efi_parse_options(CONFIG_CMDLINE);
 	if (status != EFI_SUCCESS) {
@@ -889,7 +986,8 @@ asmlinkage unsigned long efi_main(efi_handle_t handle,
 	/* Ask the firmware to clear memory on unclean shutdown */
 	efi_enable_reset_attack_mitigation();
 
-	efi_random_get_seed();
+	if (!intel_tdx_guest)
+		efi_random_get_seed();
 
 	efi_retrieve_tpm2_eventlog();
 

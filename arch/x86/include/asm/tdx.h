@@ -37,21 +37,6 @@
 #define TDX_PS_1G	2
 
 /*
- * Used to gather the output registers values of the TDCALL and SEAMCALL
- * instructions when requesting services from the TDX module.
- *
- * This is a software only structure and not part of the TDX module/VMM ABI.
- */
-struct tdx_module_output {
-	u64 rcx;
-	u64 rdx;
-	u64 r8;
-	u64 r9;
-	u64 r10;
-	u64 r11;
-};
-
-/*
  * Used by the #VE exception handler to gather the #VE exception
  * info from the TDX module. This is a software only structure
  * and not part of the TDX module/VMM ABI.
@@ -69,13 +54,17 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+extern int tdx_notify_irq;
+
 void __init tdx_early_init(void);
 
-/* Used to communicate with the TDX module */
-u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-		      struct tdx_module_output *out);
+bool tdx_debug_enabled(void);
+
+void __init tdx_early_init(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
+
+void __init tdx_filter_init(void);
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve);
 
@@ -85,10 +74,21 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
+bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc);
+
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
+int tdx_hcall_get_quote(void *tdquote, int size);
+
+bool tdx_allowed_port(short int port);
+
 #else
 
 static inline void tdx_early_init(void) { };
 static inline void tdx_safe_halt(void) { };
+static inline void tdx_filter_init(void) { };
 
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
 
