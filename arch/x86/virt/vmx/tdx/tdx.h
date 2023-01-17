@@ -187,6 +187,6 @@ struct p_seamldr_info {
  */
 
 struct tdx_module_output;
-u64 __seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-	       struct tdx_module_output *out);
+u64 __seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10, u64 r11,
+	       u64 r12, u64 r13, struct tdx_module_output *out);
 #endif

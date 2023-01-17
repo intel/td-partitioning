@@ -338,7 +338,7 @@ static int __seamldr_seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	if (ret)
 		goto out;
 
-	*sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+	*sret = __seamcall(fn, rcx, rdx, r8, r9, 0, 0, 0, 0, out);
 
 	/* Restore current-VMCS pointer */
 	if (vmcs != INVALID_VMCS)
@@ -366,7 +366,7 @@ static int seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 		if (err)
 			return err;
 	} else {
-		sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+		sret = __seamcall(fn, rcx, rdx, r8, r9, 0, 0, 0, 0, out);
 	}
 
 	/* Save SEAMCALL return code if the caller wants it */

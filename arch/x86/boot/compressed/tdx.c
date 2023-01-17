@@ -36,7 +36,7 @@ static u64 get_cc_mask(void)
 	 * The GPA width that comes out of this call is critical. TDX guests
 	 * can not meaningfully run without it.
 	 */
-	if (__tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out))
+	if (__tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, 0, 0, 0, 0, &out))
 		error("TDCALL GET_INFO failed (Buggy TDX module!)\n");
 
 	gpa_width = out.rcx & GENMASK(5, 0);
