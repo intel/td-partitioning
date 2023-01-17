@@ -81,7 +81,7 @@ SYM_FUNC_START(__tdx_module_call)
 SYM_FUNC_END(__tdx_module_call)
 
 /*
- * __tdx_hypercall() - Make hypercalls to a TDX VMM using TDVMCALL leaf
+ * __do_tdx_hypercall() - Make hypercalls to a TDX VMM using TDVMCALL leaf
  * of TDCALL instruction
  *
  * Transforms values in  function call argument struct tdx_hypercall_args @args
@@ -113,14 +113,14 @@ SYM_FUNC_END(__tdx_module_call)
  *
  *-------------------------------------------------------------------------
  *
- * __tdx_hypercall() function ABI:
+ * __do_tdx_hypercall() function ABI:
  *
  * @args  (RDI)        - struct tdx_hypercall_args for input and output
  * @flags (RSI)        - TDX_HCALL_* flags
  *
  * On successful completion, return the hypercall error code.
  */
-SYM_FUNC_START(__tdx_hypercall)
+SYM_FUNC_START(__do_tdx_hypercall)
 	FRAME_BEGIN
 
 	/* Save callee-saved GPRs as mandated by the x86_64 ABI */
@@ -206,4 +206,4 @@ SYM_FUNC_START(__tdx_hypercall)
 	/* __tdx_hypercall_failed never returns */
 	REACHABLE
 	jmp .Lpanic
-SYM_FUNC_END(__tdx_hypercall)
+SYM_FUNC_END(__do_tdx_hypercall)
