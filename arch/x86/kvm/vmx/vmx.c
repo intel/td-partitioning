@@ -3249,6 +3249,10 @@ int vmx_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 #endif
 
 	vmx_setup_uret_msrs(vmx);
+
+	if (is_td_part_vcpu(vcpu))
+		vmwrite64(vcpu, GUEST_IA32_EFER, efer);
+
 	return 0;
 }
 
