@@ -35,7 +35,8 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 	}
 
 	tdcall_rcx = start | page_size;
-	if (__tdx_module_call(TDX_ACCEPT_PAGE, tdcall_rcx, 0, 0, 0, NULL))
+	if (__tdx_module_call(TDX_ACCEPT_PAGE, tdcall_rcx,
+			      0, 0, 0, 0, 0, 0, 0, NULL))
 		return 0;
 
 	return accept_size;

@@ -73,6 +73,8 @@ static void __used common(void)
 	OFFSET(TDX_MODULE_r9,  tdx_module_output, r9);
 	OFFSET(TDX_MODULE_r10, tdx_module_output, r10);
 	OFFSET(TDX_MODULE_r11, tdx_module_output, r11);
+	OFFSET(TDX_MODULE_r12, tdx_module_output, r12);
+	OFFSET(TDX_MODULE_r13, tdx_module_output, r13);
 
 	BLANK();
 	OFFSET(TDX_HYPERCALL_r10, tdx_hypercall_args, r10);

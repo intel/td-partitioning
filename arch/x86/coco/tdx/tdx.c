@@ -84,7 +84,7 @@ static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8,
 		out = &dummy_out;
 
 	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
-	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
+	err = __tdx_module_call(fn, rcx, rdx, r8, r9, 0, 0, 0, 0, out);
 	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx,
 			out->r8, out->r9, out->r10, out->r11);
 
@@ -173,7 +173,7 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 
 	ret = __tdx_module_call(TDX_GET_REPORT, virt_to_phys(tdreport),
 				virt_to_phys(reportdata), TDREPORT_SUBTYPE_0,
-				0, NULL);
+				0, 0, 0, 0, 0, NULL);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -199,7 +199,7 @@ EXPORT_SYMBOL_GPL(tdx_mcall_get_report0);
 u64 tdx_mcall_verify_report(u8 *reportmac)
 {
 	return __tdx_module_call(TDX_VERIFYREPORT, virt_to_phys(reportmac),
-				0, 0, 0, NULL);
+				0, 0, 0, 0, 0, 0, 0, NULL);
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
 
@@ -222,7 +222,7 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index)
 	u64 ret;
 
 	ret = __tdx_module_call(TDX_EXTEND_RTMR, virt_to_phys(data), index,
-				0, 0, NULL);
+				0, 0, 0, 0, 0, 0, NULL);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;

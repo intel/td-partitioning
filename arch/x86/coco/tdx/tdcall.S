@@ -61,9 +61,13 @@
  * @rdx (RDX)          - Input parameter 2, moved to RDX
  * @r8  (RCX)          - Input parameter 3, moved to R8
  * @r9  (R8)           - Input parameter 4, moved to R9
+ * @r10 (R9)           - Input parameter 5, moved to R10
+ * @r11 (stack param 1)- Input parameter 6, moved to R11
+ * @r12 (stack param 2)- Input parameter 7, moved to R12
+ * @r13 (stack param 3)- Input parameter 8, moved to R13
  *
- * @out (R9)           - struct tdx_module_output pointer
- *                       stored temporarily in R12 (not
+ * @out (stack param 4)- struct tdx_module_output pointer
+ *                       stored temporarily in R15 (not
  *                       shared with the TDX module). It
  *                       can be NULL.
  *
