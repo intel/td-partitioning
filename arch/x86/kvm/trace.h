@@ -253,6 +253,93 @@ TRACE_EVENT(kvm_tdx_hypercall_done,
 		  __entry->rdx)
 );
 
+#define TD_PART_GUEST_TDCALL(x) {x, #x}
+
+#define kvm_trace_symbol_td_part_guest_tdcall	\
+	TD_PART_GUEST_TDCALL(TDG_VM_RD),			\
+	TD_PART_GUEST_TDCALL(TDG_VM_WR),			\
+	TD_PART_GUEST_TDCALL(TDG_VP_RD),			\
+	TD_PART_GUEST_TDCALL(TDG_VP_WR),			\
+	TD_PART_GUEST_TDCALL(TDG_VP_ENTER),		\
+	TD_PART_GUEST_TDCALL(TDG_MEM_PAGE_ACCEPT),	\
+	TD_PART_GUEST_TDCALL(TDG_MEM_PAGE_ATTR_RD),\
+	TD_PART_GUEST_TDCALL(TDG_MEM_PAGE_ATTR_WR),\
+	TD_PART_GUEST_TDCALL(TDG_VP_INVEPT),		\
+	TD_PART_GUEST_TDCALL(TDG_VP_INVVPID)
+
+TRACE_EVENT(kvm_td_part_guest_tdcall,
+	TP_PROTO(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+	u64 out_rcx, u64 out_rdx, u64 out_r8, u64 out_r9,
+	u64 out_r10, u64 out_r11, u64 ret),
+
+	TP_ARGS(fn, rcx, rdx, r8, r9, out_rcx, out_rdx, out_r8, out_r9,
+	out_r10, out_r11, ret),
+
+	TP_STRUCT__entry(
+		__field(u64, fn)
+		__field(u64, rcx)
+		__field(u64, rdx)
+		__field(u64, r8)
+		__field(u64, r9)
+		__field(u64, out_rcx)
+		__field(u64, out_rdx)
+		__field(u64, out_r8)
+		__field(u64, out_r9)
+		__field(u64, out_r10)
+		__field(u64, out_r11)
+		__field(u64, ret)
+	),
+
+	TP_fast_assign(
+		__entry->fn			= fn;
+		__entry->rcx		= rcx;
+		__entry->rdx		= rdx;
+		__entry->r8			= r8;
+		__entry->r9			= r9;
+		__entry->out_rcx	= out_rcx;
+		__entry->out_rdx	= out_rdx;
+		__entry->out_r8		= out_r8;
+		__entry->out_r9		= out_r9;
+		__entry->out_r10	= out_r10;
+		__entry->out_r11	= out_r11;
+		__entry->ret		= ret;
+	),
+
+	TP_printk("%s rcx 0x%llx rdx 0x%llx r8 0x%llx r9 0x%llx "
+		"out(rcx) 0x%llx out(rdx) 0x%llx out(r8) 0x%llx out(r9) 0x%llx "
+		"out(r10) 0x%llx out(r11) 0x%llx ret 0x%llx",
+		__print_symbolic(__entry->fn, kvm_trace_symbol_td_part_guest_tdcall),
+		__entry->rcx, __entry->rdx, __entry->r8, __entry->r9,
+		__entry->out_rcx, __entry->out_rdx, __entry->out_r8, __entry->out_r9,
+		__entry->out_r10, __entry->out_r11, __entry->ret)
+);
+
+TRACE_EVENT(kvm_td_part_tdg_vp_enter,
+	TP_PROTO(u64 ret, u64 qualification, u64 rflags, u64 rip),
+
+	TP_ARGS(ret, qualification, rflags, rip),
+
+	TP_STRUCT__entry(
+		__field(u64, ret)
+		__field(u64, rflags)
+		__field(u64, qualification)
+		__field(u64, rip)
+	),
+
+	TP_fast_assign(
+		__entry->ret	= ret;
+		__entry->rflags	= rflags;
+		__entry->qualification = qualification;
+		__entry->rip	= rip;
+	),
+
+	TP_printk("ret 0x%llx qualification 0x%llx rflags 0x%llx rip 0x%llx",
+		__entry->ret,
+		__entry->qualification,
+		__entry->rflags,
+		__entry->rip)
+);
+
 /*
  * Tracepoint for PIO.
  */

@@ -13750,6 +13750,8 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_enter);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_vmgexit_msr_protocol_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_hypercall);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_hypercall_done);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_td_part_guest_tdcall);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_td_part_tdg_vp_enter);
 
 static int __init kvm_x86_init(void)
 {

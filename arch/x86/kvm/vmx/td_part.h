@@ -9,6 +9,7 @@
 #include "tdx_errno.h"
 #include "tdx_arch.h"
 #include "tdx_ops.h"
+#include "trace.h"
 
 #define TDX_TDCALL_VMCS_EXIT_MASK		0x00000000FFFFFFFFULL
 
@@ -64,6 +65,13 @@ static u64 guest_tdcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 
 		err = ret & TDX_TDCALL_STATUS_MASK;
 	} while (TDX_TDCALL_ERR_RECOVERABLE(err));
+
+	/* Looks TRACE_EVENT can only take maximum 12 parameters,
+	 * so out->r12 and out->r13 (not used in current code) are not logged for now!
+	 */
+	trace_kvm_td_part_guest_tdcall(fn, rcx, rdx, r8, r9,
+		out->rcx, out->rdx, out->r8, out->r9,
+		out->r10, out->r11, ret);
 
 	return ret;
 }
