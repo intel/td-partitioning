@@ -701,7 +701,7 @@ static int tdx_mig_import_state_immutable(struct kvm_tdx *kvm_tdx,
 		return -EIO;
 	}
 
-	return 0;
+	return kvm_prealloc_private_pages(&kvm_tdx->kvm);
 }
 
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
