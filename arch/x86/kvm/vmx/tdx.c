@@ -814,13 +814,19 @@ void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 
 static void tdx_vcpu_free_tdvpx(struct vcpu_tdx *tdx)
 {
+	unsigned long td_page_pa;
 	int i;
 
 	if (!tdx->tdvpx_pa)
 		return;
 
-	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++)
-		tdx_reclaim_td_page(tdx->tdvpx_pa[i]);
+	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
+		td_page_pa = tdx->tdvpx_pa[i];
+		if (tdx->vcpu_initialized)
+			tdx_reclaim_td_page(td_page_pa);
+		else
+			free_page((unsigned long)__va(td_page_pa));
+	}
 
 	kfree(tdx->tdvpx_pa);
 	tdx->tdvpx_pa = NULL;
@@ -831,7 +837,11 @@ static void tdx_vcpu_free_tdvpr(struct vcpu_tdx *tdx)
 	if (!tdx->tdvpr_pa)
 		return;
 
-	tdx_reclaim_td_page(tdx->tdvpr_pa);
+	if (tdx->vcpu_initialized)
+		tdx_reclaim_td_page(tdx->tdvpr_pa);
+	else
+		free_page((unsigned long)__va(tdx->tdvpr_pa));
+
 	tdx->tdvpr_pa = 0;
 }
 
