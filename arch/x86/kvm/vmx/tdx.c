@@ -2974,14 +2974,14 @@ bool tdx_has_emulated_msr(u32 index, bool write)
 
 int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
-	if (tdx_has_emulated_msr(msr->index, false))
+	if (msr->host_initiated || tdx_has_emulated_msr(msr->index, false))
 		return kvm_get_msr_common(vcpu, msr);
 	return 1;
 }
 
 int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
-	if (tdx_has_emulated_msr(msr->index, true))
+	if (msr->host_initiated || tdx_has_emulated_msr(msr->index, true))
 		return kvm_set_msr_common(vcpu, msr);
 	return 1;
 }
