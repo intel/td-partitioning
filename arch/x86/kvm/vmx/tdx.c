@@ -812,23 +812,39 @@ void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 	tdx_prepare_switch_to_host(vcpu);
 }
 
+static void tdx_vcpu_free_tdvpx(struct vcpu_tdx *tdx)
+{
+	int i;
+
+	if (!tdx->tdvpx_pa)
+		return;
+
+	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++)
+		tdx_reclaim_td_page(tdx->tdvpx_pa[i]);
+
+	kfree(tdx->tdvpx_pa);
+	tdx->tdvpx_pa = NULL;
+}
+
+static void tdx_vcpu_free_tdvpr(struct vcpu_tdx *tdx)
+{
+	if (!tdx->tdvpr_pa)
+		return;
+
+	tdx_reclaim_td_page(tdx->tdvpr_pa);
+	tdx->tdvpr_pa = 0;
+}
+
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int i;
 
 	/* Can't reclaim or free pages if teardown failed. */
 	if (is_hkid_assigned(to_kvm_tdx(vcpu->kvm)))
 		return;
 
-	if (tdx->tdvpx_pa) {
-		for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++)
-			tdx_reclaim_td_page(tdx->tdvpx_pa[i]);
-		kfree(tdx->tdvpx_pa);
-		tdx->tdvpx_pa = NULL;
-	}
-	tdx_reclaim_td_page(tdx->tdvpr_pa);
-	tdx->tdvpr_pa = 0;
+	tdx_vcpu_free_tdvpx(tdx);
+	tdx_vcpu_free_tdvpr(tdx);
 
 	/*
 	 * kvm_free_vcpus()
