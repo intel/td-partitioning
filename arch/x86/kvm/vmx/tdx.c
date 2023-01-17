@@ -2223,7 +2223,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	int i;
 
 	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) ||
-			 !kvm_pfn_to_refcounted_page(pfn)))
+	    !kvm_pfn_to_refcounted_page(pfn)) || !kvm_tdx->td_initialized)
 		return 0;
 
 	/*
