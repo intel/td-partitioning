@@ -39,6 +39,11 @@ static const struct ifs_test_caps array_test = {
 	.test_num = IFS_TYPE_ARRAY_BIST,
 };
 
+static const struct ifs_test_caps sbft_test = {
+	.integrity_cap_bit = MSR_INTEGRITY_CAPS_SBFT_BIT,
+	.test_num = IFS_TYPE_SBFT,
+};
+
 static struct ifs_device ifs_devices[] = {
 	[IFS_TYPE_SAF] = {
 		.test_caps = &scan_test,
@@ -54,6 +59,14 @@ static struct ifs_device ifs_devices[] = {
 			.name = "intel_ifs_1",
 			.minor = MISC_DYNAMIC_MINOR,
 			.groups = plat_ifs_array_groups,
+		},
+	},
+	[IFS_TYPE_SBFT] = {
+		.test_caps = &sbft_test,
+		.misc = {
+			.name = "intel_ifs_2",
+			.minor = MISC_DYNAMIC_MINOR,
+			.groups = plat_ifs_groups,
 		},
 	},
 };
@@ -103,6 +116,8 @@ static int __init ifs_init(void)
 		ret = misc_register(&ifs_devices[i].misc);
 		if (ret)
 			goto err_exit;
+		pr_info("intel_ifs device: %d gen_rev: %d integrity caps: %llx\n",
+			i, ifs_devices[i].rw_data.test_gen, msrval);
 	}
 	return 0;
 
