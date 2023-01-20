@@ -72,6 +72,7 @@
 #define SECONDARY_EXEC_ENABLE_PML               VMCS_CONTROL_BIT(PAGE_MOD_LOGGING)
 #define SECONDARY_EXEC_PT_CONCEAL_VMX		VMCS_CONTROL_BIT(PT_CONCEAL_VMX)
 #define SECONDARY_EXEC_ENABLE_XSAVES		VMCS_CONTROL_BIT(XSAVES)
+#define SECONDARY_EXEC_PASID_TRANSLATION	VMCS_CONTROL_BIT(PASID_TRANSLATION)
 #define SECONDARY_EXEC_MODE_BASED_EPT_EXEC	VMCS_CONTROL_BIT(MODE_BASED_EPT_EXEC)
 #define SECONDARY_EXEC_PT_USE_GPA		VMCS_CONTROL_BIT(PT_USE_GPA)
 #define SECONDARY_EXEC_TSC_SCALING              VMCS_CONTROL_BIT(TSC_SCALING)
@@ -233,6 +234,10 @@ enum vmcs_field {
 	TSC_MULTIPLIER_HIGH             = 0x00002033,
 	TERTIARY_VM_EXEC_CONTROL	= 0x00002034,
 	TERTIARY_VM_EXEC_CONTROL_HIGH	= 0x00002035,
+	PASID_DIR0                      = 0x00002038,
+	PASID_DIR0_HIGH                 = 0x00002039,
+	PASID_DIR1                      = 0x0000203a,
+	PASID_DIR1_HIGH                 = 0x0000203b,
 	PID_POINTER_TABLE		= 0x00002042,
 	PID_POINTER_TABLE_HIGH		= 0x00002043,
 	GUEST_PHYSICAL_ADDRESS          = 0x00002400,
@@ -628,5 +633,43 @@ enum vmx_l1d_flush_state {
 };
 
 extern enum vmx_l1d_flush_state l1tf_vmx_mitigation;
+
+/*
+ * The VMCS PASID Translation Table is a two-level data structure, including
+ * High/Low PASID Directory and PASID Table. Different fields of the Guest
+ * PASID are used to locate the PASID Table Entry which has the Host PASID.
+ *
+ * High PASID Directory Select - Guest PASID Bit19
+ * PASID Directory Entry Index - Guest PASID Bit18-10
+ * PASID Table Entry Index     - Guest PASID Bit9-0
+ */
+#define pasid_high_dir_select(gpasid)	(((gpasid) >> 19) & 0x1)
+#define pasid_de_idx(gpasid)		(((gpasid) >> 10) & 0x1ff)
+#define pasid_te_idx(gpasid)		((gpasid) & 0x3ff)
+
+#define MAX_PASID			(0Xfffff)
+/*
+ * PASID Directory Entry
+ *
+ * PAISD Table Pointer - PASID Directory Entry BitM-1
+ * PASID Table Present - PASID Directory Entry Bit0
+ */
+#define PASID_DE_TAB_PTR		(((u64)-1) << 12)
+#define PASID_DE_TAB_PRESENT		(1ULL << 0)
+#define PASID_DE_NUM			512
+#define pasid_de_table_ptr(pde)		(*(pde) & PASID_DE_TAB_PTR)
+#define pasid_de_table_present(pde)	(*(pde) & PASID_DE_TAB_PRESENT)
+
+/*
+ * PASID Table Entry
+ *
+ * Host PASID Valid - PASID Table Entry Bit31
+ * Host PASID       - PASID Table Entry Bit19-0
+ */
+#define PASID_TE_VALID			(1 << 31)
+#define PASID_TE_HOST_PASID		(0xfffff)
+#define PASID_TE_NUM			1024
+#define pasid_te_hpasid_valid(pte)	(*(pte) & PASID_TE_VALID)
+#define pasid_te_hpasid(pte)		(*(pte) & PASID_TE_HOST_PASID)
 
 #endif

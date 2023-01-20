@@ -4313,6 +4313,15 @@ out_free1:
 		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
 		break;
 	}
+	case KVM_BIND_PASID: {
+		struct kvm_bind_pasid pb;
+
+		r = -EFAULT;
+		if (copy_from_user(&pb, argp, sizeof(pb)))
+			goto out;
+		r = kvm_arch_ioasid_bind(vcpu, &pb);
+		break;
+	}
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}

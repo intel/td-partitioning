@@ -11834,6 +11834,15 @@ int kvm_arch_vcpu_precreate(struct kvm *kvm, unsigned int id)
 	return static_call(kvm_x86_vcpu_precreate)(kvm);
 }
 
+int kvm_arch_ioasid_bind(struct kvm_vcpu *vcpu, struct kvm_bind_pasid *pb)
+{
+	int r;
+
+	r = static_call(kvm_x86_ioasid_bind)(vcpu, (void *)pb);
+
+	return r;
+}
+
 int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct page *page;
