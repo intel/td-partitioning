@@ -6531,6 +6531,22 @@ void cmdline(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+	int fd, ret;
+
+	fd = open("/sys/fs/cgroup/cgroup.procs", O_WRONLY);
+	if (fd < 0) {
+		if (debug)
+			perror("Can't open cpuset file\n");
+		goto skip_cgroup_setting;
+	}
+
+	ret = write(fd, "0\n", 2);
+	if (ret == -1 && debug)
+		perror("Can't update cgroup\n");
+
+	close(fd);
+
+skip_cgroup_setting:
 	outf = stderr;
 	cmdline(argc, argv);
 
