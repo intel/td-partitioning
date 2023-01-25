@@ -1354,6 +1354,13 @@ void __init e820__memblock_setup(void)
 		if (entry->type == E820_TYPE_SOFT_RESERVED)
 			memblock_reserve(entry->addr, entry->size);
 
+		if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST) &&
+		    entry->type == E820_TYPE_RESERVED) {
+			pr_info("e820: accept reserved mem [%#010llx-%#010llx]\n",
+				entry->addr, entry->addr + entry->size - 1);
+			accept_memory(entry->addr, entry->addr + entry->size);
+		}
+
 		if (entry->type != E820_TYPE_RAM && entry->type != E820_TYPE_RESERVED_KERN)
 			continue;
 
