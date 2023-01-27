@@ -36,6 +36,7 @@
 #include <asm/vsyscall.h>
 #include <asm/unistd.h>
 #include <asm/fixmap.h>
+#include <asm/tlbflush.h>
 #include <asm/traps.h>
 #include <asm/paravirt.h>
 
@@ -62,6 +63,13 @@ static int __init vsyscall_setup(char *str)
 			vsyscall_mode = NONE;
 		else
 			return -EINVAL;
+
+		if (cpu_feature_enabled(X86_FEATURE_LASS) &&
+		    vsyscall_mode == EMULATE) {
+			cr4_clear_bits(X86_CR4_LASS);
+			setup_clear_cpu_cap(X86_FEATURE_LASS);
+			pr_info_once("x86/cpu: Disabling LASS support due to vsyscall=emulate\n");
+		}
 
 		return 0;
 	}
