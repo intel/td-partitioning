@@ -1235,6 +1235,9 @@ static int idxd_wq_load_config(struct idxd_wq *wq)
 
 	wq->priority = wq->wqcfg->priority;
 
+	if (wq->wqcfg->bof)
+		set_bit(WQ_FLAG_BLOCK_ON_FAULT, &wq->flags);
+
 	wq->max_xfer_bytes = 1ULL << wq->wqcfg->max_xfer_shift;
 	idxd_wq_set_max_batch_size(idxd->data->type, wq, 1U << wq->wqcfg->max_batch_shift);
 
