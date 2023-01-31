@@ -448,6 +448,8 @@ static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
 
 void tdx_reclaim_td_page(unsigned long td_page_pa);
 
+void tdx_track(struct kvm_tdx *kvm_tdx);
+
 #else
 struct kvm_tdx {
 	struct kvm kvm;
