@@ -77,6 +77,9 @@ union tdx_mig_gpa_list_entry {
 	};
 };
 
+#define TDX_MIG_GPA_LIST_MAX_ENTRIES \
+	(PAGE_SIZE / sizeof(union tdx_mig_gpa_list_entry))
+
 /*
  * The GPA list specifies a list of GPAs to be used by TDH_EXPORT_MEM and
  * TDH_IMPORT_MEM, TDH_EXPORT_BLOCKW, and TDH_EXPORT_RESTORE. Each entry is
@@ -139,6 +142,7 @@ struct tdx_mig_state {
 	struct tdx_mig_stream backward_stream;
 	/* Indicate if TD is the source TD in the current migration session */
 	bool is_src;
+	struct tdx_mig_gpa_list blockw_gpa_list;
 };
 
 struct tdx_mig_capabilities {
@@ -190,6 +194,59 @@ static inline bool tdx_mig_stream_is_src(struct tdx_mig_stream *stream)
 		container_of(stream, struct tdx_mig_state, stream);
 
 	return mig_state->is_src;
+}
+
+static void tdx_mig_gpa_list_setup(struct tdx_mig_gpa_list *gpa_list,
+				   gfn_t *gfns, uint32_t num)
+{
+	uint32_t i;
+
+	memset(gpa_list->entries, 0, PAGE_SIZE);
+	for (i = 0; i < num; i++) {
+		gpa_list->entries[i].gfn = gfns[i];
+		/*
+		 * 0 is noop.
+		 * 1 is to perform an operation on the GPA, e.g. BLOCKW for
+		 * TDH_EXPORT_BLOCKW, RESTORE for TDH_EXPORT_RESTORE.
+		 */
+		gpa_list->entries[i].operation = 1;
+	}
+}
+
+static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
+					 uint32_t num)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_mig_state *mig_state =
+		(struct tdx_mig_state *)kvm_tdx->mig_state;
+	struct tdx_mig_gpa_list *gpa_list = &mig_state->blockw_gpa_list;
+	uint32_t max_num = PAGE_SIZE / sizeof(union tdx_mig_gpa_list_entry);
+	uint32_t start, blockw_num = 0;
+	struct tdx_module_output out;
+	uint64_t err;
+
+	for (start = 0; start < num; start += blockw_num) {
+		if (num > max_num)
+			blockw_num = max_num;
+		else
+			blockw_num = num;
+
+		tdx_mig_gpa_list_setup(gpa_list, gfns + start, blockw_num);
+		do {
+			err = tdh_export_blockw(kvm_tdx->tdr_pa,
+						gpa_list->info.val, &out);
+			if (err == TDX_INTERRUPTED_RESUMABLE)
+				gpa_list->info.val = out.rcx;
+		} while (err == TDX_INTERRUPTED_RESUMABLE);
+
+		if (err != TDX_SUCCESS) {
+			pr_err("%s failed, err=%llx, gfn=%lx\n",
+				__func__, err, (long)gpa_list->entries[0].gfn);
+			return;
+		}
+	}
+
+	WRITE_ONCE(kvm_tdx->has_range_blocked, true);
 }
 
 static void tdx_mig_stream_get_tdx_mig_attr(struct tdx_mig_stream *stream,
@@ -594,6 +651,8 @@ static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 		return -EIO;
 	}
 	mig_state->is_src = slot->migtd_data.is_src;
+	if (mig_state->is_src)
+		tdx_mig_stream_gpa_list_setup(&mig_state->blockw_gpa_list);
 	kvm_tdx->mig_state = mig_state;
 	return 0;
 }
@@ -606,6 +665,7 @@ static void tdx_mig_state_destroy(struct kvm_tdx *kvm_tdx)
 	if (!mig_state)
 		return;
 
+	free_page((unsigned long)mig_state->blockw_gpa_list.entries);
 	tdx_reclaim_td_page(mig_state->stream.migsc_pa);
 	tdx_reclaim_td_page(mig_state->backward_stream.migsc_pa);
 	kfree(mig_state);
