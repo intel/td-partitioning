@@ -125,6 +125,8 @@ struct tdx_mig_stream {
 	struct tdx_mig_gpa_list gpa_list;
 	/* List of MACs used when export/import the TD private memory */
 	struct tdx_mig_mac_list mac_list[2];
+	/* List of TD private pages */
+	struct tdx_mig_buf_list td_buf_list;
 };
 
 struct tdx_mig_state {
@@ -419,7 +421,21 @@ static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 			goto err_mac_list1;
 	}
 
+	/*
+	 * The in-place memory import list is used by the destination TD only.
+	 * Allocate the list, and the list will be later filled with QEMU pages
+	 * to do in-place memory import.
+	 */
+	if (!tdx_mig_stream_is_src(stream)) {
+		ret = tdx_mig_stream_buf_list_alloc(&stream->td_buf_list);
+		if (ret)
+			goto err_td_buf_list;
+	}
+
 	return 0;
+err_td_buf_list:
+	if (stream->mac_list[1].entries)
+		free_page((unsigned long)stream->mac_list[1].entries);
 err_mac_list1:
 	free_page((unsigned long)stream->mac_list[0].entries);
 err_mac_list0:
@@ -587,6 +603,8 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 	 */
 	if (stream->mac_list[1].entries)
 		free_page((unsigned long)stream->mac_list[1].entries);
+	if (stream->td_buf_list.entries)
+		free_page((unsigned long)stream->td_buf_list.entries);
 }
 
 static struct kvm_device_ops kvm_tdx_mig_stream_ops = {
