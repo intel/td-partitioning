@@ -18,8 +18,12 @@ struct iommufd_access;
 struct file;
 struct iommu_group;
 
+/* caller should gurantee the DMA safety if config this flag in bind */
+#define IOMMUFD_BIND_FLAGS_BYPASS_DMA_OWNERSHIP	(1 << 0)
+
 struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
-					   struct device *dev, u32 *id);
+					   struct device *dev, u32 *id,
+					   unsigned int flags);
 struct iommufd_device *iommufd_device_bind_pasid(struct iommufd_ctx *ictx,
 						 struct device *dev,
 						 u32 pasid, u32 *id);

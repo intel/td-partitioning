@@ -330,6 +330,7 @@ struct iommufd_device {
 	bool enforce_cache_coherency;
 	bool has_user_data;
 	phys_addr_t sw_msi_start;
+	bool dma_owner_claimed;
 };
 
 static inline struct iommufd_device *

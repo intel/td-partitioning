@@ -139,7 +139,8 @@ void iommufd_device_destroy(struct iommufd_object *obj)
 	if (idev->has_user_data)
 		dev_iommu_ops(idev->dev)->unset_dev_user_data(idev->dev);
 	if (idev->igroup) {
-		iommu_device_release_dma_owner(idev->dev);
+		if(idev->dma_owner_claimed)
+			iommu_device_release_dma_owner(idev->dev);
 		iommufd_put_group(idev->igroup);
 	}
 	if (!iommufd_selftest_is_mock_dev(idev->dev))
@@ -203,7 +204,8 @@ static struct iommufd_device *iommufd_alloc_device(struct iommufd_ctx *ictx,
  * The caller must undo this with iommufd_device_unbind()
  */
 struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
-					   struct device *dev, u32 *id)
+					   struct device *dev, u32 *id,
+					   unsigned int flags)
 {
 	struct iommufd_device *idev;
 	struct iommufd_group *igroup;
@@ -227,9 +229,11 @@ struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 			goto out_group_put;
 	}
 
-	rc = iommu_device_claim_dma_owner(dev, ictx);
-	if (rc)
-		goto out_group_put;
+	if (!(flags & IOMMUFD_BIND_FLAGS_BYPASS_DMA_OWNERSHIP)) {
+		rc = iommu_device_claim_dma_owner(dev, ictx);
+		if (rc)
+			goto out_group_put;
+	}
 
 	idev = iommufd_alloc_device(ictx, dev);
 	if (IS_ERR(idev)) {
@@ -239,6 +243,8 @@ struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 
 	/* igroup refcount moves into iommufd_device */
 	idev->igroup = igroup;
+	idev->dma_owner_claimed =
+			!(flags & IOMMUFD_BIND_FLAGS_BYPASS_DMA_OWNERSHIP);
 
 	xa_init(&idev->pasid_hwpts);
 
@@ -253,7 +259,8 @@ struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 	return idev;
 
 out_release_owner:
-	iommu_device_release_dma_owner(dev);
+	if ((!flags & IOMMUFD_BIND_FLAGS_BYPASS_DMA_OWNERSHIP))
+		iommu_device_release_dma_owner(dev);
 out_group_put:
 	iommufd_put_group(igroup);
 	return ERR_PTR(rc);
@@ -773,6 +780,9 @@ static int iommufd_device_change_pt(struct iommufd_device *idev, u32 *pt_id,
 {
 	struct iommufd_hw_pagetable *destroy_hwpt;
 	struct iommufd_object *pt_obj;
+
+	if (idev->igroup && !idev->dma_owner_claimed)
+		return -EPERM;
 
 	pt_obj = iommufd_get_object(idev->ictx, *pt_id, IOMMUFD_OBJ_ANY);
 	if (IS_ERR(pt_obj))
