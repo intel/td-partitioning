@@ -289,4 +289,8 @@ static inline bool is_l2_tdx_vm_index(enum tdx_vm_index vm_index)
 	return (vm_index != TDX_L1TD) && (vm_index <= TDX_MAX_L2_VMS);
 }
 
+#define TDVPS_L2VMCS_1_CLASS_CODE	36
+#define L2VMCS_CLASS(vm)		(TDVPS_L2VMCS_1_CLASS_CODE + vm * 8)
+#define L2VMCS_FIELD(vm, field)		BUILD_TDX_FIELD(L2VMCS_CLASS(vm), field)
+
 #endif /* __KVM_X86_TDX_ARCH_H */
