@@ -1119,6 +1119,14 @@ static inline void kvm_restrictedmem_unregister(struct kvm_memory_slot *slot)
 	WARN_ON_ONCE(1);
 }
 
+int kvm_vm_set_memory_attributes(struct kvm *kvm, u64 attributes,
+					       gfn_t start, gfn_t end)
+{
+	WARN_ON_ONCE(1);
+
+	return -EOPNOTSUPP;
+}
+
 #endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
 
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
