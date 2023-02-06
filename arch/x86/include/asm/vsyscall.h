@@ -17,10 +17,16 @@ extern void set_vsyscall_pgtable_user_bits(pgd_t *root);
  */
 extern bool emulate_vsyscall_pf(unsigned long error_code,
 				struct pt_regs *regs, unsigned long address);
+extern bool emulate_vsyscall_gp(struct pt_regs *regs);
 #else
 static inline void map_vsyscall(void) {}
 static inline bool emulate_vsyscall_pf(unsigned long error_code,
 				       struct pt_regs *regs, unsigned long address)
+{
+	return false;
+}
+
+static inline bool emulate_vsyscall_gp(struct pt_regs *regs)
 {
 	return false;
 }
