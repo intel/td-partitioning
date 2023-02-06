@@ -730,7 +730,7 @@ kernelmode_fixup_or_oops(struct pt_regs *regs, unsigned long error_code,
 		 * Per the above we're !in_interrupt(), aka. task context.
 		 *
 		 * In this case we need to make sure we're not recursively
-		 * faulting through the emulate_vsyscall() logic.
+		 * faulting through the emulate_vsyscall_pf() logic.
 		 */
 		if (current->thread.sig_on_uaccess_err && signal) {
 			sanitize_error_code(address, &error_code);
@@ -796,15 +796,6 @@ show_signal_msg(struct pt_regs *regs, unsigned long error_code,
 	printk(KERN_CONT "\n");
 
 	show_opcodes(regs, loglvl);
-}
-
-/*
- * The (legacy) vsyscall page is the long page in the kernel portion
- * of the address space that has user-accessible permissions.
- */
-static bool is_vsyscall_vaddr(unsigned long vaddr)
-{
-	return unlikely((vaddr & PAGE_MASK) == VSYSCALL_ADDR);
 }
 
 static void
@@ -1345,7 +1336,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * to consider the PF_PK bit.
 	 */
 	if (is_vsyscall_vaddr(address)) {
-		if (emulate_vsyscall(error_code, regs, address))
+		if (emulate_vsyscall_pf(error_code, regs, address))
 			return;
 	}
 #endif
