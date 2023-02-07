@@ -89,7 +89,11 @@ void __init mem_encrypt_init(void);
 
 void add_encrypt_protection_map(void);
 
+#ifdef CONFIG_X86_MEM_ENCRYPT
 void __init mem_encrypt_init_swiotlb_size(void);
+#else
+static inline void __init mem_encrypt_init_swiotlb_size(void) { };
+#endif
 
 /*
  * The __sme_pa() and __sme_pa_nodebug() macros are meant for use when
