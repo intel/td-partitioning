@@ -914,10 +914,14 @@ void vt_enable_irq_window(struct kvm_vcpu *vcpu)
 
 void vt_request_immediate_exit(struct kvm_vcpu *vcpu)
 {
-	if (is_td_vcpu(vcpu)) {
+	if (is_td_vcpu(vcpu) || (!enable_preemption_timer &&
+				 !is_td_part_vcpu(vcpu))) {
 		__kvm_request_immediate_exit(vcpu);
 		return;
 	}
+
+	if (is_td_part_vcpu(vcpu))
+		return td_part_request_immediate_exit(vcpu);
 
 	vmx_request_immediate_exit(vcpu);
 }
