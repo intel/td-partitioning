@@ -138,7 +138,7 @@ module_param(ept_violation_ve_test, bool, 0444);
 
 /* Guest_tsc -> host_tsc conversion requires 64-bit division.  */
 static int __read_mostly cpu_preemption_timer_multi;
-static bool __read_mostly enable_preemption_timer = 1;
+bool __read_mostly enable_preemption_timer = 1;
 #ifdef CONFIG_X86_64
 module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 #endif
@@ -8480,7 +8480,6 @@ __init int vmx_hardware_setup(void)
 	if (!enable_preemption_timer) {
 		vt_x86_ops.set_hv_timer = NULL;
 		vt_x86_ops.cancel_hv_timer = NULL;
-		vt_x86_ops.request_immediate_exit = __kvm_request_immediate_exit;
 	}
 
 	kvm_caps.supported_mce_cap |= MCG_LMCE_P;

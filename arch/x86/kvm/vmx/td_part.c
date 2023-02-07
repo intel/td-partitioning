@@ -210,8 +210,10 @@ fastpath_t td_part_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 		return EXIT_FASTPATH_NONE;
 
 	if ((vmx->exit_reason.full & TDX_TDCALL_STATUS_MASK) ==
-	    TDX_PENDING_INTERRUPT)
+	    TDX_PENDING_INTERRUPT) {
+		vmx_cancel_injection(vcpu);
 		return EXIT_FASTPATH_EXIT_HANDLED;
+	}
 
 	return EXIT_FASTPATH_NONE;
 }
@@ -239,6 +241,14 @@ int td_part_handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	vcpu->run->hw.hardware_exit_reason = EXIT_REASON_EPT_MISCONFIG;
 
 	return 0;
+}
+
+void td_part_request_immediate_exit(struct kvm_vcpu *vcpu)
+{
+	vmx_request_immediate_exit(vcpu);
+
+	if (kvm_cpu_has_injectable_intr(vcpu))
+		vmx_enable_irq_window(vcpu);
 }
 
 int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset)

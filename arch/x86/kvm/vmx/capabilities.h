@@ -12,6 +12,7 @@
 extern bool __read_mostly enable_vpid;
 extern bool __read_mostly flexpriority_enabled;
 extern bool __read_mostly enable_ept;
+extern bool __read_mostly enable_preemption_timer;
 extern bool __read_mostly enable_unrestricted_guest;
 extern bool __read_mostly enable_ept_ad_bits;
 extern bool __read_mostly enable_pml;
