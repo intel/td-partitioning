@@ -760,7 +760,8 @@ static void vmx_emergency_disable(void)
 
 	list_for_each_entry(v, &per_cpu(loaded_vmcss_on_cpu, cpu),
 			    loaded_vmcss_on_cpu_link)
-		vmcs_clear(v->vmcs);
+		if (!is_td_part_vmcs(v))
+			vmcs_clear(v->vmcs);
 
 	cpu_vmxop_put();
 }
@@ -775,9 +776,11 @@ static void __loaded_vmcs_clear(void *arg)
 	if (per_cpu(current_vmcs, cpu) == loaded_vmcs->vmcs)
 		per_cpu(current_vmcs, cpu) = NULL;
 
-	vmcs_clear(loaded_vmcs->vmcs);
-	if (loaded_vmcs->shadow_vmcs && loaded_vmcs->launched)
-		vmcs_clear(loaded_vmcs->shadow_vmcs);
+	if (!is_td_part_vmcs(loaded_vmcs)) {
+		vmcs_clear(loaded_vmcs->vmcs);
+		if (loaded_vmcs->shadow_vmcs && loaded_vmcs->launched)
+			vmcs_clear(loaded_vmcs->shadow_vmcs);
+	}
 
 	list_del(&loaded_vmcs->loaded_vmcss_on_cpu_link);
 
@@ -1431,7 +1434,8 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu,
 	prev = per_cpu(current_vmcs, cpu);
 	if (prev != vmx->loaded_vmcs->vmcs) {
 		per_cpu(current_vmcs, cpu) = vmx->loaded_vmcs->vmcs;
-		vmcs_load(vmx->loaded_vmcs->vmcs);
+		if (!is_td_part_vmcs(vmx->loaded_vmcs))
+			vmcs_load(vmx->loaded_vmcs->vmcs);
 
 		/*
 		 * No indirect branch prediction barrier needed when switching
@@ -2914,7 +2918,8 @@ int alloc_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 	if (!loaded_vmcs->vmcs)
 		return -ENOMEM;
 
-	vmcs_clear(loaded_vmcs->vmcs);
+	if (!is_td_part_vmcs(loaded_vmcs))
+		vmcs_clear(loaded_vmcs->vmcs);
 
 	loaded_vmcs->shadow_vmcs = NULL;
 	loaded_vmcs->hv_timer_soft_disabled = false;
