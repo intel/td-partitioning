@@ -332,6 +332,7 @@ struct idxd_device {
 
 	struct pci_dev *pdev;
 	void __iomem *reg_base;
+	void __iomem *portal_base;
 
 	spinlock_t dev_lock;	/* spinlock for device */
 	spinlock_t cmd_lock;	/* spinlock for device commands */

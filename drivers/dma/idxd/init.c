@@ -754,6 +754,10 @@ static int idxd_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_iomap;
 	}
 
+	idxd->portal_base = pcim_iomap(pdev, IDXD_WQ_BAR, 0);
+	if (!idxd->portal_base)
+		return -ENOMEM;
+
 	dev_dbg(dev, "Set DMA masks\n");
 	rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (rc)

@@ -48,7 +48,7 @@ static int idxd_vdcm_open(struct vfio_device *vdev)
 
 	mutex_unlock(&vidxd->dev_lock);
 
-	if (vdev->ops->migration_set_state)
+	if (vdev->mig_ops->migration_set_state)
 		vidxd->mig_state = VFIO_DEVICE_STATE_RUNNING;
 
 	return 0;
@@ -2111,6 +2111,15 @@ static int idxd_vdcm_get_device_state(struct vfio_device *vdev,
 	return 0;
 }
 
+static int
+idxd_vdcm_get_data_size(struct vfio_device *vdev,
+			unsigned long *stop_copy_length)
+{
+        *stop_copy_length = sizeof(struct vidxd_data);
+
+        return 0;
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
 	.open_device = idxd_vdcm_open,
@@ -2126,8 +2135,14 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.mmap = idxd_vdcm_mmap,
 	.ioctl = idxd_vdcm_ioctl,
 	.request = idxd_vdcm_request,
+//	.migration_set_state = idxd_vdcm_set_device_state,
+//	.migration_get_state = idxd_vdcm_get_device_state,
+};
+
+static const struct vfio_migration_ops idxd_vdev_migrn_state_ops = {
 	.migration_set_state = idxd_vdcm_set_device_state,
 	.migration_get_state = idxd_vdcm_get_device_state,
+	.migration_get_data_size = idxd_vdcm_get_data_size,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
@@ -2184,6 +2199,7 @@ static void idxd_vfio_dev_migration_init(struct vdcm_idxd *vidxd)
 {
 	mutex_init(&vidxd->state_mutex);
 	vidxd->vdev.migration_flags = VFIO_MIGRATION_STOP_COPY;
+	vidxd->vdev.mig_ops = &idxd_vdev_migrn_state_ops;
 
 	dev_dbg(vidxd_dev(vidxd), "idxd migration is initialized\n");
 }
