@@ -276,6 +276,20 @@ static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu)
 	return is_td_part(vcpu->kvm);
 }
 
+static inline bool is_td_part_vmcs(struct loaded_vmcs *vmcs)
+{
+	struct vcpu_vmx *vmx;
+
+	/*
+	 * TODO: this runs into problem if CONFIG_INTEL_TD_PART_GUEST is
+	 * enabled in nested setup.  Another possible approach is to add a
+	 * new field in struct loaded_vmcs to help identify the VM type.
+	 * But we chose the simplest implemenbttation at this moment.
+	 */
+	vmx = container_of(vmcs, struct vcpu_vmx, vmcs01);
+	return is_td_part_vcpu(&vmx->vcpu);
+}
+
 bool td_part_is_rdpmc_required(void);
 noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx);
@@ -315,6 +329,7 @@ TDG_BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
 
 static inline bool is_td_part(struct kvm *kvm) { return false; }
 static inline bool is_td_part_vcpu(struct kvm_vcpu *vcpu) { return false; }
+static inline bool is_td_part_vmcs(struct loaded_vmcs *vmcs) { return false; }
 static inline bool td_part_is_rdpmc_required(void) { return false; }
 static inline void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 				struct vcpu_vmx *vmx) {}
