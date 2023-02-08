@@ -620,6 +620,8 @@ EXPORT_SYMBOL_NS_GPL(iommufd_ctx_get, IOMMUFD);
 struct iommufd_ctx *iommufd_ctx_from_file(struct file *file)
 {
 	struct iommufd_ctx *ictx;
+	struct mm_struct *mm;
+	int ret = 0;
 
 	if (file->f_op != &iommufd_fops)
 		return ERR_PTR(-EBADFD);
