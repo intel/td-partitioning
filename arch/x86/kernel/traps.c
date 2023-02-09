@@ -650,11 +650,6 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 
 	cond_local_irq_enable(regs);
 
-	if (static_cpu_has(X86_FEATURE_UMIP)) {
-		if (user_mode(regs) && fixup_umip_exception(regs))
-			goto exit;
-	}
-
 	if (v8086_mode(regs)) {
 		local_irq_enable();
 		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
@@ -667,6 +662,9 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 			goto exit;
 
 		if (fixup_vdso_exception(regs, X86_TRAP_GP, error_code, 0))
+			goto exit;
+
+		if (cpu_feature_enabled(X86_FEATURE_UMIP) && fixup_umip_exception(regs))
 			goto exit;
 
 		gp_user_force_sig_segv(regs, X86_TRAP_GP, error_code, desc);
