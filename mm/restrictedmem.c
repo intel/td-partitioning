@@ -300,19 +300,32 @@ void restrictedmem_error_page(struct page *page, struct address_space *mapping)
 
 	spin_lock(&sb->s_inode_list_lock);
 	list_for_each_entry_safe(inode, next, &sb->s_inodes, i_sb_list) {
-		struct restrictedmem_data *data = inode->i_mapping->private_data;
-		struct file *memfd = data->memfd;
+		struct restrictedmem_data *data;
+		struct file *memfd;
+		pgoff_t start, end;
 
-		if (memfd->f_mapping == mapping) {
-			pgoff_t start, end;
+		if (atomic_read(&inode->i_count))
+			continue;
 
-			spin_unlock(&sb->s_inode_list_lock);
-
-			start = page->index;
-			end = start + thp_nr_pages(page);
-			restrictedmem_notifier_error(data, start, end);
-			return;
+		spin_lock(&inode->i_lock);
+		if (inode->i_state & (I_NEW | I_FREEING | I_WILL_FREE)) {
+			spin_unlock(&inode->i_lock);
+			continue;
 		}
+
+		data = inode->i_mapping->private_data;
+		memfd = data->memfd;
+
+		if (memfd->f_mapping != mapping) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+
+		spin_unlock(&inode->i_lock);
+		start = page->index;
+		end = start + thp_nr_pages(page);
+		restrictedmem_notifier_error(data, start, end);
+		break;
 	}
 	spin_unlock(&sb->s_inode_list_lock);
 }
