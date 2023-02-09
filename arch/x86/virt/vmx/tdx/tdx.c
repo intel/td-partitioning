@@ -2160,6 +2160,15 @@ bool tdx_io_support(void)
 }
 EXPORT_SYMBOL_GPL(tdx_io_support);
 
+bool tdx_io_enabled(void)
+{
+       if (!tdx_io_support())
+               return false;
+
+       return tdxio;
+}
+EXPORT_SYMBOL_GPL(tdx_io_enabled);
+
 #include <asm/kvm_host.h>
 void tdx_clear_page(unsigned long page_pa, int size)
 {

@@ -1861,7 +1861,7 @@ static int tdx_complete_map_gpa(struct kvm_vcpu *vcpu)
 {
 	gpa_t gpa = tdvmcall_a0_read(vcpu);
 	gpa_t size = tdvmcall_a1_read(vcpu);
-	bool prefault = tdvmcall_a2_read(vcpu);
+	bool prefault = tdx_io_enabled();
 	u64 error_code = TDX_EPT_PFERR;
 
 	WARN_ON(!prefault);
@@ -1889,7 +1889,7 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	struct kvm *kvm = vcpu->kvm;
 	gpa_t gpa = tdvmcall_a0_read(vcpu);
 	gpa_t size = tdvmcall_a1_read(vcpu);
-	bool prefault = tdvmcall_a2_read(vcpu);
+	bool prefault = tdx_io_enabled();
 	gpa_t end = gpa + size;
 	gfn_t s = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(kvm);
 	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
