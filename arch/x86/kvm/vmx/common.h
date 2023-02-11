@@ -260,6 +260,8 @@ static inline void kvm_vcpu_trigger_posted_interrupt(struct kvm_vcpu *vcpu,
 static inline void __vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu,
 						  struct pi_desc *pi_desc, int vector)
 {
+	KVM_BUG_ON(is_td_part_vcpu(vcpu), vcpu->kvm);
+
 	if (pi_test_and_set_pir(vector, pi_desc))
 		return;
 

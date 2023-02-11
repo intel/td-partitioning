@@ -2863,6 +2863,7 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	vmcs_conf->vmentry_ctrl        = _vmentry_control;
 	vmcs_conf->misc	= misc_msr;
 
+	BUG_ON(enable_td_part && (vmcs_conf->pin_based_exec_ctrl & PIN_BASED_POSTED_INTR));
 	return 0;
 }
 
@@ -4368,6 +4369,8 @@ static int vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int r;
 
+	if (is_td_part_vcpu(vcpu))
+		return -1;
 	r = vmx_deliver_nested_posted_interrupt(vcpu, vector);
 	if (!r)
 		return 0;
@@ -4498,6 +4501,7 @@ static u32 vmx_pin_based_exec_ctrl(struct vcpu_vmx *vmx)
 	if (!enable_preemption_timer)
 		pin_based_exec_ctrl &= ~PIN_BASED_VMX_PREEMPTION_TIMER;
 
+	KVM_BUG_ON(is_td_part_vcpu(&vmx->vcpu) && (pin_based_exec_ctrl & PIN_BASED_POSTED_INTR), vmx->vcpu.kvm);
 	return pin_based_exec_ctrl;
 }
 
@@ -6971,6 +6975,7 @@ int vmx_sync_pir_to_irr(struct kvm_vcpu *vcpu)
 	if (KVM_BUG_ON(!enable_apicv, vcpu->kvm))
 		return -EIO;
 
+	KVM_BUG_ON(is_td_part_vcpu(vcpu) && pi_test_on(&vmx->pi_desc), vcpu->kvm);
 	if (pi_test_on(&vmx->pi_desc)) {
 		pi_clear_on(&vmx->pi_desc);
 		/*

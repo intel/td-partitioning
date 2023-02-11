@@ -12,6 +12,7 @@
 #include "trace.h"
 #include "vmx.h"
 #include "tdx.h"
+#include "td_part.h"
 
 /*
  * Maintain a per-CPU list of vCPUs that need to be awakened by wakeup_handler()
@@ -84,7 +85,7 @@ void vmx_vcpu_pi_load(struct kvm_vcpu *vcpu, int cpu)
 	 * PI.SN up-to-date even if there is no assigned device or if APICv is
 	 * deactivated due to a dynamic inhibit bit, e.g. for Hyper-V's SyncIC.
 	 */
-	if (!enable_apicv || !lapic_in_kernel(vcpu))
+	if (!enable_apicv || !lapic_in_kernel(vcpu) || is_td_part_vcpu(vcpu))
 		return;
 
 	/*
@@ -219,7 +220,7 @@ void vmx_vcpu_pi_put(struct kvm_vcpu *vcpu)
 {
 	struct pi_desc *pi_desc = vcpu_to_pi_desc(vcpu);
 
-	if (!vmx_needs_pi_wakeup(vcpu))
+	if (is_td_part_vcpu(vcpu) || !vmx_needs_pi_wakeup(vcpu))
 		return;
 
 	if (kvm_vcpu_is_blocking(vcpu) &&
@@ -263,6 +264,8 @@ void __init pi_init_cpu(int cpu)
 bool pi_has_pending_interrupt(struct kvm_vcpu *vcpu)
 {
 	struct pi_desc *pi_desc = vcpu_to_pi_desc(vcpu);
+
+	BUG_ON(is_td_part_vcpu(vcpu) && (pi_test_on(pi_desc) || pi_test_sn(pi_desc)));
 
 	return pi_test_on(pi_desc) ||
 		(pi_test_sn(pi_desc) && !pi_is_pir_empty(pi_desc));
