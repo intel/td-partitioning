@@ -44,6 +44,7 @@
 #include "cpuid.h"
 #include "hyperv.h"
 #include "smm.h"
+#include "vmx/td_part.h"
 
 #ifndef CONFIG_X86_64
 #define mod_64(x, y) ((x) - (y) * div64_u64(x, y))
@@ -2418,6 +2419,16 @@ void kvm_lapic_set_base(struct kvm_vcpu *vcpu, u64 value)
 	     apic->base_address != APIC_DEFAULT_PHYS_BASE) {
 		kvm_set_apicv_inhibit(apic->vcpu->kvm,
 				      APICV_INHIBIT_REASON_APIC_BASE_MODIFIED);
+	}
+
+	if (is_td_part_vcpu(vcpu)) {
+		if (kvm_get_apic_mode(vcpu) == LAPIC_MODE_X2APIC) {
+			/* Enable APICv when in x2APIC mode */
+			kvm_clear_apicv_inhibit(vcpu->kvm, APICV_INHIBIT_REASON_DISABLE);
+		} else {
+			/* Disable APICv when in APIC mode, TD partitioning does not support APIC access */
+			kvm_set_apicv_inhibit(vcpu->kvm, APICV_INHIBIT_REASON_DISABLE);
+		}
 	}
 }
 

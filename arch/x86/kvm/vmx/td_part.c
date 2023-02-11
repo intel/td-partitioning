@@ -740,6 +740,9 @@ void td_part_update_reserved_gpa_bits(struct kvm_vcpu *vcpu)
 
 int td_part_vcpu_create(struct kvm_vcpu *vcpu)
 {
+	/* Initially APIC is in xAPIC mode, mark APICv active as false (disabled) */
+	vcpu->arch.apic->apicv_active = false;
+
 	td_part_update_reserved_gpa_bits(vcpu);
 
 	return 0;
@@ -776,6 +779,9 @@ static void set_control(void *data)
 int td_part_vm_init(struct kvm *kvm)
 {
 	u16 vm_id;
+
+	/* Disable APICv initially (in xAPIC mode), enable APICv only when in X2APIC mode */
+	kvm_set_or_clear_apicv_inhibit(kvm, APICV_INHIBIT_REASON_DISABLE, true);
 
 	kvm->arch.gfn_shared_mask = gpa_to_gfn(tdx_get_cc_mask());
 

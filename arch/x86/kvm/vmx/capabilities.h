@@ -275,11 +275,13 @@ static inline bool cpu_has_vmx_bus_lock_detection(void)
 	    SECONDARY_EXEC_BUS_LOCK_DETECTION;
 }
 
+extern bool enable_td_part;
 static inline bool cpu_has_vmx_apicv(void)
 {
+	/* TD partitioning supports APICv (but without posted interrupt support) */
 	return cpu_has_vmx_apic_register_virt() &&
 		cpu_has_vmx_virtual_intr_delivery() &&
-		cpu_has_vmx_posted_intr();
+		(cpu_has_vmx_posted_intr() || enable_td_part);
 }
 
 static inline bool cpu_has_vmx_ipiv(void)
