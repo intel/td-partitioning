@@ -532,19 +532,13 @@ static void tdx_binding_slots_cleanup(struct kvm_tdx *kvm_tdx)
 
 static void tdx_vm_free_tdcs(struct kvm_tdx *kvm_tdx)
 {
-	unsigned long td_page_pa;
 	int i;
 
 	if (!kvm_tdx->tdcs_pa)
 		return;
 
-	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++) {
-		td_page_pa = kvm_tdx->tdcs_pa[i];
-		if (kvm_tdx->td_initialized)
-			tdx_reclaim_td_page(td_page_pa);
-		else
-			free_page((unsigned long)__va(td_page_pa));
-	}
+	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++)
+		tdx_reclaim_td_page(kvm_tdx->tdcs_pa[i]);
 
 	kfree(kvm_tdx->tdcs_pa);
 	kvm_tdx->tdcs_pa = NULL;
