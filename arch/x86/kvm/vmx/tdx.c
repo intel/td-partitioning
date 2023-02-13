@@ -188,7 +188,7 @@ static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
 
 static inline bool is_td_created(struct kvm_tdx *kvm_tdx)
 {
-	return kvm_tdx->td_initialized && kvm_tdx->tdr_pa;
+	return kvm_tdx->tdr_pa;
 }
 
 static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
@@ -421,7 +421,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	int ret;
 	int i;
 
-	if (!is_hkid_assigned(kvm_tdx) || !kvm_tdx->td_initialized)
+	if (!is_hkid_assigned(kvm_tdx))
 		return;
 
 	if (!is_td_created(kvm_tdx))
