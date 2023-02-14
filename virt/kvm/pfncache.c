@@ -195,8 +195,10 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
 		if (gpc->usage & KVM_HOST_USES_PFN) {
 			if (new_pfn == gpc->pfn) {
 				new_khva = old_khva;
+#ifndef CONFIG_INTEL_TD_PART_GUEST
 			} else if (pfn_valid(new_pfn)) {
 				new_khva = kmap(pfn_to_page(new_pfn));
+#endif
 #ifdef CONFIG_HAS_IOMEM
 			} else {
 				new_khva = memremap(pfn_to_hpa(new_pfn), PAGE_SIZE, MEMREMAP_WB);
