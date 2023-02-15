@@ -217,6 +217,16 @@ noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	guest_state_exit_irqoff();
 }
 
+int td_part_handle_ept_misconfig(struct kvm_vcpu *vcpu)
+{
+	WARN_ON_ONCE(1);
+
+	vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+	vcpu->run->hw.hardware_exit_reason = EXIT_REASON_EPT_MISCONFIG;
+
+	return 0;
+}
+
 int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset)
 {
 	struct tdx_module_output out;

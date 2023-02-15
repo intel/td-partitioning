@@ -5921,6 +5921,9 @@ static int handle_ept_misconfig(struct kvm_vcpu *vcpu)
 {
 	gpa_t gpa;
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_handle_ept_misconfig(vcpu);
+
 	if (!vmx_can_emulate_instruction(vcpu, EMULTYPE_PF, NULL, 0))
 		return 1;
 
