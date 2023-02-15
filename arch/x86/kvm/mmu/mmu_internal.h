@@ -521,7 +521,8 @@ static inline bool kvm_hugepage_test_mixed(struct kvm_memory_slot *slot, gfn_t g
 static inline bool kvm_is_faultin_private(const struct kvm_page_fault *fault)
 {
 	if (IS_ENABLED(CONFIG_KVM_GENERIC_PRIVATE_MEM))
-		return fault->is_private && kvm_slot_can_be_private(fault->slot);
+		return fault->is_private && kvm_slot_can_be_private(fault->slot) &&
+		       !kvm_slot_is_nonupm_safe(fault->slot); //temp solution for private mmio
 	return false;
 }
 

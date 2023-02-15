@@ -1648,19 +1648,21 @@ static int check_memory_region_flags(struct kvm *kvm,
 				     const struct kvm_userspace_memory_region2 *mem)
 {
 	u32 valid_flags = 0;
+	u32 private_mask = KVM_MEM_PRIVATE | KVM_MEM_NONUPM_SAFE;
 
 	if (kvm_arch_dirty_log_supported(kvm))
 		valid_flags |= KVM_MEM_LOG_DIRTY_PAGES;
 
 	if (kvm_arch_has_private_mem(kvm))
-		valid_flags |= KVM_MEM_PRIVATE;
+		valid_flags |= private_mask;
 
 #ifdef __KVM_HAVE_READONLY_MEM
 	if (!kvm->readonly_mem_unsupported)
 		valid_flags |= KVM_MEM_READONLY;
 #endif
 
-	if (mem->flags & ~valid_flags)
+	/* KVM_MEM_PRIVATE and KVM_MEM_NONUPM_SAFE are mutually exclusive. */
+	if (mem->flags & ~valid_flags || (mem->flags & private_mask) == private_mask)
 		return -EINVAL;
 
 	return 0;

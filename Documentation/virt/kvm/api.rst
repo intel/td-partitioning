@@ -1368,6 +1368,10 @@ use it.  The latter can be set, if KVM_CAP_READONLY_MEM capability allows it,
 to make a new slot read-only.  In this case, writes to this memory will be
 posted to userspace as KVM_EXIT_MMIO exits.
 
+- KVM_MEM_NONUPM_SAFE to indicate the new slot is allowed to do page conversion
+  although it is not backed by a private memfd. It is mostly likely to be used
+  by the MMIO region of the deivice assignment.
+
 When the KVM_CAP_SYNC_MMU capability is available, changes in the backing of
 the memory region are automatically reflected into the guest.  For example, an
 mmap() that affects the region will be made visible immediately.  Another
