@@ -574,6 +574,7 @@ void tdx_vm_free(struct kvm *kvm)
 
 	tdx_vm_free_tdcs(kvm_tdx);
 	tdx_vm_free_tdr(kvm_tdx);
+	kvm_tdx->td_initialized = false;
 }
 
 static int tdx_do_tdh_mng_key_config(void *param)
@@ -849,6 +850,7 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 
 	tdx_vcpu_free_tdvpx(tdx);
 	tdx_vcpu_free_tdvpr(tdx);
+	tdx->vcpu_initialized = false;
 
 	/*
 	 * kvm_free_vcpus()
