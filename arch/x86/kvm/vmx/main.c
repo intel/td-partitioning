@@ -49,6 +49,10 @@ static __init int vt_hardware_setup(void)
 		enable_pml = false;
 
 	enable_td_part = enable_td_part && !td_part_hardware_setup(&vt_x86_ops);
+	if (enable_td_part) {
+		nested = false;
+		WARN_ON(enable_pmu);
+	}
 
 	ret = vmx_hardware_setup();
 	if (ret)

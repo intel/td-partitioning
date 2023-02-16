@@ -16,6 +16,7 @@ extern bool __read_mostly enable_unrestricted_guest;
 extern bool __read_mostly enable_ept_ad_bits;
 extern bool __read_mostly enable_pml;
 extern bool __read_mostly enable_ipiv;
+extern bool __read_mostly nested;
 extern int __read_mostly pt_mode;
 
 #define PT_MODE_SYSTEM		0

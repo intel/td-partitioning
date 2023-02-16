@@ -116,7 +116,7 @@ module_param(enable_ipiv, bool, 0444);
  * VMX and be a hypervisor for its own guests. If nested=0, guests may not
  * use VMX instructions.
  */
-static bool __read_mostly nested = 1;
+bool __read_mostly nested = 1;
 module_param(nested, bool, S_IRUGO);
 
 bool __read_mostly enable_pml = 1;
@@ -8218,9 +8218,10 @@ __init int vmx_hardware_setup(void)
 		enable_vpid = 0;
 
 	if (!cpu_has_vmx_ept() ||
-	    !cpu_has_vmx_ept_4levels() ||
-	    !cpu_has_vmx_ept_mt_wb() ||
-	    !cpu_has_vmx_invept_global())
+	    (!enable_td_part &&
+	     (!cpu_has_vmx_ept_4levels() ||
+	      !cpu_has_vmx_ept_mt_wb() ||
+	      !cpu_has_vmx_invept_global())))
 		enable_ept = 0;
 
 	/* NX support is required for shadow paging. */
@@ -8229,7 +8230,7 @@ __init int vmx_hardware_setup(void)
 		return -EOPNOTSUPP;
 	}
 
-	if (!cpu_has_vmx_ept_ad_bits() || !enable_ept)
+	if ((!enable_td_part && !cpu_has_vmx_ept_ad_bits()) || !enable_ept)
 		enable_ept_ad_bits = 0;
 
 	if (!cpu_has_vmx_unrestricted_guest() || !enable_ept)
