@@ -176,6 +176,9 @@ static inline u64 tdg_vp_invvpid(union tdx_vmid_flags flags,
 	return guest_tdcall(TDG_VP_INVVPID, flags.bits, list.bits, 0, 0, out);
 }
 
+bool is_field_ignore_read(u32 field);
+bool is_field_ignore_write(u32 field);
+
 #define TDG_BUILD_TDVPS_ACCESSORS(bits, elem_size, uclass, lclass)		\
 static __always_inline u##bits tdg_##lclass##_read##bits(struct kvm_vcpu *vcpu, \
 							 u64 field)		\
@@ -183,6 +186,8 @@ static __always_inline u##bits tdg_##lclass##_read##bits(struct kvm_vcpu *vcpu, 
 	struct tdx_module_output out;						\
 	u64 err;								\
 										\
+	if (is_field_ignore_read(field))					\
+		return 0;							\
 	field |= ((u64)vcpu->kvm->arch.vm_id << 32);				\
 	tdvps_##lclass##_check(field, bits);				\
 	err = tdg_vp_read(TDG_TDVPS_##uclass(field) | ((u64)elem_size << 32), &out);	\
@@ -200,6 +205,8 @@ static __always_inline void tdg_##lclass##_write##bits(struct kvm_vcpu *vcpu,	\
 	struct tdx_module_output out;						\
 	u64 err;								\
 										\
+	if (is_field_ignore_write(field))					\
+		return;								\
 	field |= ((u64)vcpu->kvm->arch.vm_id << 32);				\
 	tdvps_##lclass##_check(field, bits);				\
 	err = tdg_vp_write(TDG_TDVPS_##uclass(field) | ((u64)elem_size << 32) | (1UL << 51),	\
