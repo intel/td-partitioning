@@ -247,6 +247,11 @@ void vt_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		return;
 	}
 
+	if (is_td_part_vcpu(vcpu)) {
+		td_part_vcpu_load(vcpu, cpu);
+		return;
+	}
+
 	vmx_vcpu_load(vcpu, cpu);
 }
 
