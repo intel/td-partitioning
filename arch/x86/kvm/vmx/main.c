@@ -188,6 +188,9 @@ static void vt_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	if (is_td_vcpu(vcpu))
 		return tdx_vcpu_load(vcpu, cpu);
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_vcpu_load(vcpu, cpu);
+
 	return vmx_vcpu_load(vcpu, cpu);
 }
 

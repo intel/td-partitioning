@@ -363,6 +363,20 @@ int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	return vmx_get_msr(vcpu, msr);
 }
 
+void td_part_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	bool already_loaded = vmx->loaded_vmcs->cpu == cpu;
+
+	if (!already_loaded && vmx->loaded_vmcs->cpu >= 0) {
+		kvm_pr_unimpl("TD_PART: vCPU migration not supported\n");
+		kvm_vm_bugged(vcpu->kvm);
+		return;
+	}
+
+	vmx_vcpu_load(vcpu, cpu);
+}
+
 void td_part_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	struct tdx_module_output out;
