@@ -13,6 +13,96 @@ bool td_part_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_TD_PART_VM;
 }
 
+static bool is_host_state_field(u32 field)
+{
+	return (((field >> 10) & 0x3) == 3);
+}
+
+static bool is_writable_field(u32 field)
+{
+	switch (field) {
+	case 0x6:	/* HLAT prefix size */
+	case GUEST_ES_SELECTOR ... GUEST_INTR_STATUS:
+	case 0x814:	/* Guest UINV */
+	case VIRTUAL_APIC_PAGE_ADDR ... VIRTUAL_APIC_PAGE_ADDR_HIGH:
+	case EPT_POINTER ... EOI_EXIT_BITMAP3_HIGH:
+	case XSS_EXIT_BITMAP ... XSS_EXIT_BITMAP_HIGH:
+	case TERTIARY_VM_EXEC_CONTROL ... TERTIARY_VM_EXEC_CONTROL_HIGH:
+	case 0x2040:	/* HLAT pointer */
+	case GUEST_PHYSICAL_ADDRESS ... GUEST_PHYSICAL_ADDRESS_HIGH:
+	case GUEST_IA32_DEBUGCTL ... GUEST_PDPTR3_HIGH:
+	case GUEST_IA32_RTIT_CTL ... 0x2818:	/* IA32_GUEST_PKRS */
+	case CPU_BASED_VM_EXEC_CONTROL ... CR3_TARGET_COUNT:
+	case VM_ENTRY_CONTROLS:
+	case VM_ENTRY_INTR_INFO_FIELD ... PLE_WINDOW:
+	case VM_INSTRUCTION_ERROR ... VMX_INSTRUCTION_INFO:
+	case GUEST_ES_LIMIT ... GUEST_INTERRUPTIBILITY_INFO:
+	case GUEST_SYSENTER_CS:
+	case CR0_GUEST_HOST_MASK ... CR3_TARGET_VALUE3:
+	case EXIT_QUALIFICATION ... GUEST_LINEAR_ADDRESS:
+	case GUEST_CR0 ... 0x682c:	/* GUEST_INTR_SSP_TABLE */
+		return true;
+	default:
+		return false;
+	}
+
+	return false;
+}
+
+static bool is_readonly_field(u32 field)
+{
+	switch (field) {
+	case POSTED_INTR_NV:	/* PI Notification Vector */
+	case IO_BITMAP_A ... IO_BITMAP_B_HIGH:
+	case POSTED_INTR_DESC_ADDR ... VM_FUNCTION_CONTROL_HIGH:
+	case VE_INFORMATION_ADDRESS ... VE_INFORMATION_ADDRESS_HIGH:
+	case ENCLS_EXITING_BITMAP ... ENCLS_EXITING_BITMAP_HIGH:
+	case 0x2036:	/* ENCLV-Exiting Bitmap */
+	case SHARED_EPT_POINTER:
+	case PIN_BASED_VM_EXEC_CONTROL:
+	case VM_EXIT_CONTROLS:
+	case NOTIFY_WINDOW:
+	case GUEST_ACTIVITY_STATE:
+		return true;
+	default:
+		return false;
+	}
+
+	return false;
+}
+
+bool is_field_ignore_read(u32 field)
+{
+	/* quickly filter out */
+	if (is_host_state_field(field))
+		return true;
+
+	if (is_writable_field(field) || is_readonly_field(field))
+		return false;
+
+	return true;
+}
+
+bool is_field_ignore_write(u32 field)
+{
+	/* quickly filter out */
+	if (is_host_state_field(field))
+		return true;
+
+	/*
+	 * These fields are passed to TDX module in tdg.vp.enter,
+	 * and don't need to write them in other places.
+	 */
+	if ((field == GUEST_RIP) || (field == GUEST_RFLAGS)
+		|| (field == GUEST_INTR_STATUS))
+		return true;
+
+	if (is_writable_field(field))
+		return false;
+
+	return true;
+}
+
 static bool is_tdg_enter_error(u64 error_code)
 {
 	switch (error_code & TDX_TDCALL_STATUS_MASK) {
