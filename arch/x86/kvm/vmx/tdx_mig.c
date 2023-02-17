@@ -1308,6 +1308,16 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 	unsigned long migsc_va, migsc_pa;
 	uint64_t err;
 
+	/*
+	 * This migration stream has been created, e.g. the previous migration
+	 * session is aborted and the migration stream is retained during the
+	 * TD guest lifecycle (required by the TDX migration architecture)
+	 * for later re-migration). No need to proceed to the creation in this
+	 * case.
+	 */
+	if (stream->migsc_pa)
+		return 0;
+
 	migsc_va = __get_free_page(GFP_KERNEL_ACCOUNT);
 	if (!migsc_va)
 		return -ENOMEM;
@@ -1326,7 +1336,7 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 
 static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 {
-	struct tdx_mig_state *mig_state;
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	struct tdx_binding_slot *slot =
 		&kvm_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
 
@@ -1334,23 +1344,21 @@ static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 	 * Current version supports only one migration stream. The mig_state
 	 * has been allocated when the stream is created.
 	 */
-	if (kvm_tdx->mig_state) {
-		pr_warn("only 1 migration stream supported currently\n");
-		return -EEXIST;
+	if (!mig_state) {
+		mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
+		if (!mig_state)
+			return -ENOMEM;
+
+		if (tdx_mig_do_stream_create(kvm_tdx, &mig_state->backward_stream)) {
+			kfree(mig_state);
+			return -EIO;
+		}
+		kvm_tdx->mig_state = mig_state;
 	}
 
-	mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
-	if (!mig_state)
-		return -ENOMEM;
-
-	if (tdx_mig_do_stream_create(kvm_tdx, &mig_state->backward_stream)) {
-		kfree(mig_state);
-		return -EIO;
-	}
 	mig_state->is_src = slot->migtd_data.is_src;
 	if (mig_state->is_src)
 		tdx_mig_stream_gpa_list_setup(&mig_state->blockw_gpa_list);
-	kvm_tdx->mig_state = mig_state;
 	return 0;
 }
 
