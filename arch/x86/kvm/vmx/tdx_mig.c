@@ -243,6 +243,9 @@ static void tdx_mig_gpa_list_setup(struct tdx_mig_gpa_list *gpa_list,
 		 */
 		gpa_list->entries[i].operation = 1;
 	}
+
+	gpa_list->info.first_entry = 0;
+	gpa_list->info.last_entry = num - 1;
 }
 
 static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
