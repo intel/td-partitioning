@@ -183,6 +183,8 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 
 #ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
 int kvm_prealloc_private_pages(struct kvm *kvm);
+
+int kvm_restore_private_pages(struct kvm *kvm, gfn_t gfn_max);
 #endif
 
 /*

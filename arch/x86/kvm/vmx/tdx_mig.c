@@ -1170,21 +1170,17 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
-static int tdx_mig_export_restore_pages(struct kvm_tdx *kvm_tdx,
-					struct tdx_mig_stream *stream,
-					gfn_t gfn_start,
-					uint64_t num)
+static int tdx_restore_private_page(struct kvm *kvm, gfn_t gfn)
 {
-	uint64_t i, err;
-	gfn_t gfn;
+	uint64_t err;
 	struct tdx_module_output out;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_mig_state *mig_state =
+			(struct tdx_mig_state *)kvm_tdx->mig_state;
+	struct tdx_mig_stream *stream = &mig_state->stream;
 	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
 
-	for (i = 0; i < num; i++) {
-		gfn = gfn_start + i;
-		tdx_mig_gpa_list_setup(gpa_list, &gfn, 1);
-	}
-
+	tdx_mig_gpa_list_setup(gpa_list, &gfn, 1);
 	do {
 		err = tdh_export_restore(kvm_tdx->tdr_pa,
 					 gpa_list->info.val, &out);
@@ -1205,8 +1201,8 @@ static int tdx_mig_export_abort(struct kvm_tdx *kvm_tdx,
 				struct tdx_mig_stream *stream,
 				uint64_t __user *data)
 {
-	gfn_t gfn, gfn_end;
-	uint64_t remaining, err;
+	gfn_t gfn_end;
+	uint64_t err;
 
 	if (copy_from_user(&gfn_end, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;
@@ -1215,27 +1211,7 @@ static int tdx_mig_export_abort(struct kvm_tdx *kvm_tdx,
 	if (err != TDX_SUCCESS)
 		pr_err("%s: export abort failed, err=%llx\n", __func__, err);
 
-	for (gfn = 0; gfn < gfn_end; gfn++) {
-		/*
-		 * Some pages may have already been unblocked and the seamcall
-		 * may return an error to indicate that. No need to handle such
-		 * errors, just ignore them.
-		 */
-		tdx_write_unblock_private_page(&kvm_tdx->kvm,
-					       gfn, PG_LEVEL_4K);
-		if (gfn && !(gfn % TDX_MIG_GPA_LIST_MAX_ENTRIES)) {
-			tdx_mig_export_restore_pages(kvm_tdx, stream,
-				gfn - TDX_MIG_GPA_LIST_MAX_ENTRIES,
-				TDX_MIG_GPA_LIST_MAX_ENTRIES);
-		}
-	}
-	remaining = gfn_end % TDX_MIG_GPA_LIST_MAX_ENTRIES;
-	if (remaining) {
-		tdx_mig_export_restore_pages(kvm_tdx, stream,
-					     gfn_end - remaining, remaining);
-	}
-
-	return 0;
+	return kvm_restore_private_pages(&kvm_tdx->kvm, gfn_end);
 }
 
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
