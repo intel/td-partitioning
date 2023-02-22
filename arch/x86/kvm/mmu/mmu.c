@@ -5065,6 +5065,7 @@ static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
 	return ret;
 }
 
+#ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
 int kvm_prealloc_private_pages(struct kvm *kvm)
 {
 	struct kvm_memory_slot *memslot;
@@ -5085,6 +5086,7 @@ int kvm_prealloc_private_pages(struct kvm *kvm)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kvm_prealloc_private_pages);
+#endif
 
 static void nonpaging_init_context(struct kvm_mmu *context)
 {
