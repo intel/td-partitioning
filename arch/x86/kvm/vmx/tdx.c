@@ -183,7 +183,7 @@ static __always_inline void tdvmcall_set_return_val(struct kvm_vcpu *vcpu,
 
 static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
 {
-	return tdx->vcpu_initialized && tdx->tdvpr_pa;
+	return tdx->tdvpr_pa;
 }
 
 static inline bool is_td_created(struct kvm_tdx *kvm_tdx)
