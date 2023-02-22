@@ -7486,7 +7486,8 @@ void vmx_vcpu_free(struct kvm_vcpu *vcpu)
 	if (enable_pml)
 		vmx_destroy_pml_buffer(vmx);
 	free_vpid(vmx->vpid);
-	nested_vmx_free_vcpu(vcpu);
+	if (!is_td_part_vcpu(vcpu))
+		nested_vmx_free_vcpu(vcpu);
 	free_loaded_vmcs(vmx->loaded_vmcs);
 	if (vmx->ve_info)
 		free_page((unsigned long)vmx->ve_info);

@@ -366,9 +366,11 @@ int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 void td_part_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	struct kvm *kvm = vcpu->kvm;
 	bool already_loaded = vmx->loaded_vmcs->cpu == cpu;
 
-	if (!already_loaded && vmx->loaded_vmcs->cpu >= 0) {
+	if (!already_loaded && vmx->loaded_vmcs->cpu >= 0 &&
+	    refcount_read(&kvm->users_count)) {
 		kvm_pr_unimpl("TD_PART: vCPU migration not supported\n");
 		kvm_vm_bugged(vcpu->kvm);
 		return;
