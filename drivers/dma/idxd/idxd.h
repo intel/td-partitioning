@@ -723,6 +723,7 @@ int idxd_submit_desc(struct idxd_wq *wq, struct idxd_desc *desc);
 struct idxd_desc *idxd_alloc_desc(struct idxd_wq *wq, enum idxd_op_type optype);
 void idxd_free_desc(struct idxd_wq *wq, struct idxd_desc *desc);
 int idxd_enqcmds(struct idxd_wq *wq, void __iomem *portal, const void *desc);
+void idxd_flush_pending_descs(struct idxd_irq_entry *ie);
 
 /* dmaengine */
 int idxd_register_dma_device(struct idxd_device *idxd);

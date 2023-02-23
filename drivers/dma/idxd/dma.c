@@ -153,6 +153,34 @@ static void idxd_dma_free_chan_resources(struct dma_chan *chan)
 		idxd_wq_refcount(wq));
 }
 
+/*
+ * Abort all descriptors that are running and pending to run in the channel.
+ * All future descriptors can continue to be submitted after this callback.
+ */
+static int idxd_dma_terminate_all(struct dma_chan *chan)
+{
+	struct idxd_wq *wq = to_idxd_wq(chan);
+	struct idxd_irq_entry *ie = &wq->ie;
+	struct device *dev;
+
+	dev = &wq->idxd->pdev->dev;
+
+	mutex_lock(&wq->wq_lock);
+	/* Kill percpu_ref to pause additional descriptor submissions. */
+	percpu_ref_kill(&wq->wq_active);
+	/* Abort descriptors executing in the WQ. */
+	idxd_wq_abort(wq);
+	/* Flush pending descriptors. */
+	idxd_flush_pending_descs(ie);
+	/* Revive percpu ref and wake up all the waiting submitters. */
+	percpu_ref_reinit(&wq->wq_active);
+	mutex_unlock(&wq->wq_lock);
+
+	dev_dbg(dev, "DMA terminated on WQ %d\n", wq->id);
+
+	return 0;
+}
+
 static enum dma_status idxd_dma_tx_status(struct dma_chan *dma_chan,
 					  dma_cookie_t cookie,
 					  struct dma_tx_state *txstate)
@@ -224,6 +252,7 @@ int idxd_register_dma_device(struct idxd_device *idxd)
 	dma->device_issue_pending = idxd_dma_issue_pending;
 	dma->device_alloc_chan_resources = idxd_dma_alloc_chan_resources;
 	dma->device_free_chan_resources = idxd_dma_free_chan_resources;
+	dma->device_terminate_all = idxd_dma_terminate_all;
 
 	rc = dma_async_device_register(dma);
 	if (rc < 0) {
