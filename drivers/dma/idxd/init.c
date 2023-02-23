@@ -16,8 +16,7 @@
 #include <linux/iommu.h>
 #include <uapi/linux/idxd.h>
 #include <linux/dmaengine.h>
-#include <linux/irqdomain.h>
-#include <linux/irqchip/irq-ims-msi.h>
+#include <linux/irqchip/irq-pci-intel-idxd.h>
 #include "../dmaengine.h"
 #include "registers.h"
 #include "idxd.h"
@@ -76,16 +75,15 @@ MODULE_DEVICE_TABLE(pci, idxd_pci_tbl);
 
 static void idxd_setup_ims(struct idxd_device *idxd)
 {
-	struct ims_array_info ims_info;
-
 	if (idxd->ims_size == 0)
 		return;
 
-	ims_info.max_slots = idxd->ims_size;
-	ims_info.slots = idxd->reg_base + idxd->ims_offset;
-	idxd->ims_domain = pci_ims_array_create_msi_irq_domain(idxd->pdev, &ims_info);
-	if (!idxd->ims_domain)
+	if (!pci_intel_idxd_create_ims_domain(idxd->pdev,
+					      idxd->reg_base + idxd->ims_offset,
+					      idxd->ims_size))
 		dev_warn(&idxd->pdev->dev, "Failed to acquire IMS domain\n");
+	dev_dbg(&idxd->pdev->dev, "IMS domain created on %s",
+		dev_name(&idxd->pdev->dev));
 }
 
 static int idxd_setup_interrupts(struct idxd_device *idxd)
@@ -841,8 +839,6 @@ static void idxd_remove(struct pci_dev *pdev)
 		idxd_disable_system_pasid(idxd);
 	idxd_device_remove_debugfs(idxd);
 
-	if (idxd->ims_domain)
-		irq_domain_remove(idxd->ims_domain);
 	irq_entry = idxd_get_ie(idxd, 0);
 	free_irq(irq_entry->vector, irq_entry);
 	pci_free_irq_vectors(pdev);
