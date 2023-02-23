@@ -1802,6 +1802,7 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 
 	return flush;
 }
+EXPORT_SYMBOL_GPL(kvm_unmap_gfn_range);
 
 bool kvm_set_spte_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 {
