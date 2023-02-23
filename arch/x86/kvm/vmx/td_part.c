@@ -814,15 +814,14 @@ static void set_control(void *data)
 {
 	struct kvm *kvm = data;
 	struct tdx_module_output out;
-	union tdx_l2_vcpu_ctls l2_ctls;
+	union tdx_l2_vcpu_ctls l2_ctls = {0};
 	u16 vm_id = kvm->arch.vm_id;
 	u64 ret;
 
 	/*
 	 * Turn off TDVMCALL and #VE for TD partitioning guests.
-	 * TODO: turn on enable_shared_eptp later
 	 */
-	l2_ctls.full = 0;
+	l2_ctls.enable_shared_eptp = 1;
 	ret = tdg_vp_write(TDX_MD_TDVPS_L2_CTLS + vm_id, l2_ctls.full, TDX_L2_CTLS_MASK, &out);
 	if (KVM_BUG_ON(ret != TDX_SUCCESS, kvm)) {
 		pr_err("%s: tdg_vp_write L2 CTLS field failed, err=%llx\n",
