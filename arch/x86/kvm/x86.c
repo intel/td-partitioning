@@ -7982,6 +7982,7 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 	bool write = ops->write;
 	struct kvm_mmio_fragment *frag;
 	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
+	struct kvm *kvm = vcpu->kvm;
 
 	/*
 	 * If the exit was due to a NPF we may already have a GPA.
@@ -7999,6 +8000,10 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 		if (ret < 0)
 			return X86EMUL_PROPAGATE_FAULT;
 	}
+
+	if (kvm_gfn_shared_mask(kvm) &&
+	    !kvm_is_private_gpa(kvm, gpa))
+		gpa &= ~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
 
 	if (!ret && ops->read_write_emulate(vcpu, gpa, val, bytes))
 		return X86EMUL_CONTINUE;
