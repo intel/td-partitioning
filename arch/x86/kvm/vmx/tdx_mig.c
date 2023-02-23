@@ -77,6 +77,7 @@ union tdx_mig_gpa_list_entry {
 #define GPA_LIST_OP_EXPORT	1
 		uint64_t operation      : 2;   // Bits 53:52
 		uint64_t reserved_1     : 2;   // Bits 55:54
+#define GPA_LIST_S_SEPT_WALK_FAILED	2
 		uint64_t status         : 5;   // Bits 56:52
 		uint64_t reserved_2     : 3;   // Bits 63:61
 	};
@@ -881,11 +882,26 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 	union tdx_mig_gpa_list_entry *gpa_list_entry = &gpa_list->entries[0];
 	hpa_t mem_buf_list_hpa, td_buf_list_hpa;
 	struct tdx_module_output out;
+	struct kvm_gfn_range gfn_range;
+	gfn_t gfn;
 	uint64_t npages, err;
 	int ret;
 
 	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;
+
+	/* The page isn't mapped on the source side sept, so unmap it. */
+	if (gpa_list->entries[0].status == GPA_LIST_S_SEPT_WALK_FAILED) {
+		gfn = (gfn_t)gpa_list->entries[0].gfn;
+		gfn_range.slot = gfn_to_memslot(&kvm_tdx->kvm, gfn);
+		gfn_range.start = gfn;
+		gfn_range.end = gfn + 1;
+		gfn_range.pte = __pte(0);
+		gfn_range.may_block = true;
+		gfn_range.flags = KVM_GFN_RANGE_FLAGS_RESTRICTED_MEM;
+
+		kvm_unmap_gfn_range(&kvm_tdx->kvm, &gfn_range);
+	}
 
 	ret = tdx_mig_td_buf_list_add(&kvm_tdx->kvm, npages, gpa_list,
 				      &stream->td_buf_list,
