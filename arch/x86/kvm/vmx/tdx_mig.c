@@ -901,6 +901,14 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 		gfn_range.flags = KVM_GFN_RANGE_FLAGS_RESTRICTED_MEM;
 
 		kvm_unmap_gfn_range(&kvm_tdx->kvm, &gfn_range);
+	} else {
+		/*
+		 * An unmapped page on the source could be mapped during the
+		 * migration process, map it accordingly. If the page has been
+		 * mapped on the destination via the pre-allocation optimization,
+		 * kvm_mmu_map_private_page won't make any update.
+		 */
+		kvm_mmu_map_private_page(&kvm_tdx->kvm, gfn);
 	}
 
 	ret = tdx_mig_td_buf_list_add(&kvm_tdx->kvm, npages, gpa_list,
