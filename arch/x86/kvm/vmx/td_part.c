@@ -288,6 +288,29 @@ void td_part_intercept_msr(struct kvm_vcpu *vcpu, u32 msr, int type)
 	}
 }
 
+int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	/*
+	 * Intel CPUs do not support 32-bit SYSCALL and writing to this MSR
+	 * is ignored by the CPU.
+	 *
+	 * To emulate this MSR, ignoring R/W from the guests seems is the
+	 * correct way, other than throw a #GP.
+	 */
+	if (msr->index == MSR_CSTAR)
+		return 0;
+
+	return vmx_set_msr(vcpu, msr);
+}
+
+int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	if (msr->index == MSR_CSTAR)
+		return 0;
+
+	return vmx_get_msr(vcpu, msr);
+}
+
 static bool set_control_cond(int cpu, void *data)
 {
 	struct kvm *kvm = data;
