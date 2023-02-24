@@ -5046,6 +5046,26 @@ static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
 }
 
 #ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	kvm_pfn_t pfn;
+
+	if (!is_tdp_mmu_enabled(kvm))
+		return -EOPNOTSUPP;
+
+	pfn = kvm_mmu_map_tdp_page(vcpu, gpa, PFERR_WRITE_MASK, PG_LEVEL_4K);
+	if (is_error_noslot_pfn(pfn) || kvm->vm_bugged) {
+		pr_err("%s: failed, noslot_pfn=%d, vm_bugged=%d\n",
+			__func__, is_error_noslot_pfn(pfn), kvm->vm_bugged);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_map_private_page);
+
 int kvm_prealloc_private_pages(struct kvm *kvm)
 {
 	struct kvm_memory_slot *memslot;

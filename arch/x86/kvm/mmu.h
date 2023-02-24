@@ -162,6 +162,8 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 			       u32 error_code, int max_level);
 
 #ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn);
+
 int kvm_prealloc_private_pages(struct kvm *kvm);
 #endif
 
