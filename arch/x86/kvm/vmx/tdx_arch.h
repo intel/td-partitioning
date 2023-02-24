@@ -145,6 +145,13 @@ enum tdx_vcpu_guest_management {
 /* @field is any of enum tdx_vcpu_guest_management */
 #define TDVPS_MANAGEMENT(field)		BUILD_TDX_FIELD(TDVPS_CLASS_MANAGEMENT, (field))
 
+enum tdx_tdxio_parameter {
+	TD_TDR_TDXIO_RND_HPA_OFFSET = 0,
+};
+
+/* @field is any of enum tdx_tdxio_parm */
+#define TDR_TDXIO(field)		BUILD_TDX_FIELD_NON_ARCH(3, (field))
+
 #define TDX_EXTENDMR_CHUNKSIZE		256
 
 struct tdx_cpuid_value {
