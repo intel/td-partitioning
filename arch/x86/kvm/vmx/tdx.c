@@ -2153,6 +2153,42 @@ static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
 	return false;
 }
 
+static void tdx_inject_notification(struct kvm_vcpu *vcpu, uint8_t vector)
+{
+	struct kvm_kernel_irq_routing_entry route;
+	struct kvm *kvm = vcpu->kvm;
+	struct msi_msg x86_msi = {
+		.arch_addr_lo  = {
+			.reserved_0 = 0,
+			.dest_mode_logical = 0,
+			.redirect_hint = 0,
+			.reserved_1 = 0,
+			.virt_destid_8_14 = 0,
+			.destid_0_7 = kvm_xapic_id(vcpu->arch.apic) & 0xff,
+		},
+		.arch_addr_hi = {
+			.reserved = 0,
+			.destid_8_31 = 0,
+		},
+		.arch_data = {
+			.vector = vector,
+			.delivery_mode = 0,
+			.dest_mode_logical = 0,
+			.reserved = 0,
+			.active_low = 0,
+			.is_level = 0,
+		},
+	};
+
+	route.msi.address_lo = x86_msi.address_lo;
+	route.msi.address_hi = x86_msi.address_hi;
+	route.msi.data = x86_msi.data;
+	route.msi.flags = 0;
+	route.msi.devid = 0;
+
+	kvm_set_msi(&route, kvm, KVM_USERSPACE_IRQ_SOURCE_ID, 1, false);
+}
+
 static int tdx_handle_service(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
@@ -2171,6 +2207,7 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	if ((nvector > 0 && nvector < 32) || nvector > 255)  {
 		pr_warn("%s: interrupt not supported, nvector %lld\n",
 			__func__, nvector);
+		nvector = 0;
 		goto err_cmd;
 	}
 
@@ -2198,6 +2235,7 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 		if (nvector) {
 			pr_warn("%s: interrupt not supported, nvector %lld\n",
 				__func__, nvector);
+			nvector = 0;
 			break;
 		}
 		need_block = tdx_handle_service_migtd(tdx, cmd_buf, resp_buf);
@@ -2227,8 +2265,12 @@ err_status:
 	if (need_block && !nvector)
 		return kvm_emulate_halt_noskip(vcpu);
 err_cmd:
-	if (ret)
+	if (ret) {
 		tdvmcall_set_return_code(vcpu, tdvmcall_ret);
+
+		if (nvector)
+			tdx_inject_notification(vcpu, nvector);
+	}
 
 	return ret;
 }
