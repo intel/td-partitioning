@@ -638,6 +638,23 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 	return ret;
 }
 
+static int private_spte_change_flags(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+				     u64 new_spte, int level)
+{
+	bool was_writable = is_writable_pte(old_spte);
+	bool is_writable = is_writable_pte(new_spte);
+
+	/* Write block. TODO: Optimize with batching */
+	if (was_writable && !is_writable) {
+		/* Sanity check: should be 4KB only */
+		KVM_BUG_ON(level != PG_LEVEL_4K, kvm);
+		static_call(kvm_x86_write_block_private_pages)(kvm,
+							(gfn_t *)&gfn, 1);
+	}
+
+	return 0;
+}
+
 static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 						    u64 old_spte, u64 new_spte,
 						    int level)
@@ -667,9 +684,13 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 			if (!ret)
 				ret = static_call(kvm_x86_split_private_spt)(kvm, gfn,
 									     level, private_spt);
-		} else if (is_leaf)
+		} else if (is_leaf) {
+			if (was_present)
+				return private_spte_change_flags(kvm, gfn,
+						old_spte, new_spte, level);
+
 			ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level, new_pfn);
-		else {
+		} else {
 			private_spt = get_private_spt(gfn, new_spte, level);
 			KVM_BUG_ON(!private_spt, kvm);
 			ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
@@ -729,6 +750,8 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	bool pfn_changed = old_pfn != new_pfn;
 	bool was_private_zapped = is_private_zapped_spte(old_spte);
 	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	bool was_writable = is_writable_pte(old_spte);
+	bool is_writable = is_writable_pte(new_spte);
 
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
@@ -827,13 +850,15 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	if (is_private &&
 	    /* Ignore change of software only bits. e.g. host_writable */
 	    (was_leaf != is_leaf || was_present != is_present || pfn_changed ||
-	     was_private_zapped != is_private_zapped)) {
+	     was_private_zapped != is_private_zapped || was_writable != is_writable)) {
 		KVM_BUG_ON(was_private_zapped && is_private_zapped, kvm);
 		/*
-		 * When write lock is held, leaf pte should be zapping or
-		 * prohibiting.  Not directly was_present=1 -> zero EPT entry.
+		 * When write lock is held, leaf pte should be zapping,
+		 * prohibiting or changing write permission, rather than
+		 * was_present=1 (i.e. zeroing EPT entry).
 		 */
-		KVM_BUG_ON(!shared && is_leaf && !is_private_zapped, kvm);
+		KVM_BUG_ON(!shared && is_leaf && !is_private_zapped &&
+			   (was_writable == is_writable), kvm);
 		return handle_changed_private_spte(kvm, gfn, old_spte, new_spte, role.level);
 	}
 	return 0;
