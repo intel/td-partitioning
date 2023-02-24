@@ -280,6 +280,9 @@ int vt_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	if (unlikely(is_td_vcpu(vcpu)))
 		return tdx_set_msr(vcpu, msr_info);
 
+	if (unlikely(is_td_part_vcpu(vcpu)))
+		return td_part_set_msr(vcpu, msr_info);
+
 	return vmx_set_msr(vcpu, msr_info);
 }
 
@@ -299,6 +302,9 @@ int vt_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	if (unlikely(is_td_vcpu(vcpu)))
 		return tdx_get_msr(vcpu, msr_info);
+
+	if (unlikely(is_td_part_vcpu(vcpu)))
+		return td_part_get_msr(vcpu, msr_info);
 
 	return vmx_get_msr(vcpu, msr_info);
 }
