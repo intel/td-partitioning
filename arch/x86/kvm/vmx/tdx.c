@@ -5082,6 +5082,9 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 void tdx_hardware_unsetup(void)
 {
+	if (!enable_ept || !enable_tdx)
+		return;
+
 	kvm_tdx_mig_stream_ops_exit();
 	mce_unregister_decode_chain(&tdx_mce_nb);
 	/* kfree accepts NULL. */
