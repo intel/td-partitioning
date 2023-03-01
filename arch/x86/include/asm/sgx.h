@@ -97,9 +97,10 @@ enum sgx_return_code {
  */
 enum sgx_miscselect {
 	SGX_MISC_EXINFO		= BIT(0),
+	SGX_MISC_CPINFO		= BIT(1),
 };
 
-#define SGX_MISC_RESERVED_MASK	GENMASK_ULL(63, 1)
+#define SGX_MISC_RESERVED_MASK	GENMASK_ULL(63, 2)
 
 #define SGX_SSA_GPRS_SIZE		184
 #define SGX_SSA_MISC_EXINFO_SIZE	16

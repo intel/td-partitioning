@@ -177,8 +177,10 @@ int __init sgx_drv_init(void)
 	/* CR4.CET is set before SGX driver initialization, and stays unchanged
 	 * at runtime.
 	 */
-	if (!(cr4_read_shadow() & X86_CR4_CET))
+	if (!(cr4_read_shadow() & X86_CR4_CET)) {
 		sgx_attributes_reserved_mask |= SGX_ATTR_CET;
+		sgx_misc_reserved_mask |= SGX_MISC_CPINFO;
+	}
 
 	if (cpu_feature_enabled(X86_FEATURE_OSXSAVE)) {
 		xfrm_mask = (((u64)edx) << 32) + (u64)ecx;

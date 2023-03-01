@@ -59,6 +59,9 @@ static void do_user_cp_fault(struct pt_regs *regs, unsigned long error_code)
 
 	cond_local_irq_enable(regs);
 
+	if (fixup_vdso_exception(regs, X86_TRAP_CP, error_code, 0))
+		goto exit;
+
 	tsk = current;
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_CP;
@@ -76,6 +79,7 @@ static void do_user_cp_fault(struct pt_regs *regs, unsigned long error_code)
 	}
 
 	force_sig_fault(SIGSEGV, SEGV_CPERR, (void __user *)0);
+exit:
 	cond_local_irq_disable(regs);
 }
 
