@@ -3526,6 +3526,18 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
 
+	entry = tdx_find_cpuid_entry(cpuid, 0x7, 0);
+	if (entry) {
+		u64 mask = __feature_bit(X86_FEATURE_HLE) |
+			   __feature_bit(X86_FEATURE_RTM);
+
+		if ((entry->ebx & mask) &&
+		    (entry->ebx & mask) != mask) {
+			pr_info_ratelimited("{HLE,RTM} must be set same!\n");
+				return -EINVAL;
+		}
+	}
+
 	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
 		const struct tdx_cpuid_config *config = &tdx_caps.cpuid_configs[i];
 		const struct kvm_cpuid_entry2 *entry =
