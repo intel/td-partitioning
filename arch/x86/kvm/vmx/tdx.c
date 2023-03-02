@@ -6267,11 +6267,234 @@ free_devifcs:
 	return ret;
 }
 
-static void tdx_tdi_devifmt_uinit(struct tdx_tdi *ttdi) { }
+union mt_node_key {
+	struct {
+		u64 base_id:60;
+		u64 level:4;
+	};
+	u64 key;
+};
+
+struct mt_node {
+	struct hlist_node hnode;
+	union mt_node_key key;
+	unsigned long va;
+	u64 pa;
+	atomic64_t cnt;
+};
+
+#define MT_HTABLE_ORDER	8
+struct mt_table {
+	DECLARE_HASHTABLE(table, MT_HTABLE_ORDER);
+	unsigned int nr_levels;
+	u8 *level_shift;
+	int (*add_node)(struct mt_node *node);
+	void (*remove_node)(struct mt_node *node);
+	int (*set_entry)(struct mt_node *node, u64 entry_id, void *data, bool set);
+};
+
+static struct mt_node *mt_node_find(struct mt_table *mt_tbl, u64 key)
+{
+	struct mt_node *n;
+
+	hash_for_each_possible(mt_tbl->table, n, hnode, key) {
+		if (n->key.key == key)
+			return n;
+	}
+
+	return NULL;
+}
+
+static int mt_entry_populate(struct mt_table *mt_tbl,
+			     u64 entry_id, unsigned int entry_lvl, void *data)
+{
+	union mt_node_key key;
+	struct mt_node *node;
+	unsigned int plvl;
+	int ret;
+
+	if (entry_lvl >= mt_tbl->nr_levels) {
+		pr_err("%s invalid level %d, table levels %d\n",
+		       __func__, entry_lvl, mt_tbl->nr_levels);
+		return -EINVAL;
+	}
+
+	for (plvl = mt_tbl->nr_levels; plvl > entry_lvl; plvl--) {
+		key.level = plvl - 1;
+		key.base_id = entry_id & ~((1ULL << mt_tbl->level_shift[key.level]) - 1);
+
+		node = mt_node_find(mt_tbl, key.key);
+		if (node) {
+			atomic64_inc(&node->cnt);
+			continue;
+		}
+
+		node = kzalloc(sizeof(*node), GFP_ATOMIC);
+		if (WARN(!node, "%s: key 0x%llx\n", __func__, key.key))
+			return -ENOMEM;
+
+		node->va = __get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!node->va) {
+			kfree(node);
+			return -ENOMEM;
+		}
+		node->pa = __pa(node->va);
+		node->key.key = key.key;
+		atomic64_set(&node->cnt, 1);
+
+		ret = mt_tbl->add_node(node);
+		if (ret) {
+			free_page(node->va);
+			kfree(node);
+			return ret;
+		}
+
+		hash_add(mt_tbl->table, &node->hnode, node->key.key);
+	}
+
+	if (mt_tbl->set_entry)
+		mt_tbl->set_entry(node, entry_id, data, true);
+
+	return 0;
+}
+
+static void mt_entry_depopulate(struct mt_table *mt_tbl,
+				u64 entry_id, unsigned int entry_lvl)
+{
+	union mt_node_key key;
+	struct mt_node *node;
+	unsigned int lvl;
+
+	pr_debug("%s: entry_id=%llx, entry_lvl=%d\n", __func__, entry_id, entry_lvl);
+
+	for (lvl = entry_lvl; lvl < mt_tbl->nr_levels; lvl++) {
+		key.level = lvl;
+		key.base_id = entry_id & ~((1ULL << mt_tbl->level_shift[key.level]) - 1);
+
+		node = mt_node_find(mt_tbl, key.key);
+		if (!node) {
+			pr_err("mmiomt remove non-existent entry key %llx\n", key.key);
+			return;
+		}
+
+		if (mt_tbl->set_entry && lvl == entry_lvl)
+			mt_tbl->set_entry(node, entry_id, NULL, false);
+
+		if (!atomic64_dec_return(&node->cnt)) {
+			mt_tbl->remove_node(node);
+			hash_del(&node->hnode);
+			free_page(node->va);
+			kfree(node);
+		}
+	}
+}
+
+union devifmt_idx {
+	struct {
+		u64 level:3;
+		u64 rsvd:29;
+		u64 func_id:32;
+	};
+	u64 raw;
+};
+
+union devifmt_entry {
+	struct {
+		u64 p:1;
+		u64 lock:1;
+		u64 rsvd1:10;
+		u64 pfn:40;
+		u64 rsvd2:12;
+	};
+	u64 raw;
+};
+
+static int tdx_devifmt_read(u64 func_id, int entry_level, union devifmt_entry *entry)
+{
+	union devifmt_idx devifmt_idx = { 0 };
+	struct tdx_module_args out;
+	u64 ret;
+
+	devifmt_idx.func_id = func_id;
+	devifmt_idx.level = entry_level;
+
+	ret = tdh_devifmt_read(devifmt_idx.raw, &out);
+	if (ret) {
+		pr_err("%s: ret %llx devifmt_idx %llx", __func__, ret, devifmt_idx.raw);
+		return -EFAULT;
+	}
+
+	entry->raw = out.rcx;
+
+	pr_debug("%s func_id=0x%llx, entry_level=%d, entry 0x%llx\n",
+		 __func__, func_id, entry_level, entry->raw);
+
+	return 0;
+}
+
+static int devif_mt_add_node(struct mt_node *node)
+{
+	int parent_entry_level = node->key.level + 1;
+	u64 base_func_id = node->key.base_id;
+	union devifmt_idx devifmt_idx = { 0 };
+	union devifmt_entry entry;
+	u64 ret;
+
+	tdx_devifmt_read(base_func_id, parent_entry_level, &entry);
+	if (entry.p) {
+		pr_err("%s parent entry is linked, but not by OS\n", __func__);
+		return -EFAULT;
+	}
+
+	devifmt_idx.func_id = base_func_id;
+	devifmt_idx.level = parent_entry_level;
+
+	ret = tdh_devifmt_add(devifmt_idx.raw, node->pa);
+	if (ret) {
+		pr_err("%s: ret %llx devifmt_idx %llx base_func_id %llx parent_entry_level %x devifmt_pa %llx\n",
+		       __func__, ret, devifmt_idx.raw, base_func_id, parent_entry_level,
+		       node->pa);
+		return -EFAULT;
+	}
+
+	tdx_devifmt_read(base_func_id, parent_entry_level, &entry);
+
+	return 0;
+}
+
+static void devif_mt_remove_node(struct mt_node *node)
+{
+	union devifmt_idx devifmt_idx = { 0 };
+	int parent_entry_level = node->key.level + 1;
+	u64 base_func_id = node->key.base_id;
+	u64 ret;
+
+	devifmt_idx.func_id = base_func_id;
+	devifmt_idx.level = parent_entry_level;
+
+	ret = tdh_devifmt_remove(devifmt_idx.raw);
+	if (ret)
+		pr_err("%s: devifmt_idx =%llx, ret=%llx\n", __func__, devifmt_idx.raw, ret);
+}
+
+static u8 devif_mt_level_shift[] = { 9, 18, 27, 32 };
+
+static struct mt_table devif_mt_table = {
+	.table = { [0 ... ((1 << (MT_HTABLE_ORDER)) - 1)] = HLIST_HEAD_INIT },
+	.nr_levels = ARRAY_SIZE(devif_mt_level_shift),
+	.level_shift = devif_mt_level_shift,
+	.add_node = devif_mt_add_node,
+	.remove_node = devif_mt_remove_node,
+};
+
+static void tdx_tdi_devifmt_uinit(struct tdx_tdi *ttdi)
+{
+	mt_entry_depopulate(&devif_mt_table, ttdi->tdi->intf_id.func_id, 0);
+}
 
 static int tdx_tdi_devifmt_init(struct tdx_tdi *ttdi)
 {
-	return 0;
+	return mt_entry_populate(&devif_mt_table, ttdi->tdi->intf_id.func_id, 0, NULL);
 }
 
 static void tdx_tdi_mmiomt_uinit(struct tdx_tdi *ttdi) { }
