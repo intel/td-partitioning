@@ -3567,6 +3567,13 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		value->ebx = entry->ebx & config->ebx;
 		value->ecx = entry->ecx & config->ecx;
 		value->edx = entry->edx & config->edx;
+
+		if (config->leaf == 0x1 &&
+		    (value->ecx & __feature_bit(X86_FEATURE_MWAIT)) &&
+		    !kvm_mwait_in_guest(kvm)) {
+			pr_info_ratelimited("Invalid mwait configuration!\n");
+			return -EINVAL;
+		}
 	}
 
 	max_pa = 36;
