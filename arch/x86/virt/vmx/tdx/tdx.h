@@ -36,6 +36,8 @@
 
 /* P-SEAMLDR SEAMCALL error codes */
 #define P_SEAMCALL_NO_ENTROPY		0x8000000000030001
+/* CPUID induced SEAMCALL error */
+#define TDX_INCORRECT_CPUID_VALUE	0xC000090000000000ULL
 
 struct cmr_info {
 	u64	base;

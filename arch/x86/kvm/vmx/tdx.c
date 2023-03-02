@@ -1037,6 +1037,12 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 		tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr_pa,
 						     vcpu->arch.regs,
 					    tdx->tdvmcall.regs_mask);
+
+		if (tdx->exit_reason.full == TDX_INCONSISTENT_MSR_TSX) {
+			pr_err_once("TDX module is outdated. Use v1.0.3 or newer.\n");
+			break;
+		}
+
 		err = tdx->exit_reason.full & TDX_SEAMCALL_STATUS_MASK;
 
 		if (retries++ > TDX_SEAMCALL_RETRY_MAX) {
