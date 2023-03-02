@@ -63,6 +63,14 @@ struct kvm_tdx {
 	int hkid;
 	struct misc_cg *misc_cg;
 
+	/*
+	 * Used on each TD-exit, see tdx_user_return_update_cache().
+	 * Since it is constant and also considering performance impact,
+	 * use a dedicated variable instead of looking up guest CPUID
+	 * leaves every time.
+	 */
+	bool tsx_enabled;
+
 	hpa_t source_pa;
 
 	bool td_initialized;
