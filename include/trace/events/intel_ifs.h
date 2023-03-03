@@ -35,6 +35,33 @@ TRACE_EVENT(ifs_status,
 		__entry->status)
 );
 
+TRACE_EVENT(ifs_sbft,
+
+	TP_PROTO(int cpu, union ifs_sbft activate, union ifs_sbft_status status),
+
+	TP_ARGS(cpu, activate, status),
+
+	TP_STRUCT__entry(
+		__field(	u64,	status	)
+		__field(	int,	cpu	)
+		__field(	u16,	bundle	)
+		__field(	u16,	pgm	)
+	),
+
+	TP_fast_assign(
+		__entry->cpu	= cpu;
+		__entry->bundle	= activate.bundle_idx;
+		__entry->pgm	= activate.pgm_idx;
+		__entry->status	= status.data;
+	),
+
+	TP_printk("cpu: %d, bundle_idx: %.4x, pgm_idx: %.4x, status: %llx",
+		__entry->cpu,
+		__entry->bundle,
+		__entry->pgm,
+		__entry->status)
+);
+
 #endif /* _TRACE_IFS_H */
 
 /* This part must be outside protection */
