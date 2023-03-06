@@ -1820,6 +1820,15 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			ret = -EFAULT;
 			goto out;
 		}
+	} else if (kvm_mmu_page_role_is_td_part(mmu->root_role)) {
+		/*
+		 * For TD Partitioning, this is a shared MMIO address.
+		 *
+		 * Do not update the shared EPT tree as it's unused by L1
+		 * and causes confusion in __tdp_mmu_zap_root().
+		 */
+		ret = RET_PF_EMULATE;
+		goto out;
 	}
 
 	raw_gfn = gpa_to_gfn(fault->addr);
