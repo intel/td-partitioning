@@ -1922,6 +1922,15 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 				return -EFAULT;
 			else
 				return RET_PF_EMULATE;
+		} else if (!fault->nonleaf && !is_private) {
+			/*
+			 * For TD Partitioning, this is a shared MMIO address.
+			 *
+			 * Do not update the shared EPT tree as it's unused by L1
+			 * and causes confusion in __tdp_mmu_zap_root().
+			 */
+			rcu_read_unlock();
+			return RET_PF_EMULATE;
 		}
 	}
 
