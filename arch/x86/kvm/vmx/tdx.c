@@ -2507,21 +2507,68 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level, void *private_spt)
 {
+	hpa_t l2sept_hpa[TDX_MAX_L2_VMS] = { [0 ... (TDX_MAX_L2_VMS - 1)] = INVALID_PAGE };
+	struct l2sept_header *headers[TDX_MAX_L2_VMS] = { NULL };
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
 	hpa_t hpa = __pa(private_spt);
-	struct tdx_module_output out;
+	struct tdx_module_output out = { 0 };
+	int i, ret = 0;
 	u64 err;
 
-	/* See comment in tdx_sept_set_private_spte() */
-	err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
-	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
-		return -EIO;
+	BUILD_BUG_ON(TDX_MAX_L2_VMS != 3);
+
+	if (KVM_BUG_ON(kvm_tdx->num_l2_vms > TDX_MAX_L2_VMS, kvm))
+		return -EINVAL;
+
+	/* Allocate L2 SEPT paging page for demotion if there is any L2 VM */
+	for (i = 0; i < kvm_tdx->num_l2_vms; i++) {
+		headers[i] = allocate_l2sept_header();
+		if (!headers[i]) {
+			ret = -ENOMEM;
+			goto free;
+		}
+		l2sept_hpa[i] = headers[i]->hpa;
 	}
 
-	return 0;
+	/* See comment in tdx_sept_set_private_spte() */
+	if (is_valid_l2_tdx_vm_index(kvm, index_to_tdx_vm_index(i)))
+		/* At least one L2 VM exist */
+		err = tdh_mem_page_demote_with_tdpart(kvm_tdx->tdr_pa, gpa, tdx_level,
+						      hpa, l2sept_hpa[0], l2sept_hpa[1],
+						      l2sept_hpa[2], &out);
+	else
+		err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
+
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
+		ret = -EIO;
+	}
+free:
+	/* Check if any L2 SEPT paging page has been consumed */
+	for (i = 0; i < kvm_tdx->num_l2_vms; i++) {
+		enum tdx_vm_index vm_index = index_to_tdx_vm_index(i);
+		hpa_t *out_hpa = tdx_module_output_for_vm(&out, vm_index);
+
+		if (!headers[i])
+			continue;
+
+		if (KVM_BUG_ON(!out_hpa, kvm)) {
+			ret = -EIO;
+			break;
+		}
+
+		/* Add the header which is consumed and free the one which isn't */
+		if (tdh_mem_page_demote_consumed(headers[i]->hpa, *out_hpa)) {
+			add_l2sept_header(kvm, vm_index, headers[i]);
+		} else {
+			tdx_set_page_present(headers[i]->hpa);
+			free_l2sept_header(headers[i]);
+		}
+	}
+
+	return ret;
 }
 
 static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
