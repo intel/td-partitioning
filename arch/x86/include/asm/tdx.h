@@ -174,6 +174,26 @@ struct tdsysinfo_struct {
 	DECLARE_FLEX_ARRAY(struct tdx_cpuid_config, cpuid_configs);
 } __packed;
 
+struct tdx_features {
+	union {
+		struct {
+			u64 td_migration:1;
+			u64 td_preserving:1;
+			u64 service_td:1;
+			u64 enhanced_metadata:1;
+			u64 relaxed_mem_mng:1;
+			u64 cpuid_virt_guest_ctrl:1;
+			u64 tdx_io:1;
+			u64 td_partitioning:1;
+			u64 local_attestation:1;
+			u64 td_entry_enhancements:1;
+			u64 host_priority_locks:1;
+			u64 reserved:54;
+		} features0;
+		u64 full;
+	};
+};
+
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 bool platform_tdx_enabled(void);
 int tdx_enable(void);
