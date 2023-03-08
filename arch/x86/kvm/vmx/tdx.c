@@ -206,6 +206,33 @@ static inline bool is_td_finalized(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->finalized;
 }
 
+static inline bool is_valid_l2_tdx_vm_index(struct kvm *kvm, enum tdx_vm_index vm_index)
+{
+	return (vm_index <= to_kvm_tdx(kvm)->num_l2_vms) ? is_l2_tdx_vm_index(vm_index) : false;
+}
+
+static inline bool is_tdx_l2sept_walking_failure(struct kvm_vcpu *vcpu, int *level,
+						 enum tdx_vm_index *vm_index)
+{
+	union tdx_ext_exit_qualification eeq = { .full = tdexit_ext_exit_qual(vcpu) };
+
+	if (to_tdx(vcpu)->exit_reason.basic != EXIT_REASON_EPT_VIOLATION)
+		return false;
+
+	if (eeq.type != EXT_EXIT_QUAL_GPA_DETAILS)
+		return false;
+
+	if (!is_valid_l2_tdx_vm_index(vcpu->kvm, eeq.vm_index))
+		return false;
+
+	if (level)
+		*level = eeq.err_sept_level;
+	if (vm_index)
+		*vm_index = eeq.vm_index;
+
+	return true;
+}
+
 static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 {
 	list_del(&to_tdx(vcpu)->cpu_list);
@@ -2675,11 +2702,22 @@ void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 	__vmx_deliver_posted_interrupt(vcpu, &tdx->pi_desc, vector);
 }
 
+static int tdx_handle_l2sept_walking_failure(struct kvm_vcpu *vcpu, int tdx_level,
+					     enum tdx_vm_index vm_index)
+{
+	/* TODO: add L2 SEPT support */
+	return -EOPNOTSUPP;
+}
+
 static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	union tdx_ext_exit_qualification ext_exit_qual;
 	unsigned long exit_qual;
 	int err_page_level = 0;
+	enum tdx_vm_index vm_index;
+
+	if (is_tdx_l2sept_walking_failure(vcpu, &err_page_level, &vm_index))
+		return tdx_handle_l2sept_walking_failure(vcpu, err_page_level, vm_index);
 
 	ext_exit_qual.full = tdexit_ext_exit_qual(vcpu);
 
