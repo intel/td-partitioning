@@ -38,7 +38,7 @@
 	  TDX_R10 | TDX_R11 | TDX_R12 | TDX_R13 | TDX_R14 | TDX_R15 )
 
 /*
- * __tdx_module_call()  - Used by TDX guests to request services from
+ * __tdx_module_call_asm()  - Used by TDX guests to request services from
  * the TDX module (does not include VMM services) using TDCALL instruction.
  *
  * Transforms function call register arguments into the TDCALL register ABI.
@@ -60,7 +60,7 @@
  *
  *-------------------------------------------------------------------------
  *
- * __tdx_module_call() function ABI:
+ * __tdx_module_call_asm() function ABI:
  *
  * @fn  (RDI)          - TDCALL Leaf ID,    moved to RAX
  * @rcx (RSI)          - Input parameter 1, moved to RCX
@@ -79,15 +79,15 @@
  *
  * Return status of TDCALL via RAX.
  */
-SYM_FUNC_START(__tdx_module_call)
+SYM_FUNC_START(__tdx_module_call_asm)
 	FRAME_BEGIN
 	TDX_MODULE_CALL host=0
 	FRAME_END
 	RET
-SYM_FUNC_END(__tdx_module_call)
+SYM_FUNC_END(__tdx_module_call_asm)
 
 /*
- * __do_tdx_hypercall() - Make hypercalls to a TDX VMM using TDVMCALL leaf
+ * __tdx_hypercall() - Make hypercalls to a TDX VMM using TDVMCALL leaf
  * of TDCALL instruction
  *
  * Transforms values in  function call argument struct tdx_hypercall_args @args
@@ -119,14 +119,14 @@ SYM_FUNC_END(__tdx_module_call)
  *
  *-------------------------------------------------------------------------
  *
- * __do_tdx_hypercall() function ABI:
+ * __tdx_hypercall() function ABI:
  *
  * @args  (RDI)        - struct tdx_hypercall_args for input and output
  * @flags (RSI)        - TDX_HCALL_* flags
  *
  * On successful completion, return the hypercall error code.
  */
-SYM_FUNC_START(__do_tdx_hypercall)
+SYM_FUNC_START(__tdx_hypercall)
 	FRAME_BEGIN
 
 	/* Save callee-saved GPRs as mandated by the x86_64 ABI */
@@ -241,4 +241,4 @@ SYM_FUNC_START(__do_tdx_hypercall)
 	/* __tdx_hypercall_failed never returns */
 	REACHABLE
 	jmp .Lpanic
-SYM_FUNC_END(__do_tdx_hypercall)
+SYM_FUNC_END(__tdx_hypercall)
