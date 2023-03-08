@@ -6602,3 +6602,83 @@ void spr_uncore_mmio_init(void)
 }
 
 /* end of SPR uncore support */
+
+/* GNR uncore support */
+
+#define UNCORE_GNR_NUM_UNCORE_TYPES	21
+
+static struct intel_uncore_type gnr_uncore_b2hot = {
+	SPR_UNCORE_COMMON_FORMAT(),
+	.name			= "b2hot",
+};
+
+static struct intel_uncore_type gnr_uncore_b2cmi = {
+	SPR_UNCORE_PCI_COMMON_FORMAT(),
+	.name			= "b2cmi",
+};
+
+static struct intel_uncore_type gnr_uncore_b2cxl = {
+	SPR_UNCORE_MMIO_COMMON_FORMAT(),
+	.name			= "b2cxl",
+};
+static struct intel_uncore_type gnr_uncore_b2upi = {
+	SPR_UNCORE_PCI_COMMON_FORMAT(),
+	.name			= "b2upi",
+};
+static struct intel_uncore_type gnr_uncore_mse = {
+	SPR_UNCORE_MMIO_COMMON_FORMAT(),
+	.name			= "mse",
+};
+
+static struct intel_uncore_type gnr_uncore_mdf_sbo = {
+	SPR_UNCORE_COMMON_FORMAT(),
+	.name			= "mdf_sbo",
+};
+
+static struct intel_uncore_type *gnr_uncores[UNCORE_GNR_NUM_UNCORE_TYPES] = {
+	&spr_uncore_chabox,
+	&spr_uncore_iio,
+	&spr_uncore_irp,
+	&spr_uncore_m2pcie,
+	&spr_uncore_pcu,
+	NULL,
+	&spr_uncore_imc,
+	&spr_uncore_m2m,
+	&spr_uncore_upi,
+	&spr_uncore_m3upi,
+	NULL,
+	&spr_uncore_mdf,
+	&spr_uncore_cxl_0,
+	&spr_uncore_cxl_1,
+	&spr_uncore_hbm,
+	&gnr_uncore_b2hot,
+	&gnr_uncore_b2cmi,
+	&gnr_uncore_b2cxl,
+	&gnr_uncore_b2upi,
+	&gnr_uncore_mse,
+	&gnr_uncore_mdf_sbo,
+};
+
+void gnr_uncore_cpu_init(void)
+{
+	uncore_msr_uncores = uncore_get_uncores(UNCORE_ACCESS_MSR, 0, NULL,
+						UNCORE_GNR_NUM_UNCORE_TYPES,
+						gnr_uncores);
+}
+
+int gnr_uncore_pci_init(void)
+{
+	uncore_pci_uncores = uncore_get_uncores(UNCORE_ACCESS_PCI, 0, NULL,
+						UNCORE_GNR_NUM_UNCORE_TYPES,
+						gnr_uncores);
+	return 0;
+}
+
+void gnr_uncore_mmio_init(void)
+{
+	uncore_mmio_uncores = uncore_get_uncores(UNCORE_ACCESS_MMIO, 0, NULL,
+						 UNCORE_GNR_NUM_UNCORE_TYPES,
+						 gnr_uncores);
+}
+
+/* end of GNR uncore support */
