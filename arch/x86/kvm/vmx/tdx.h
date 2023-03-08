@@ -109,6 +109,15 @@ struct kvm_tdx {
 	void *mig_state;
 
 	int num_l2_vms;
+	struct {
+		struct list_head head;
+		/*
+		 * The lock is to protect the head as it is possible multiple
+		 * CPU can access the head at the same time with adding or deling
+		 * entries.
+		 */
+		spinlock_t lock;
+	} l2sept_list[TDX_MAX_L2_VMS];
 };
 
 union tdx_exit_reason {
