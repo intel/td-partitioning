@@ -217,6 +217,13 @@ static inline bool is_valid_l2_tdx_vm_index(struct kvm *kvm, enum tdx_vm_index v
 	return (vm_index <= to_kvm_tdx(kvm)->num_l2_vms) ? is_l2_tdx_vm_index(vm_index) : false;
 }
 
+static inline bool is_tdx_l2vmexit(struct kvm_vcpu *vcpu)
+{
+	union tdx_exit_info exit_info = { .full = tdexit_exit_qual(vcpu) };
+
+	return is_valid_l2_tdx_vm_index(vcpu->kvm, exit_info.vm);
+}
+
 static inline bool is_tdx_l2sept_walking_failure(struct kvm_vcpu *vcpu, int *level,
 						 enum tdx_vm_index *vm_index)
 {
@@ -1132,18 +1139,23 @@ static void tdx_switch_perf_msrs(struct kvm_vcpu *vcpu)
 	}
 }
 
-u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
+u64 __tdx_vcpu_run(u64 handle_flags, void *regs, u32 regs_mask);
 
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 					struct vcpu_tdx *tdx)
 {
+	union tdx_vpenter_handle_flags handle_flags = { .full = tdx->tdvpr_pa };
 	u64 err, retries = 0;
+
+	if (tdx->resume_l1) {
+		handle_flags.resume_l1 = 1;
+		tdx->resume_l1 = false;
+	}
 
 	guest_enter_irqoff();
 	do {
-		tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr_pa,
-						     vcpu->arch.regs,
-					    tdx->tdvmcall.regs_mask);
+		tdx->exit_reason.full = __tdx_vcpu_run(handle_flags.full, vcpu->arch.regs,
+						       tdx->tdvmcall.regs_mask);
 		err = tdx->exit_reason.full & TDX_SEAMCALL_STATUS_MASK;
 
 		if (retries++ > TDX_SEAMCALL_RETRY_MAX) {
@@ -3002,6 +3014,17 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 	} else if (ext_exit_qual.type == EXT_EXIT_QUAL_ACCEPT) {
 		err_page_level = ext_exit_qual.req_sept_level + 1;
 	}
+
+	if (is_tdx_l2vmexit(vcpu))
+		/*
+		 * For EPT violation caused by accessing private memory, after handled
+		 * in L1 SEPT, resume L1 to accept the page.
+		 *
+		 * For EPT violation caused by accessing shared memory, no need to
+		 * resume L1.
+		 */
+		to_tdx(vcpu)->resume_l1 = kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu));
+
 
 	if (kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu))) {
 		/*
