@@ -112,6 +112,35 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
 		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
 }
 
+static inline int tdx_vm_index_to_index(enum tdx_vm_index vm_index)
+{
+	return vm_index - TDX_L2TD_1;
+}
+
+static inline u64 *tdx_module_output_for_vm(struct tdx_module_output *out,
+					    enum tdx_vm_index vm_index)
+{
+	/*
+	 * Out.R8 contains the correponding HPA information for
+	 * L1 VM, and Out.R9/R10/R11 contains the corresponding
+	 * HPA information of L2 VM#1/VM#2/VM#3.
+	 */
+	switch (vm_index) {
+	case TDX_L1TD:
+		return &out->r8;
+	case TDX_L2TD_1:
+		return &out->r9;
+	case TDX_L2TD_2:
+		return &out->r10;
+	case TDX_L2TD_3:
+		return &out->r11;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
 	u64 r;
