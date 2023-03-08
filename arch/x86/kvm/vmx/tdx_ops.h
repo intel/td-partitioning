@@ -344,7 +344,8 @@ static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,
 static inline u64 tdh_sys_rd(u64 fid, struct tdx_module_output *out)
 {
 	if (!is_sys_rd_supported())
-		return TDX_SYS_NOT_READY;
+		/* ORed with OPERAND_ID_RAX, which is 0 */
+		return TDX_OPERAND_INVALID;
 
 	return kvm_seamcall(TDH_SYS_RD, 0, fid, 0, 0, 0, 0, 0, 0, out);
 }
