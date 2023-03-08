@@ -3884,6 +3884,9 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		return -EOPNOTSUPP;
 	}
 	td_params->num_l2_vms = init_vm->num_l2_vms;
+	/* TDP current doesn't support large page */
+	if (td_params->num_l2_vms)
+		kvm->arch.tdp_max_page_level = PG_LEVEL_4K;
 
 	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
 		const struct tdx_cpuid_config *config = &tdx_caps.cpuid_configs[i];
