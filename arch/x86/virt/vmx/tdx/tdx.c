@@ -48,7 +48,8 @@ struct tdx_memblock {
 
 static u32 tdx_keyid_start __ro_after_init;
 static u32 nr_tdx_keyids __ro_after_init;
-static u64 tdx_features0;
+static u8 num_tdx_features;
+static struct tdx_features *tdx_features;
 
 static enum tdx_module_status_t tdx_module_status;
 /* Prevent concurrent attempts on TDX detection and initialization */
@@ -457,19 +458,52 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 		sysinfo->major_version, sysinfo->minor_version,
 		sysinfo->build_date,	sysinfo->build_num);
 
-	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_FEATURES0, 0, 0, NULL, &out);
-	if (!ret)
-		tdx_features0 = out.r8;
-	else
-		tdx_features0 = 0;
-	pr_info("TDX module: features0: %llx\n", tdx_features0);
-
 	tdx_module_sysfs_init();
 
 	/* R9 contains the actual entries written to the CMR array. */
 	print_cmrs(cmr_array, out.r9);
 
 	return 0;
+}
+
+static int __tdx_get_features(void)
+{
+	struct tdx_module_output out;
+	int i;
+	u64 ret;
+
+	ret = seamcall(TDH_SYS_RD, 0, TDX_MD_NUM_TDX_FEATURES, 0, 0, NULL, &out);
+	if (ret)
+		return ret;
+	/*
+	 * R8 contains the num of supported TDX features.
+	 * Should not enumerate TDX_FEATURES if this is zero.
+	 */
+	num_tdx_features = out.r8;
+	if (!num_tdx_features)
+		return 0;
+
+	tdx_features = kcalloc(num_tdx_features, sizeof(struct tdx_features), GFP_KERNEL);
+	if (!tdx_features)
+		goto err;
+
+	for (i = 0; i < num_tdx_features; i++) {
+		ret = seamcall(TDH_SYS_RD, 0, TDX_MD_FEATURES(i), 0, 0, NULL, &out);
+		if (ret)
+			goto free;
+
+		/* R8 contains the actual contents */
+		tdx_features[i].full = out.r8;
+		pr_info("TDX_FEATURES%d: 0x%llx\n", i, tdx_features[i].full);
+	}
+
+	return 0;
+free:
+	kfree(tdx_features);
+	tdx_features = NULL;
+err:
+	num_tdx_features = 0;
+	return -ENOMEM;
 }
 
 static DECLARE_PADDED_STRUCT(tdsysinfo_struct, tdsysinfo,
@@ -1358,7 +1392,11 @@ static int init_tdx_module_common(void)
 	if (ret)
 		return ret;
 
-	return __tdx_get_sysinfo(sysinfo, cmr_array);
+	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
+	if (ret || !sysinfo->sys_rd)
+		return ret;
+
+	return __tdx_get_features();
 }
 
 static int init_tdx_module(void)
@@ -1667,7 +1705,7 @@ static bool can_preserve_td(const struct seam_sigstruct *sigstruct)
 		return false;
 	}
 
-	if (!(tdx_features0 & TDX_FEATURES0_TD_PRES)) {
+	if (!num_tdx_features || !tdx_features[0].features0.td_preserving) {
 		pr_err("TD-preserving: TDX module doesn't support\n");
 		return false;
 	}
