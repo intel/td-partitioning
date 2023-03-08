@@ -613,6 +613,25 @@ static void tdx_binding_slots_cleanup(struct kvm_tdx *kvm_tdx)
 	spin_unlock(&kvm_tdx->binding_slot_lock);
 }
 
+static void tdx_tdpart_cleanup(struct kvm_tdx *kvm_tdx)
+{
+	struct l2sept_header *p, *n;
+	struct list_head *head;
+	hpa_t l2sept_hpa;
+	int i;
+
+	for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+		head = &kvm_tdx->l2sept_list[i].head;
+		list_for_each_entry_safe(p, n, head, node) {
+			l2sept_hpa = p->hpa;
+			if (WARN_ON(tdx_reclaim_page(l2sept_hpa, PG_LEVEL_4K, false, 0)))
+				continue;
+			list_del(&p->node);
+			free_l2sept_header(p);
+		}
+	}
+}
+
 static void tdx_vm_free_tdcs(struct kvm_tdx *kvm_tdx)
 {
 	int i;
@@ -652,6 +671,7 @@ void tdx_vm_free(struct kvm *kvm)
 	if (is_hkid_assigned(kvm_tdx))
 		return;
 
+	tdx_tdpart_cleanup(kvm_tdx);
 	tdx_binding_slots_cleanup(kvm_tdx);
 	tdx_mig_state_destroy(kvm_tdx);
 
