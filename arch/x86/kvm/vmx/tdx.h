@@ -204,6 +204,8 @@ struct vcpu_tdx {
 	struct lbr_desc lbr_desc;
 
 	unsigned long dr6;
+
+	bool resume_l1;
 };
 
 /* Table 3-42, GHCI spec */

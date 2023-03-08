@@ -210,6 +210,15 @@ struct td_params {
 #define TDX_MEMORY_RW_CHUNK_OFFSET_MASK (TDX_MEMORY_RW_CHUNK - 1)
 #define TDX_MEMORY_RW_CHUNK_MASK (~TDX_MEMORY_RW_CHUNK_OFFSET_MASK)
 
+union tdx_exit_info {
+	struct {
+		u64 exit_qual				: 32;
+		u64 vm					: 2;
+		u64 reserved34_63			: 30;
+	};
+	u64 full;
+};
+
 union tdx_ext_exit_qualification {
 	struct {
 		u64 type				:  4;
@@ -230,6 +239,17 @@ enum tdx_ext_exit_qualification_type {
 	EXT_EXIT_QUAL_ACCEPT,
 	EXT_EXIT_QUAL_GPA_DETAILS,
 	NUM_EXT_EXIT_QUAL,
+};
+
+union tdx_vpenter_handle_flags {
+	struct {
+		u64 reserved0_11			: 12;
+		u64 tdvpr_hpa				: 40;
+		u64 host_recover_hint			: 1;
+		u64 resume_l1				: 1;
+		u64 reserved54_63			: 10;
+	};
+	u64 full;
 };
 
 /* The field id used to access the metadata. Section 5 of the ABI spec */
