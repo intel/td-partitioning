@@ -629,7 +629,7 @@ int tdx_vm_init(struct kvm *kvm)
 u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 {
 	/* TDX private GPA is always WB. */
-	if (gfn & kvm_gfn_shared_mask(vcpu->kvm)) {
+	if (!(gfn & kvm_gfn_shared_mask(vcpu->kvm))) {
 		WARN_ON_ONCE(is_mmio);
 		return  MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT;
 	}
