@@ -179,11 +179,14 @@ static inline void kvm_mmu_alloc_private_spt(struct kvm_vcpu *vcpu, struct kvm_m
 	bool is_root = vcpu->arch.root_mmu.root_role.level == sp->role.level;
 
 	KVM_BUG_ON(!kvm_mmu_page_role_is_private(sp->role), vcpu->kvm);
-	if (is_root)
+	if (is_root || kvm_mmu_page_role_is_td_part(sp->role))
 		/*
 		 * Because TDX module assigns root Secure-EPT page and set it to
 		 * Secure-EPTP when TD vcpu is created, secure page table for
 		 * root isn't needed.
+		 *
+		 * For TD Partitioning, only page aliases are created and
+		 * therefore private SPTs aren't needed.
 		 */
 		sp->private_spt = NULL;
 	else {
