@@ -4943,8 +4943,11 @@ static int tdx_module_setup(void)
 		return -EIO;
 
 	features = tdx_get_features(0);
-	if (features)
+	if (features) {
 		max_num_l2_vms = features->features0.td_partitioning ? TDX_MAX_L2_VMS : 0;
+		if (features->features0.td_partitioning)
+			pr_info("tdx: td partitioning supported\n");
+	}
 
 	tdx_caps = (struct tdx_capabilities) {
 		.tdcs_nr_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,
