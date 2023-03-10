@@ -375,6 +375,39 @@ static void ifs_array_test_core(int cpu, struct device *dev)
 		ifsd->status = SCAN_TEST_PASS;
 }
 
+#define ARRAY_V1_TEST_ALL_ARRAYS	(0x0ULL)
+#define ARRAY_V1_STATUS_FAIL		(0x1ULL)
+
+static int do_array_test_atom(void *status)
+{
+	int cpu = smp_processor_id();
+	int first;
+
+	first = cpumask_first(cpu_smt_mask(cpu));
+
+	if (cpu == first) {
+		wrmsrl(MSR_ARRAY_TRIGGER, ARRAY_V1_TEST_ALL_ARRAYS);
+		rdmsrl(MSR_ARRAY_STATUS, *((u64 *)status));
+	}
+
+	return 0;
+}
+
+static void ifs_array_test_atom(int cpu, struct device *dev)
+{
+	struct ifs_data *ifsd = ifs_get_data(dev);
+	u64	status = 0;
+
+	stop_core_cpuslocked(cpu, do_array_test_atom, &status);
+	ifsd->scan_details = status;
+	dev_info(dev, "cpu %d status %.16llx\n", cpu, status);
+
+	if (status & ARRAY_V1_STATUS_FAIL)
+		ifsd->status = SCAN_TEST_FAIL;
+	else
+		ifsd->status = SCAN_TEST_PASS;
+}
+
 /*
  * Initiate per core test. It wakes up work queue threads on the target cpu and
  * its sibling cpu. Once all sibling threads wake up, the scan test gets executed and
@@ -405,7 +438,10 @@ int do_core_test(int cpu, struct device *dev)
 			ifs_test_core_gen2(cpu, dev);
 		break;
 	case IFS_TYPE_ARRAY_BIST:
-		ifs_array_test_core(cpu, dev);
+		if (ifsd->array_gen == 0)
+			ifs_array_test_core(cpu, dev);
+		else
+			ifs_array_test_atom(cpu, dev);
 		break;
 	default:
 		return -EINVAL;

@@ -137,6 +137,8 @@
 #define MSR_CHUNKS_AUTHENTICATION_STATUS	0x000002c5
 #define MSR_ACTIVATE_SCAN			0x000002c6
 #define MSR_SCAN_STATUS				0x000002c7
+#define MSR_ARRAY_TRIGGER			0x000002d6
+#define MSR_ARRAY_STATUS			0x000002d7
 #define MSR_SAF_CTRL				0x000004f0
 
 #define SCAN_NOT_TESTED				0
@@ -278,6 +280,7 @@ struct ifs_test_caps {
  * @cur_batch: number indicating the currently loaded test file
  * @test_gen: test generation revision
  * @chunk_size: size of a test chunk
+ * @array_gen: test generation of array test
  */
 struct ifs_data {
 	int	loaded_version;
@@ -289,6 +292,7 @@ struct ifs_data {
 	u32	cur_batch;
 	u32	test_gen;
 	u32	chunk_size;
+	u32	array_gen;
 };
 
 struct ifs_work {
