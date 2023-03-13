@@ -4168,7 +4168,7 @@ static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 	}
 
 	servtd_kvm = kvm_get_target_kvm(servtd.pid);
-	if (!servtd_kvm) {
+	if (!servtd_kvm || !is_td(servtd_kvm)) {
 		pr_err("%s: servtd not found, pid=%d\n", __func__, servtd.pid);
 		return -ENOENT;
 	}
