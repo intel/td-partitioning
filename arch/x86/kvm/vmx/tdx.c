@@ -28,10 +28,19 @@ struct tdvmcall_service {
 };
 
 enum tdvmcall_service_id {
-	TDVMCALL_SERVICE_ID_QUERY,
-	TDVMCALL_SERVICE_ID_MIGTD,
+	TDVMCALL_SERVICE_ID_QUERY = 0,
+	TDVMCALL_SERVICE_ID_MIGTD = 1,
 
-	TDVMCALL_SERVICE_ID_UNKNOWN,
+	TDVMCALL_SERVICE_ID_MAX,
+};
+
+static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
+	[TDVMCALL_SERVICE_ID_QUERY]	= GUID_INIT(0xfb6fc5e1, 0x3378, 0x4acb,
+						    0x89, 0x64, 0xfa, 0x5e,
+						    0xe4, 0x3b, 0x9c, 0x8a),
+	[TDVMCALL_SERVICE_ID_MIGTD]	= GUID_INIT(0xe60e6330, 0x1e09, 0x4387,
+						    0xa4, 0x44, 0x8f, 0x32,
+						    0xb8, 0xd6, 0x11, 0xe5),
 };
 
 enum tdvmcall_service_status {
@@ -1943,19 +1952,14 @@ static void tdvmcall_status_copy_and_free(struct tdvmcall_service *h_buf,
 
 static enum tdvmcall_service_id tdvmcall_get_service_id(guid_t guid)
 {
-	guid_t temp;
+	enum tdvmcall_service_id id;
 
-	temp = GUID_INIT(0xfb6fc5e1, 0x3378, 0x4acb, 0x89, 0x64,
-			 0xfa, 0x5e, 0xe4, 0x3b, 0x9c, 0x8a);
-	if (guid_equal(&guid, &temp))
-		return TDVMCALL_SERVICE_ID_QUERY;
+	for (id = 0; id < TDVMCALL_SERVICE_ID_MAX; id++) {
+		if (guid_equal(&guid, &tdvmcall_service_ids[id]))
+			break;
+	}
 
-	temp = GUID_INIT(0xe60e6330, 0x1e09, 0x4387, 0xa4, 0x44,
-			 0x8f, 0x32, 0xb8, 0xd6, 0x11, 0xe5);
-	if (guid_equal(&guid, &temp))
-		return TDVMCALL_SERVICE_ID_MIGTD;
-
-	return TDVMCALL_SERVICE_ID_UNKNOWN;
+	return id;
 }
 
 static void tdx_handle_service_query(struct tdvmcall_service *cmd_hdr,
@@ -1975,7 +1979,7 @@ static void tdx_handle_service_query(struct tdvmcall_service *cmd_hdr,
 	}
 
 	service_id = tdvmcall_get_service_id(cmd_query->guid);
-	if (service_id == TDVMCALL_SERVICE_ID_UNKNOWN)
+	if (service_id == TDVMCALL_SERVICE_ID_MAX)
 		resp_query->status = TDVMCALL_SERVICE_QUERY_S_UNSUPPORTED;
 	else
 		resp_query->status = TDVMCALL_SERVICE_QUERY_S_SUPPORTED;
