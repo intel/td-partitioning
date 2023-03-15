@@ -164,13 +164,14 @@ TRACE_EVENT(kvm_xen_hypercall,
 	TDG_VP_VMCALL(TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT)
 
 TRACE_EVENT(kvm_tdx_hypercall,
-	TP_PROTO(__u64 subfunction, __u64 reg_mask, __u64 r12, __u64 r13,
-		 __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8, __u64 r9,
-		 __u64 rdx),
+	TP_PROTO(bool l2tdvmcall, __u64 subfunction, __u64 reg_mask, __u64 r12,
+		 __u64 r13, __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8,
+		 __u64 r9, __u64 rdx),
 
-	TP_ARGS(subfunction, reg_mask, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
+	TP_ARGS(l2tdvmcall, subfunction, reg_mask, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
 
 	TP_STRUCT__entry(
+		__field(	__u64,		l2tdvmcall	)
 		__field(	__u64,		subfunction	)
 		__field(	__u64,		reg_mask	)
 		__field(	__u64,		r12		)
@@ -185,6 +186,7 @@ TRACE_EVENT(kvm_tdx_hypercall,
 	),
 
 	TP_fast_assign(
+		__entry->l2tdvmcall	= l2tdvmcall;
 		__entry->subfunction	= subfunction;
 		__entry->reg_mask	= reg_mask;
 		__entry->r12		= r12;
@@ -198,9 +200,10 @@ TRACE_EVENT(kvm_tdx_hypercall,
 		__entry->rdx		= rdx;
 	),
 
-	TP_printk("%s reg_mask 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
+	TP_printk("%s %s reg_mask 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
 		  "rbx 0x%llx rdi 0x%llx rsi 0x%llx r8 0x%llx r9 0x%llx "
 		  "rdx 0x%llx",
+		  __entry->l2tdvmcall ? "TDP L2" : "TDX L1",
 		  __print_symbolic(__entry->subfunction,
 				   kvm_trace_symbol_tdvmcall),
 		  __entry->reg_mask, __entry->r12, __entry->r13, __entry->r14,
@@ -209,12 +212,13 @@ TRACE_EVENT(kvm_tdx_hypercall,
 );
 
 TRACE_EVENT(kvm_tdx_hypercall_done,
-	TP_PROTO(__u64 subfunction, __u64 status_code, __u64 r12, __u64 r13,
-		 __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8, __u64 r9,
-		__u64 rdx),
-	TP_ARGS(subfunction, status_code, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
+	TP_PROTO(bool l2tdvmcall, __u64 subfunction, __u64 status_code, __u64 r12,
+		 __u64 r13, __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8,
+		 __u64 r9, __u64 rdx),
+	TP_ARGS(l2tdvmcall, subfunction, status_code, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
 
 	TP_STRUCT__entry(
+		__field(	__u64,		l2tdvmcall	)
 		__field(	__u64,		subfunction	)
 		__field(	__u64,		status_code	)
 		__field(	__u64,		r12		)
@@ -229,6 +233,7 @@ TRACE_EVENT(kvm_tdx_hypercall_done,
 	),
 
 	TP_fast_assign(
+		__entry->l2tdvmcall	= l2tdvmcall;
 		__entry->subfunction	= subfunction;
 		__entry->status_code	= status_code;
 		__entry->r12		= r12;
@@ -242,9 +247,10 @@ TRACE_EVENT(kvm_tdx_hypercall_done,
 		__entry->rdx		= rdx;
 	),
 
-	TP_printk("%s status_code 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
+	TP_printk("%s %s status_code 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
 		  "rbx 0x%llx rdi 0x%llx rsi 0x%llx r8 0x%llx r9 0x%llx "
 		  "rdx 0x%llx",
+		  __entry->l2tdvmcall ? "TDP L2" : "TDX L1",
 		  __print_symbolic(__entry->subfunction,
 				   kvm_trace_symbol_tdvmcall),
 		  __entry->status_code,
