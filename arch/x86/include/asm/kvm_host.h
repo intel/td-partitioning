@@ -1791,11 +1791,12 @@ struct kvm_x86_ops {
 	int (*merge_private_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				 void *private_spt);
 	int (*set_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				 kvm_pfn_t pfn);
+				 kvm_pfn_t pfn, unsigned int access);
 	int (*remove_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				    kvm_pfn_t pfn);
 	int (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
-	int (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	int (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				  unsigned int access);
 	void (*write_block_private_pages)(struct kvm *kvm, gfn_t *gfns,
 					  uint32_t num);
 	void (*write_unblock_private_page)(struct kvm *kvm, gfn_t gfn, int level);

@@ -2230,7 +2230,8 @@ static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 }
 
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
-				     enum pg_level level, kvm_pfn_t pfn)
+				     enum pg_level level, kvm_pfn_t pfn,
+				     unsigned int access)
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -2518,7 +2519,7 @@ void tdx_track(struct kvm_tdx *kvm_tdx)
 }
 
 static int tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
-				       enum pg_level level)
+				       enum pg_level level, unsigned int access)
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);

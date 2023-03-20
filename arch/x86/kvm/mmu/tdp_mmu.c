@@ -609,7 +609,14 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 		lockdep_assert_held(&kvm->mmu_lock);
 
 		if (old_pfn == new_pfn) {
-			ret = static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level);
+			unsigned int access = ACC_USER_MASK;
+
+			if (is_writable_pte(new_spte))
+				access |= ACC_WRITE_MASK;
+			if (is_executable_pte(new_spte))
+				access |= ACC_EXEC_MASK;
+			ret = static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level,
+								      access);
 		} else if (level > PG_LEVEL_4K && was_last && !is_last) {
 			/*
 			 * Splitting private_zapped large page doesn't happen.
@@ -688,11 +695,18 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 				ret = static_call(kvm_x86_split_private_spt)(kvm, gfn,
 									     level, private_spt);
 		} else if (is_leaf) {
+			unsigned int access = ACC_USER_MASK;
+
 			if (was_present)
 				return private_spte_change_flags(kvm, gfn,
 						old_spte, new_spte, level);
 
-			ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level, new_pfn);
+			if (is_writable_pte(new_spte))
+				access |= ACC_WRITE_MASK;
+			if (is_executable_pte(new_spte))
+				access |= ACC_EXEC_MASK;
+			ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level,
+								    new_pfn, access);
 		} else {
 			private_spt = get_private_spt(gfn, new_spte, level);
 			KVM_BUG_ON(!private_spt, kvm);
@@ -1509,6 +1523,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	u64 old_spte = *sptep;
 	tdp_ptep_t child_pt;
 	u64 child_spte;
+	unsigned int access;
 	int ret = 0;
 	int i;
 
@@ -1605,7 +1620,12 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	return RET_PF_RETRY;
 
 unzap:
-	if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
+	access = ACC_USER_MASK;
+	if (is_writable_pte(old_spte))
+		access |= ACC_WRITE_MASK;
+	if (is_executable_pte(old_spte))
+		access |= ACC_EXEC_MASK;
+	if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level, access))
 		old_spte = __private_zapped_spte(old_spte);
 out:
 	__kvm_tdp_mmu_write_spte(sptep, old_spte);
