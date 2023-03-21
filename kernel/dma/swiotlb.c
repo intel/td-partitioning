@@ -382,13 +382,18 @@ void __init swiotlb_init_remap(bool addressing_limit, unsigned int flags,
 	unsigned long nslabs;
 	size_t alloc_size;
 	void *tlb;
+#ifdef CONFIG_SMP
+	int ncpus = num_processors;
+#else
+	int ncpus = 1;
+#endif
 
 	if (!addressing_limit && !swiotlb_force_bounce)
 		return;
 	if (swiotlb_force_disable)
 		return;
 
-	if (mem->nareas != num_processors)
+	if (mem->nareas != ncpus)
 		swiotlb_lockless_mode = false;
 
 	if (swiotlb_lockless_mode)
