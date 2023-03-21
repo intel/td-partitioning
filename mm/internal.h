@@ -861,6 +861,7 @@ static inline void accept_memory(phys_addr_t start, phys_addr_t end)
 
 static inline bool unaccept_memory(phys_addr_t start, phys_addr_t end)
 {
+	return true;
 }
 #endif
 
