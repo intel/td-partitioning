@@ -10,6 +10,7 @@
 #include <linux/eventfd.h>
 #include <linux/anon_inodes.h>
 #include <linux/msi.h>
+#include <linux/irqchip/irq-pci-intel-idxd.h>
 #include "registers.h"
 #include "idxd.h"
 #include "vidxd.h"
@@ -88,12 +89,12 @@ static void idxd_vdcm_close(struct vfio_device *vdev)
 	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
 
 	mutex_lock(&vidxd->dev_lock);
-	/* Disable MSIX if it was set up. */
-	if  (vidxd_dev(vidxd)->msi.data) {
+	/* Disable IMS if it was enabled. */
+//	if  (ims->ims_en) {
 		idxd_vdcm_set_irqs(vidxd,
 				   VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER,
 				   VFIO_PCI_MSIX_IRQ_INDEX, 0, 0, NULL);
-	}
+//	}
 	vfio_pci_ims_free(vdev);
 	vidxd_shutdown(vidxd);
 	vfio_device_set_pasid(vdev, IOMMU_PASID_INVALID);
@@ -1424,20 +1425,15 @@ vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 	int i, rc = 0;
 	struct idxd_device *idxd = vidxd->wq->idxd;
 
-//	if  (!dev->msi.data)
-	if  (!vidxd_dev(vidxd)->msi.data)
-		return rc;
-
 	/* Restore int handle info */
-//	for (i = 1; i < ims->num; i++) {
-	for (i = 1; i < 1; i++) {
-//		u32 revoked_handle, perm_val, auxval, gpasid, pasid;
+	for (i = 1; i < 2; i++) {
 		u32 revoked_handle, perm_val, gpasid, pasid;
-//		int ims_idx = dev_msi_hwirq(dev, i - 1);
 		int ims_idx = vfio_pci_ims_hwirq(&vidxd->vdev, i);
-//		int irq = dev_msi_irq_vector(dev, i - 1);
-//		int irq = vfio_ims_msi_virq(&vidxd->vdev, i);
+		int irq = vfio_ims_msi_virq(&vidxd->vdev, i);
 		bool paside;
+
+		if (irq < 0)
+			continue;
 
 		memcpy((u8 *)&revoked_handle, &vidxd_data->ims_idx[i],
 		       sizeof(revoked_handle));
@@ -1482,7 +1478,7 @@ vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 			break;
 		}
 #endif
-//		idxd_ims_set_pasid(&idxd->pdev->dev, irq, pasid);
+		idxd_ims_set_pasid(&idxd->pdev->dev, irq, pasid);
 	}
 
 	return rc;
@@ -1635,8 +1631,6 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 				   struct vidxd_migration_file *migf)
 {
 	struct vidxd_data *vidxd_data = &migf->vidxd_data;
-//	struct device *dev = &vidxd->vdev.device;
-//	struct vfio_pci_ims *ims = &vidxd->vdev.ims;
 	struct idxd_virtual_wq *vwq;
 	int i;
 
@@ -1648,18 +1642,17 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 	memcpy(vidxd_data->bar0, (u8 *)vidxd->bar0, sizeof(vidxd->bar0));
 
 	/* Save int handle info if MIS was set up. */
-//	if  (dev->msi.data) {
-	if  (vidxd_dev(vidxd)->msi.data) {
-//		for (i = 1; i < ims->num; i++) {
-		for (i = 1; i < 1; i++) {
-//			u32 ims_idx = dev_msi_hwirq(dev, i - 1);
+	for (i = 1; i < 2; i++) {
 			u32 ims_idx = vfio_pci_ims_hwirq(&vidxd->vdev, i);
+			int irq = vfio_ims_msi_virq(&vidxd->vdev, i);
+
+			if (irq < 0)
+				continue;
 
 			/* Save the current handle in use */
 			pr_info("Saving handle %d\n", ims_idx);
 			memcpy(&vidxd_data->ims_idx[i], (u8 *)&ims_idx,
 			       sizeof(ims_idx));
-		}
 	}
 
         /* Save the queued descriptors */

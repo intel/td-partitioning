@@ -548,5 +548,37 @@ void vfio_dump_ims_entries(struct vfio_device *vdev)
 }
 EXPORT_SYMBOL_GPL(vfio_dump_ims_entries);
 
+/*
+ * Return IMS index of IMS interrupt backing MSI-X interrupt @index
+ */
+int vfio_ims_msi_virq(struct vfio_device *vdev, int index)
+{
+	struct vfio_pci_ims *ims = &vdev->ims;
+	struct vfio_pci_ims_ctx *ctx;
+	unsigned long i;
+	int virq = -1;
+
+	dev_dbg(&vdev->device, "IMS entries:\n");
+	mutex_lock(&ims->ctx_mutex);
+	xa_for_each(&ims->ctx, i, ctx) {
+		if (!ctx)
+			break;
+
+		if (i != index)
+			continue;
+
+		dev_dbg(&vdev->device, "EventFD %lu: trigger=%px, name=%s, type=%s, ims_id=%d, virq=%d\n",
+			i, ctx->trigger, ctx->name,
+			ctx->emulated ? "emulated" : "ims", ctx->ims_id,
+			ctx->virq);
+		virq = ctx->virq;
+		break;
+	}
+	mutex_unlock(&ims->ctx_mutex);
+
+	return virq;
+}
+EXPORT_SYMBOL_GPL(vfio_ims_msi_virq);
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel Corporation");

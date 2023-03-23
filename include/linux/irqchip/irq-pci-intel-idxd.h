@@ -18,5 +18,6 @@ struct pci_dev;
 
 bool pci_intel_idxd_create_ims_domain(struct pci_dev *pdev, void __iomem *slots,
 				      unsigned int nr_slots);
+void idxd_ims_set_pasid(struct device *dev, int irq, u32 pasid);
 
 #endif
