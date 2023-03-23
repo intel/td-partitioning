@@ -27,6 +27,7 @@
 #include <linux/vgaarb.h>
 #include <linux/nospec.h>
 #include <linux/sched/mm.h>
+#include <linux/cc_platform.h>
 #if IS_ENABLED(CONFIG_EEH)
 #include <asm/eeh.h>
 #endif
@@ -2193,7 +2194,20 @@ int vfio_pci_core_register_device(struct vfio_pci_core_device *vdev)
 	vfio_pci_set_power_state(vdev, PCI_D0);
 
 	dev->driver->pm = &vfio_pci_core_pm_ops;
-	pm_runtime_allow(dev);
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED)) {
+		/*
+		 * pci_pm_init is skipped for hardended guest. As VFIO is
+		 * still using runtime pm API to manage device's power, set
+		 * power state with active and enable runtime pm but forbid
+		 * it.
+		 */
+		pm_runtime_forbid(dev);
+		pm_runtime_set_active(dev);
+		pm_runtime_enable(dev);
+	} else
+		pm_runtime_allow(dev);
+
 	if (!disable_idle_d3)
 		pm_runtime_put(dev);
 
@@ -2549,7 +2563,8 @@ void vfio_pci_core_set_params(bool is_nointxmask, bool is_disable_vga,
 {
 	nointxmask = is_nointxmask;
 	disable_vga = is_disable_vga;
-	disable_idle_d3 = is_disable_idle_d3;
+	disable_idle_d3 = is_disable_idle_d3 ||
+			  cc_platform_has(CC_ATTR_GUEST_HARDENED);
 }
 EXPORT_SYMBOL_GPL(vfio_pci_core_set_params);
 
