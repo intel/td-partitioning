@@ -1013,10 +1013,9 @@ void td_part_update_reserved_gpa_bits(struct kvm_vcpu *vcpu)
 		gpaw = __ffs64(shared_mask) + 1;
 		maxphyaddr = vcpu->arch.maxphyaddr;
 
-		/* TODO allow shared bit if supported */
-		vcpu->arch.maxphyaddr = min(maxphyaddr, gpaw - 1);
+		vcpu->arch.maxphyaddr = min(maxphyaddr, gpaw);
 		vcpu->arch.reserved_gpa_bits =
-			kvm_vcpu_reserved_gpa_bits_raw(vcpu);
+			kvm_vcpu_reserved_gpa_bits_raw(vcpu) & ~shared_mask;
 		/*
 		 * Restore the original value so that vmx_need_pf_intercept()
 		 * continues to work as expected.
