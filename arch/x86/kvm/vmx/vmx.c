@@ -6218,6 +6218,25 @@ static int handle_notify(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_tdcall(struct kvm_vcpu *vcpu)
+{
+	union vmx_exit_reason exit_reason = to_vmx(vcpu)->exit_reason;
+
+	if (is_td_part_vcpu(vcpu))
+		return td_part_handle_tdcall(vcpu);
+
+	vcpu_unimpl(vcpu, "vmx: unexpected exit reason 0x%llx\n",
+		    exit_reason.full);
+	dump_vmcs(vcpu);
+	vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+	vcpu->run->internal.suberror =
+			KVM_INTERNAL_ERROR_UNEXPECTED_EXIT_REASON;
+	vcpu->run->internal.ndata = 2;
+	vcpu->run->internal.data[0] = exit_reason.full;
+	vcpu->run->internal.data[1] = vcpu->arch.last_vmentry_cpu;
+	return 0;
+}
+
 /*
  * The exit handlers return 1 if the exit was handled fully and guest execution
  * may resume.  Otherwise they set the kvm_run parameter to indicate what needs
@@ -6276,6 +6295,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_ENCLS]		      = handle_encls,
 	[EXIT_REASON_BUS_LOCK]                = handle_bus_lock_vmexit,
 	[EXIT_REASON_NOTIFY]		      = handle_notify,
+	[EXIT_REASON_TDCALL]		      = handle_tdcall,
 };
 
 static const int kvm_vmx_max_exit_handlers =

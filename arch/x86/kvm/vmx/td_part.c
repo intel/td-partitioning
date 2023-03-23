@@ -167,6 +167,34 @@ bool td_part_is_rdpmc_required(void)
 	return !(out.r8 & TDX_TD_ATTRIBUTE_PERFMON);
 }
 
+int td_part_handle_tdcall(struct kvm_vcpu *vcpu)
+{
+	struct tdx_module_output out;
+	u16 leaf = kvm_rax_read(vcpu);
+	unsigned long rax = TDX_SUCCESS;
+
+	switch (leaf) {
+	case TDX_GET_INFO:
+		__tdx_module_call(leaf, 0, 0, 0, 0, 0, 0, 0, 0, &out);
+		kvm_rcx_write(vcpu, out.rcx);
+		kvm_rdx_write(vcpu, out.rdx);
+		kvm_r8_write(vcpu, out.r8);
+		kvm_r9_write(vcpu, out.r9);
+		kvm_r10_write(vcpu, out.r10);
+		kvm_r11_write(vcpu, out.r11);
+		kvm_r12_write(vcpu, out.r12);
+		kvm_r13_write(vcpu, out.r13);
+		break;
+	default:
+		kvm_pr_unimpl("TD_PART: tdcall leaf %d not supported\n", leaf);
+		rax = TDX_OPERAND_INVALID;
+		break;
+	}
+
+	kvm_rax_write(vcpu, rax);
+	return kvm_skip_emulated_instruction(vcpu);
+}
+
 static bool is_tdg_enter_error(u64 error_code)
 {
 	switch (error_code & TDX_TDCALL_STATUS_MASK) {

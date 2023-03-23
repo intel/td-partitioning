@@ -299,6 +299,7 @@ int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitmap, u64 offset)
 void td_part_update_reserved_gpa_bits(struct kvm_vcpu *vcpu);
 fastpath_t td_part_exit_handlers_fastpath(struct kvm_vcpu *vcpu);
 void td_part_request_immediate_exit(struct kvm_vcpu *vcpu);
+int td_part_handle_tdcall(struct kvm_vcpu *vcpu);
 
 #else /* CONFIG_INTEL_TD_PART_GUEST */
 
@@ -339,6 +340,7 @@ static inline int tdg_write_msr_bitmap(struct kvm *kvm, unsigned long *msr_bitma
 static inline void td_part_update_reserved_gpa_bits(struct kvm_vcpu *vcpu) {}
 static inline fastpath_t td_part_exit_handlers_fastpath(struct kvm_vcpu *vcpu) { return EXIT_FASTPATH_NONE; }
 static inline void td_part_request_immediate_exit(struct kvm_vcpu *vcpu) {};
+static inline int td_part_handle_tdcall(struct kvm_vcpu *vcpu) { return 0; }
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 
 #endif /* __KVM_X86_TD_PART_H */
