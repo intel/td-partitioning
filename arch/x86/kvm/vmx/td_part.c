@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <linux/set_memory.h>
 #include "x86_ops.h"
 #include "vmx.h"
 #include "common.h"
@@ -167,6 +168,83 @@ bool td_part_is_rdpmc_required(void)
 	return !(out.r8 & TDX_TD_ATTRIBUTE_PERFMON);
 }
 
+static int td_part_map_gpa(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	gpa_t gpa = tdvmcall_a0_read(vcpu);
+	gpa_t size = tdvmcall_a1_read(vcpu);
+	gpa_t end = gpa + size;
+	gfn_t s = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(kvm);
+	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
+	bool enc = kvm_is_private_gpa(kvm, gpa);
+	int numpages = size >> PAGE_SHIFT;
+	unsigned long vaddr;
+	int ret;
+
+	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
+		end < gpa ||
+		end > kvm_gfn_shared_mask(kvm) << (PAGE_SHIFT + 1) ||
+		enc != kvm_is_private_gpa(kvm, end))
+		return 1;
+
+	ret = kvm_mmu_map_private(vcpu, &s, e, enc);
+	if (ret == -EAGAIN) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_RETRY);
+		tdvmcall_set_return_val(vcpu, gfn_to_gpa(s));
+		numpages = s - gpa_to_gfn(gpa);
+		pr_warn("%s: partly handled: start 0x%llx old 0x%llx pages %d\n",
+			__func__, gfn_to_gpa(s), gpa, numpages);
+	} else if (ret) {
+		pr_err("%s: failed to handle GPA 0x%llx size 0x%llx\n",
+			__func__, gpa, size);
+		return 1;
+	}
+
+	/* L2 GPA == L1 GPA */
+	vaddr = (unsigned long)__va(gpa & ~gfn_to_gpa(kvm_gfn_shared_mask(kvm)));
+	if (enc)
+		ret = set_memory_encrypted(vaddr, numpages);
+	else
+		ret = set_memory_decrypted(vaddr, numpages);
+
+	if (!ret) {
+		/* FIXME:
+		 * Remove user space mapping as well if is enc. Can reuse
+		 * private-fd solution.
+		 */
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+	}
+
+	return 1;
+}
+
+static int handle_tdvmcall(struct kvm_vcpu *vcpu)
+{
+	unsigned long leaf = tdvmcall_leaf(vcpu);
+	int r;
+
+	if (tdvmcall_exit_type(vcpu))
+		return kvm_skip_emulated_instruction(vcpu);
+
+	trace_kvm_tdx_hypercall(tdvmcall_leaf(vcpu), kvm_rcx_read(vcpu),
+				kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
+				kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
+				kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+
+	switch (leaf) {
+	case TDG_VP_VMCALL_MAP_GPA:
+		r = td_part_map_gpa(vcpu);
+		break;
+	default:
+		r = 1;
+		break;
+	}
+
+	return r && kvm_skip_emulated_instruction(vcpu);
+}
+
 int td_part_handle_tdcall(struct kvm_vcpu *vcpu)
 {
 	struct tdx_module_output out;
@@ -174,6 +252,8 @@ int td_part_handle_tdcall(struct kvm_vcpu *vcpu)
 	unsigned long rax = TDX_SUCCESS;
 
 	switch (leaf) {
+	case TDX_TDVMCALL:
+		return handle_tdvmcall(vcpu);
 	case TDX_GET_INFO:
 		__tdx_module_call(leaf, 0, 0, 0, 0, 0, 0, 0, 0, &out);
 		kvm_rcx_write(vcpu, out.rcx);
@@ -184,6 +264,9 @@ int td_part_handle_tdcall(struct kvm_vcpu *vcpu)
 		kvm_r11_write(vcpu, out.r11);
 		kvm_r12_write(vcpu, out.r12);
 		kvm_r13_write(vcpu, out.r13);
+		break;
+	case TDX_ACCEPT_PAGE:
+		/* page already accepted when handling MapGpa */
 		break;
 	default:
 		kvm_pr_unimpl("TD_PART: tdcall leaf %d not supported\n", leaf);

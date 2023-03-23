@@ -14,6 +14,7 @@
 #define TDX_IDENT		"IntelTDX    "
 
 /* TDX module Call Leaf IDs */
+#define TDX_TDVMCALL			0
 #define TDX_GET_INFO			1
 #define TDX_EXTEND_RTMR			2
 #define TDX_GET_VEINFO			3
