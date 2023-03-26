@@ -544,7 +544,8 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 		WARN_ON_ONCE(ret);
 	}
 
-	KVM_BUG_ON(is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
+	KVM_BUG_ON(!kvm_mmu_page_role_is_td_part(sp->role) &&
+		   is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
 	if (is_private_sp(sp) &&
 	    WARN_ON(static_call(kvm_x86_free_private_spt)(kvm, sp->gfn, sp->role.level,
 							  kvm_mmu_private_spt(sp)))) {
@@ -559,18 +560,22 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
 }
 
-static void *get_private_spt(gfn_t gfn, u64 new_spte, int level)
+static void *get_private_spt(gfn_t gfn, u64 new_spte, int level,
+			     struct kvm_mmu_page **spp)
 {
 	if (is_shadow_present_pte(new_spte) && !is_last_spte(new_spte, level)) {
 		struct kvm_mmu_page *sp = to_shadow_page(pfn_to_hpa(spte_to_pfn(new_spte)));
 		void *private_spt = kvm_mmu_private_spt(sp);
 
-		WARN_ON_ONCE(!private_spt);
+		WARN_ON_ONCE(!kvm_mmu_page_role_is_td_part(sp->role) &&
+			     !private_spt);
 		WARN_ON_ONCE(sp->role.level + 1 != level);
 		WARN_ON_ONCE(sp->gfn != gfn);
+		*spp = sp;
 		return private_spt;
 	}
 
+	*spp = NULL;
 	return NULL;
 }
 
@@ -680,6 +685,7 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	lockdep_assert_held(&kvm->mmu_lock);
 	if (is_present) {
+		struct kvm_mmu_page *sp;
 		void *private_spt;
 
 		if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
@@ -687,8 +693,10 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 			 * splitting large page into 4KB.
 			 * tdp_mmu_split_huage_page() => tdp_mmu_link_sp()
 			 */
-			private_spt = get_private_spt(gfn, new_spte, level);
-			KVM_BUG_ON(!private_spt, kvm);
+			private_spt = get_private_spt(gfn, new_spte, level, &sp);
+			KVM_BUG_ON(!sp ||
+				   (!kvm_mmu_page_role_is_td_part(sp->role) &&
+				    !private_spt), kvm);
 			ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
 			kvm_flush_remote_tlbs(kvm);
 			if (!ret)
@@ -708,8 +716,10 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 			ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level,
 								    new_pfn, access);
 		} else {
-			private_spt = get_private_spt(gfn, new_spte, level);
-			KVM_BUG_ON(!private_spt, kvm);
+			private_spt = get_private_spt(gfn, new_spte, level, &sp);
+			KVM_BUG_ON(!sp ||
+				   (!kvm_mmu_page_role_is_td_part(sp->role) &&
+				    !private_spt), kvm);
 			ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
 		}
 	} else if (was_leaf) {
@@ -1797,15 +1807,22 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	rcu_read_lock();
 
-	raw_gfn = gpa_to_gfn(fault->addr);
-
-	if (is_error_noslot_pfn(fault->pfn) ||
-	    !kvm_pfn_to_refcounted_page(fault->pfn)) {
-		if (is_private) {
-			rcu_read_unlock();
-			return -EFAULT;
+	if (is_private) {
+		if (is_error_noslot_pfn(fault->pfn)) {
+			if (is_error_pfn(fault->pfn))
+				ret = -EFAULT;
+			else
+				ret = kvm_mmu_page_role_is_td_part(mmu->root_role) ?
+					RET_PF_EMULATE : -EFAULT;
+			goto out;
+		} else if (!kvm_mmu_page_role_is_td_part(mmu->root_role) &&
+			   !kvm_pfn_to_refcounted_page(fault->pfn)) {
+			ret = -EFAULT;
+			goto out;
 		}
 	}
+
+	raw_gfn = gpa_to_gfn(fault->addr);
 
 	tdp_mmu_for_each_pte(iter, mmu, is_private, raw_gfn, raw_gfn + 1) {
 		int r;
@@ -1820,7 +1837,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 * retry, avoiding unnecessary page table allocation and free.
 		 */
 		if (is_removed_spte(iter.old_spte))
-			goto retry;
+			goto out;
 
 		if (iter.level == fault->goal_level)
 			goto map_target_level;
@@ -1857,7 +1874,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (r) {
 			tdp_mmu_free_sp(sp);
-			goto retry;
+			goto out;
 		}
 
 		if (fault->huge_page_disallowed &&
@@ -1874,12 +1891,12 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * iterator detected an upper level SPTE was frozen during traversal.
 	 */
 	WARN_ON_ONCE(iter.level == fault->goal_level);
-	goto retry;
+	goto out;
 
 map_target_level:
 	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
 
-retry:
+out:
 	rcu_read_unlock();
 	return ret;
 }

@@ -4725,11 +4725,6 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * !fault->slot means MMIO.  Don't require explicit GPA conversion for
 	 * MMIO because MMIO is assigned at the boot time.
 	 */
-	if (kvm_gfn_shared_mask(vcpu->kvm) &&
-	    fault->slot &&
-	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private))
-		return kvm_do_memory_fault_exit(vcpu, fault);
-
 	if (fault->slot &&
 	    fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn))
 		return kvm_do_memory_fault_exit(vcpu, fault);
