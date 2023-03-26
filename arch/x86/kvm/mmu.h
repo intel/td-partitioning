@@ -241,6 +241,8 @@ int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot
 
 int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
 
+int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
+			  bool map_private);
 int kvm_mmu_map_private(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
 			bool map_private);
 

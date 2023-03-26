@@ -7466,8 +7466,8 @@ static int mmu_map_private(struct kvm *kvm, gfn_t gfn, bool map_private)
 	return 0;
 }
 
-static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
-				 bool map_private)
+int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
+			  bool map_private)
 {
 	gfn_t start = *startp;
 	u64 attrs;
@@ -7538,6 +7538,7 @@ static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
 	}
 	return ret;
 }
+EXPORT_SYMBOL_GPL(__kvm_mmu_map_private);
 
 int kvm_mmu_map_private(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
 		    bool map_private)

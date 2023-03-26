@@ -12835,6 +12835,36 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		}
 		mmap_read_unlock(current->mm);
 	}
+
+	/*
+	 * For TD Partitioning, all guest memory starts out as private memory.
+	 *
+	 * FIXME
+	 * Since we don't use shared memory at the moment, blindly convert all
+	 * of the new memslots to private.
+	 */
+	if (kvm->arch.vm_type == KVM_X86_TD_PART_VM) {
+		if (change == KVM_MR_DELETE || change == KVM_MR_MOVE) {
+			int err = 0;
+			gfn_t gfn = old->base_gfn, end = gfn + old->npages;
+
+			while (gfn < end) {
+				err = xa_err(xa_erase(&kvm->mem_attr_array, gfn));
+				if (err)
+					break;
+				gfn++;
+			}
+			KVM_BUG_ON(err, kvm);
+		}
+		if (change == KVM_MR_CREATE || change == KVM_MR_MOVE) {
+			int err;
+			gfn_t start = new->base_gfn;
+
+			err = __kvm_mmu_map_private(kvm, &start,
+						    start + new->npages, true);
+			KVM_BUG_ON(err, kvm);
+		}
+	}
 }
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)
