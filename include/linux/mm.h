@@ -3497,6 +3497,16 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 }
 #endif
 
+#ifndef io_remap_pfn_range_encrypted
+static inline int
+io_remap_pfn_range_encrypted(struct vm_area_struct *vma,
+			     unsigned long addr, unsigned long pfn,
+			     unsigned long size, pgprot_t prot)
+{
+	return remap_pfn_range(vma, addr, pfn, size, pgprot_encrypted(prot));
+}
+#endif
+
 static inline vm_fault_t vmf_error(int err)
 {
 	if (err == -ENOMEM)

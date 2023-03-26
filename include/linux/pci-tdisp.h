@@ -223,6 +223,8 @@ struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev,
 void pci_tdi_uinit_and_free(struct pci_tdi *tdi);
 int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev);
 void pci_arch_tdisp_dev_uinit(struct pci_tdisp_dev *tdev);
+int pci_tdi_mmap_resource_range(struct pci_dev *pdev, int bar,
+				struct vm_area_struct *vma);
 #else
 static inline struct pci_tdi *pci_tdi_init(struct pci_dev *pdev,
 					   struct pci_tdi_parm parm)
@@ -244,5 +246,8 @@ static inline struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev, struc
 static inline void pci_tdi_uinit_and_free(struct pci_tdi *tdi) {};
 static inline int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev) { return -ENOTTY; }
 static inline void pci_arch_tdisp_dev_uinit(struct pci_tdisp_dev *tdev) { return; }
+static inline int pci_tdi_mmap_resource_range(struct pci_dev *pdev, int bar,
+					      struct vm_area_struct *vma)
+					      {return -ENOTSUPP;}
 #endif
 #endif /* LINUX_PCI_TDISP_H */

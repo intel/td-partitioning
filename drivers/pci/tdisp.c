@@ -500,3 +500,91 @@ int pci_tdi_process_rsp(struct pci_tdi *tdi, unsigned long rsp_va, size_t rsp_sz
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pci_tdi_process_rsp);
+
+
+static bool overlap_addr_range(u64 start_a, u64 end_a, u64 start_b, u64 end_b,
+			       u64 *start_o, u64 *end_o)
+{
+	*start_o = max(start_a, start_b);
+	*end_o = min(end_a, end_b);
+
+	if (*start_o < *end_o)
+		return true;
+
+	return false;
+}
+
+int pci_tdi_mmap_resource_range(struct pci_dev *pdev, int bar,
+				struct vm_area_struct *vma)
+{
+	struct pci_tdi *tdi = pdev->tdi;
+	struct pci_tdi_mmio *mmio;
+	u64 tdi_start, tdi_end, start, end, map_start, map_end, offset, tdi_end_max;
+	int i, ret;
+
+	if (!tdi)
+		return -EINVAL;
+
+	start = vma->vm_pgoff << PAGE_SHIFT;
+	end = start + vma->vm_end - vma->vm_start;
+
+	dev_info(&pdev->dev, "%s start:0x%llx, end:0x%llx\n", __func__, start, end);
+
+	tdi_end_max = (u64)pci_resource_start(pdev, bar);
+
+	for (i = 0; i < tdi->mmio_range_num; i++) {
+		mmio = &tdi->mmio[i];
+
+		if (mmio->id != bar)
+			continue;
+
+		/* Assume the mmio ranges start from the beginning of bar addr and have no hole */
+		tdi_start = mmio->gpa;
+		tdi_end = mmio->gpa + ((u64)mmio->pages << PAGE_SHIFT);
+		tdi_end_max = max(tdi_end, tdi_end_max);
+
+		dev_info(&pdev->dev, "%s tdi_start:0x%llx, tdi_end:0x%llx\n", __func__, tdi_start, tdi_end);
+
+		if (!overlap_addr_range(start, end, tdi_start, tdi_end, &map_start, &map_end))
+			continue;
+
+		offset = map_start - start;
+		if (mmio->is_tee) {
+			ret = io_remap_pfn_range_encrypted(vma, vma->vm_start + offset, map_start >> PAGE_SHIFT,
+							   map_end - map_start, vma->vm_page_prot);
+		} else {
+			ret = io_remap_pfn_range(vma, vma->vm_start + offset, map_start >> PAGE_SHIFT,
+						 map_end - map_start, vma->vm_page_prot);
+		}
+
+		dev_info(&pdev->dev, "%s mapped ret:%d, tee:%d map_start:0x%llx, map_end:0x%llx\n", __func__,
+			 ret, mmio->is_tee, map_start, map_end);
+
+		WARN_ON(ret);
+	}
+
+	dev_info(&pdev->dev, "%s tdi_end_max:0x%llx, phy end:0x%llx\n", __func__,
+		 tdi_end_max, pci_resource_end(pdev, bar));
+
+	/*
+	 * If the mmio ranges don't reach to the end of the bar space, or the
+	 * entire bar is not recorded in mmio ranges, handle the rest range
+	 * as decrypted.
+	 */
+	if (tdi_end_max < pci_resource_end(pdev, bar) + 1) {
+		tdi_start = tdi_end_max;
+		tdi_end = pci_resource_end(pdev, bar) + 1;
+		dev_info(&pdev->dev, "%s rest tdi_start:0x%llx, tdi_end:0x%llx\n", __func__, tdi_start, tdi_end);
+		if (overlap_addr_range(start, end, tdi_start, tdi_end, &map_start, &map_end)) {
+			offset = map_start - start;
+			ret = io_remap_pfn_range(vma, vma->vm_start + offset, map_start >> PAGE_SHIFT,
+						 map_end - map_start, vma->vm_page_prot);
+			dev_info(&pdev->dev, "%s mapped rest ret:%d, map_start:0x%llx, map_end:0x%llx\n", __func__,
+				 ret, map_start, map_end);
+			WARN_ON(ret);
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pci_tdi_mmap_resource_range);

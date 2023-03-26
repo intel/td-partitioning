@@ -171,6 +171,7 @@ u64 cc_mkenc(u64 val)
 		return val;
 	}
 }
+EXPORT_SYMBOL_GPL(cc_mkenc);
 
 u64 cc_mkdec(u64 val)
 {
