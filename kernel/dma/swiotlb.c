@@ -685,6 +685,9 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 		if (!iommu_is_span_boundary(slot_index, nslots,
 					    nr_slots(tbl_dma_addr),
 					    max_slots)) {
+			if (unlikely((slot_index + nslots) >
+				     ((area_index + 1) * mem->area_nslabs)))
+				continue;
 			if (find_next_zero_bit(mem->bitmap, slot_index + nslots,
 					       slot_index) == slot_index + nslots)
 				goto found;
