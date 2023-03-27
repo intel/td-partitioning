@@ -61,6 +61,7 @@ struct event_irq_entry {
 };
 
 static int tdx_event_irq __ro_after_init;
+static int tdx_event_irq_vector __ro_after_init;
 static LIST_HEAD(event_irq_cb_list);
 static DEFINE_SPINLOCK(event_irq_cb_lock);
 
@@ -224,6 +225,40 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_extend_rtmr);
+
+/**
+ * tdx_hcall_service() - Wrapper to request service from VMM
+ *                       using Service hypercall.
+ * @req: Address of the direct mapped command request buffer
+ *       which contains the service command.
+ * @resp: Address of the direct mapped command response buffer
+ *        to store service response.
+ * @timeout: Maximum Timeout in seconds for command request and
+ *           response.
+ *
+ * Refer to section titled "TDG.VP.VMCALL<Service>" in the TDX GHCI
+ * v1.5 specification for more information on Service hypercall.
+ * It is used in the TDX TPM driver to service TPM commands.
+ *
+ * Return 0 on success, error code on failure.
+ */
+int tdx_hcall_service(u8 *req, u8 *resp, u64 timeout)
+{
+	struct tdx_hypercall_args args = {0};
+
+	if (!tdx_event_irq)
+		return -EIO;
+
+	args.r10 = TDX_HYPERCALL_STANDARD;
+	args.r11 = TDVMCALL_SERVICE;
+	args.r12 = cc_mkdec(virt_to_phys(req));
+	args.r13 = cc_mkdec(virt_to_phys(resp));
+	args.r14 = tdx_event_irq_vector;
+	args.r15 = timeout;
+
+	return __tdx_hypercall(&args, 0);
+}
+EXPORT_SYMBOL_GPL(tdx_hcall_service);
 
 static void __noreturn tdx_panic(const char *msg)
 {
@@ -1222,6 +1257,7 @@ static int __init tdx_event_irq_init(void)
 	}
 
 	tdx_event_irq = irq;
+	tdx_event_irq_vector = cfg->vector;
 
 	return 0;
 
