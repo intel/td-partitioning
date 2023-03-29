@@ -890,9 +890,9 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;
 
+	gfn = (gfn_t)gpa_list->entries[0].gfn;
 	/* The page isn't mapped on the source side sept, so unmap it. */
 	if (gpa_list->entries[0].status == GPA_LIST_S_SEPT_WALK_FAILED) {
-		gfn = (gfn_t)gpa_list->entries[0].gfn;
 		gfn_range.slot = gfn_to_memslot(&kvm_tdx->kvm, gfn);
 		gfn_range.start = gfn;
 		gfn_range.end = gfn + 1;
