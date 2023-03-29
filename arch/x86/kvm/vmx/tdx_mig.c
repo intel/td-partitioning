@@ -271,9 +271,9 @@ static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
 		do {
 			err = tdh_export_blockw(kvm_tdx->tdr_pa,
 						gpa_list->info.val, &out);
-			if (err == TDX_INTERRUPTED_RESUMABLE)
+			if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 				gpa_list->info.val = out.rcx;
-		} while (err == TDX_INTERRUPTED_RESUMABLE);
+		} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 		if (err != TDX_SUCCESS) {
 			mig_state->bugged = true;
@@ -671,11 +671,11 @@ static int tdx_mig_export_state_immutable(struct kvm_tdx *kvm_tdx,
 						 page_list->info.val,
 						 stream_info.val,
 						 &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (err == TDX_SUCCESS) {
+	if (tdx_masked_status(err) == TDX_SUCCESS) {
 		stream->idx = stream->mbmd.data->migs_index;
 		/* Tell userspace the num of exported 4KB pages */
 		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
@@ -707,11 +707,11 @@ static int tdx_mig_import_state_immutable(struct kvm_tdx *kvm_tdx,
 						 page_list->info.val,
 						 stream_info.val,
 						 &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (err == TDX_SUCCESS) {
+	if (tdx_masked_status(err) == TDX_SUCCESS) {
 		stream->idx = stream->mbmd.data->migs_index;
 	} else {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
@@ -777,12 +777,12 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 				     stream->mac_list[1].hpa,
 				     stream_info.val,
 				     &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE) {
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
 			stream_info.resume = 1;
 			/* Update the gpa_list_info (mainly first_entry) */
 			gpa_list->info.val = out.rcx;
 		}
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	/*
 	 * It is possible that TDX module returns a general success,
@@ -795,7 +795,7 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 	 * The number of failed pages is put in the operand id field, so
 	 * we mask that part to indicate a general success of the call.
 	 */
-	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_SUCCESS) {
+	if (tdx_masked_status(err) == TDX_SUCCESS) {
 		/*
 		 * 1 for GPA list and 1 for MAC list
 		 * TODO: Improve by checking GPA list entries
@@ -940,11 +940,11 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 				     td_buf_list_hpa,
 				     stream_info.val,
 				     &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE) {
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
 			stream_info.val = 1;
 			gpa_list->info.val = out.rcx;
 		}
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err != TDX_SUCCESS) {
 		pr_err("%s failed, err=%llx\n", __func__, err);
@@ -1039,9 +1039,9 @@ static int tdx_mig_export_state_td(struct kvm_tdx *kvm_tdx,
 					  stream->page_list.info.val,
 					  stream_info.val,
 					  &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err == TDX_SUCCESS) {
 		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
@@ -1073,9 +1073,9 @@ static int tdx_mig_import_state_td(struct kvm_tdx *kvm_tdx,
 					  page_list->info.val,
 					  stream_info.val,
 					  &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err != TDX_SUCCESS) {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
@@ -1120,9 +1120,9 @@ static int tdx_mig_export_state_vp(struct kvm_tdx *kvm_tdx,
 					  stream->page_list.info.val,
 					  stream_info.val,
 					  &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err == TDX_SUCCESS) {
 		mig_state->vcpu_export_next_idx++;
@@ -1175,9 +1175,9 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 					  page_list->info.val,
 					  stream_info.val,
 					  &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err != TDX_SUCCESS) {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
@@ -1208,11 +1208,11 @@ static int tdx_restore_private_page(struct kvm *kvm, gfn_t gfn)
 	do {
 		err = tdh_export_restore(kvm_tdx->tdr_pa,
 					 gpa_list->info.val, &out);
-		if (err == TDX_INTERRUPTED_RESUMABLE)
+		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			gpa_list->info.val = out.rcx;
-	} while (err == TDX_INTERRUPTED_RESUMABLE);
+	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if ((err & TDX_SEAMCALL_STATUS_MASK) != TDX_SUCCESS) {
+	if (tdx_masked_status(err) != TDX_SUCCESS) {
 		pr_err("%s failed, err=%llx, gfn=%lx\n",
 			__func__, err, (long)gpa_list->entries[0].gfn);
 		return -EIO;
