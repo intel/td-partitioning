@@ -18,6 +18,53 @@ static bool is_host_state_field(u32 field)
 	return (((field >> 10) & 0x3) == 3);
 }
 
+u64 td_part_get_vmcs_write_mask(u32 field, u32 bits)
+{
+	u64 mask = GENMASK_ULL(bits - 1, 0);
+
+	switch (field) {
+	case EPT_POINTER:
+		mask = 0x80;
+		break;
+	case VIRTUAL_APIC_PAGE_ADDR:
+		mask = 0xFFFFFFFFFFFFF000;
+		break;
+	case 0x2040:	/* Hypervisor-managed linear-address translation pointer */
+		mask = 0xFFFFFFFFFF018;
+		break;
+	case GUEST_IA32_DEBUGCTL:
+		mask = 0xFFC1;
+		break;
+	case GUEST_IA32_EFER:
+		mask = 0x501;
+		break;
+	case CPU_BASED_VM_EXEC_CONTROL:
+		mask = 0x48F99A04;
+		break;
+	case EXCEPTION_BITMAP:
+		mask = 0xFFFFFFFFFFFBFFFF;
+		break;
+	case VM_ENTRY_CONTROLS:
+		mask = 0x200;
+		break;
+	case SECONDARY_VM_EXEC_CONTROL:
+		mask = 0xC513F0C;
+		break;
+	case TERTIARY_VM_EXEC_CONTROL:
+		mask = 0xE;
+		break;
+	case GUEST_CR0:
+		mask = 0x8005001F;
+		break;
+	case GUEST_CR4:
+		mask = 0x3FF1FBF;
+		break;
+	default:
+		break;
+	}
+	return mask;
+}
+
 static bool is_writable_field(u32 field)
 {
 	switch (field) {

@@ -186,6 +186,7 @@ static inline u64 tdg_vp_invvpid(union tdx_vmid_flags flags,
 
 bool is_field_ignore_read(u32 field);
 bool is_field_ignore_write(u32 field);
+u64 td_part_get_vmcs_write_mask(u32 field, u32 bits);
 
 #define TDG_BUILD_TDVPS_ACCESSORS(bits, elem_size, uclass, lclass)		\
 static __always_inline u##bits tdg_##lclass##_read##bits(struct kvm_vcpu *vcpu, \
@@ -218,7 +219,7 @@ static __always_inline void tdg_##lclass##_write##bits(struct kvm_vcpu *vcpu,	\
 	field |= ((u64)vcpu->kvm->arch.vm_id << 32);				\
 	tdvps_##lclass##_check(field, bits);				\
 	err = tdg_vp_write(TDG_TDVPS_##uclass(field) | ((u64)elem_size << 32) | (1UL << 51),	\
-			val, GENMASK_ULL(bits - 1, 0), &out);			\
+			val, td_part_get_vmcs_write_mask(field, bits), &out);	\
 	if (unlikely(err)) {							\
 		pr_err_ratelimited("TDG_VP_WR["#uclass".0x%llx] = 0x%llx failed: 0x%llx\n", \
 			field, (u64)val, err);					\
