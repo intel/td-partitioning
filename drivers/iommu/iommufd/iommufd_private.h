@@ -251,6 +251,8 @@ iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 			   union iommu_domain_user_data *user_data,
 			   bool immediate_attach);
 int iommufd_hw_pagetable_enforce_cc(struct iommufd_hw_pagetable *hwpt);
+int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
+				   phys_addr_t sw_msi_start);
 int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
 				struct iommufd_device *idev);
 struct iommufd_hw_pagetable *
@@ -285,7 +287,6 @@ struct iommufd_group {
 	struct iommu_group *group;
 	struct iommufd_hw_pagetable *hwpt;
 	struct list_head device_list;
-	phys_addr_t sw_msi_start;
 };
 
 /*
@@ -310,6 +311,7 @@ struct iommufd_device {
 	u32 default_pasid;
 	bool enforce_cache_coherency;
 	bool has_user_data;
+	phys_addr_t sw_msi_start;
 };
 
 static inline struct iommufd_device *

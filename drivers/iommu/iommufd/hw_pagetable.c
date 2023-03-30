@@ -77,6 +77,41 @@ static int iommufd_hw_pagetable_link_ioas(struct iommufd_hw_pagetable *hwpt)
 	return 0;
 }
 
+int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
+				   phys_addr_t sw_msi_start)
+{
+	int rc;
+
+	/*
+	 * If the IOMMU driver gives a IOMMU_RESV_SW_MSI then it is asking us to
+	 * call iommu_get_msi_cookie() on its behalf. This is necessary to setup
+	 * the MSI window so iommu_dma_prepare_msi() can install pages into our
+	 * domain after request_irq(). If it is not done interrupts will not
+	 * work on this domain. The msi_cookie should be always set into the
+	 * kernel-managed (parent) domain.
+	 *
+	 * FIXME: This is conceptually broken for iommufd since we want to allow
+	 * userspace to change the domains, eg switch from an identity IOAS to a
+	 * DMA IOAS. There is currently no way to create a MSI window that
+	 * matches what the IRQ layer actually expects in a newly created
+	 * domain.
+	 */
+	if (hwpt->parent)
+		hwpt = hwpt->parent;
+	if (sw_msi_start != PHYS_ADDR_MAX && !hwpt->msi_cookie) {
+		rc = iommu_get_msi_cookie(hwpt->domain, sw_msi_start);
+		if (rc)
+			return rc;
+
+		/*
+		 * iommu_get_msi_cookie() can only be called once per domain,
+		 * it returns -EBUSY on later calls.
+		 */
+		hwpt->msi_cookie = true;
+	}
+	return 0;
+}
+
 /**
  * iommufd_hw_pagetable_alloc() - Get an iommu_domain for a device
  * @ictx: iommufd context
