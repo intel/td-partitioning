@@ -20,6 +20,9 @@ struct iommu_group;
 
 struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 					   struct device *dev, u32 *id);
+struct iommufd_device *iommufd_device_bind_pasid(struct iommufd_ctx *ictx,
+						 struct device *dev,
+						 u32 pasid, u32 *id);
 void iommufd_device_unbind(struct iommufd_device *idev);
 
 int iommufd_device_attach(struct iommufd_device *idev, u32 *pt_id);

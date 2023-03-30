@@ -139,8 +139,10 @@ void iommufd_device_destroy(struct iommufd_object *obj)
 	WARN_ON(!xa_empty(&idev->pasid_hwpts));
 	if (idev->has_user_data)
 		dev_iommu_ops(idev->dev)->unset_dev_user_data(idev->dev);
-	iommu_device_release_dma_owner(idev->dev);
-	iommufd_put_group(idev->igroup);
+	if (idev->igroup) {
+		iommu_device_release_dma_owner(idev->dev);
+		iommufd_put_group(idev->igroup);
+	}
 	if (!iommufd_selftest_is_mock_dev(idev->dev))
 		iommufd_ctx_put(idev->ictx);
 }
@@ -256,6 +258,71 @@ out_group_put:
 	return ERR_PTR(rc);
 }
 EXPORT_SYMBOL_NS_GPL(iommufd_device_bind, IOMMUFD);
+
+/**
+ * iommufd_device_bind_pasid - Bind a virtual device to an iommu fd
+ * @ictx: iommufd file descriptor
+ * @dev: Pointer to the parent physical device struct
+ * @pasid: the pasid value representing vRID of this virtual device
+ * @id: Output ID number to return to userspace for this device
+ *
+ * The virtual device always tags its DMA with the provided pasid.
+ * A successful bind allows the pasid to be used in other iommufd
+ * operations e.g. attach/detach and returns struct iommufd_device
+ * pointer, otherwise returns error pointer.
+ *
+ * There is no ownership check per pasid. A driver using this API
+ * must already claim the DMA ownership over the parent device and
+ * the pasid is allocated by the driver itself.
+ *
+ * PASID is a device capability so unlike iommufd_device_bind() it
+ * has no iommu group associated.
+ *
+ * The caller must undo this with iommufd_device_unbind()
+ */
+struct iommufd_device *iommufd_device_bind_pasid(struct iommufd_ctx *ictx,
+						 struct device *dev,
+						 u32 pasid, u32 *id)
+{
+	struct iommufd_device *idev;
+	int rc;
+
+	/*
+	 * iommufd always sets IOMMU_CACHE because we offer no way for userspace
+	 * to restore cache coherency.
+	 */
+	if (!device_iommu_capable(dev, IOMMU_CAP_CACHE_COHERENCY))
+		return ERR_PTR(-EINVAL);
+
+	/*
+	 * No iommu supports pasid-granular msi message today. Here we
+	 * just check whether the parent device can do safe interrupts.
+	 * Isolation between virtual devices within the parent device
+	 * relies on the parent driver to enforce.
+	 */
+	if (!iommufd_selftest_is_mock_dev(dev) &&
+	    !msi_device_has_isolated_msi(dev)) {
+		rc = iommufd_allow_unsafe_interrupts(dev);
+		if (rc)
+			return ERR_PTR(rc);
+	}
+
+	idev = iommufd_alloc_device(ictx, dev);
+	if (IS_ERR(idev))
+		return idev;
+	idev->default_pasid = pasid;
+
+	/*
+	 * If the caller fails after this success it must call
+	 * iommufd_unbind_device() which is safe since we hold this refcount.
+	 * This also means the device is a leaf in the graph and no other object
+	 * can take a reference on it.
+	 */
+	iommufd_object_finalize(ictx, &idev->obj);
+	*id = idev->obj.id;
+	return idev;
+}
+EXPORT_SYMBOL_NS_GPL(iommufd_device_bind_pasid, IOMMUFD);
 
 /**
  * iommufd_ctx_has_group - True if any device within the group is bound
