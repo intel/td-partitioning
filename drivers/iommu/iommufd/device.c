@@ -145,6 +145,25 @@ void iommufd_device_destroy(struct iommufd_object *obj)
 		iommufd_ctx_put(idev->ictx);
 }
 
+/*
+ * For historical compat with VFIO the insecure interrupt path is
+ * allowed if the module parameter is set. Insecure means that a MemWr
+ * operation from the device (eg a simple DMA) cannot trigger an
+ * interrupt outside this iommufd context.
+ */
+static int iommufd_allow_unsafe_interrupts(struct device *dev)
+{
+	if (!allow_unsafe_interrupts)
+		return -EPERM;
+
+	dev_warn(
+		dev,
+		"MSI interrupts are not secure, they cannot be isolated by the platform. "
+		"Check that platform features like interrupt remapping are enabled. "
+		"Use the \"allow_unsafe_interrupts\" module parameter to override\n");
+	return 0;
+}
+
 /**
  * iommufd_device_bind - Bind a physical device to an iommu fd
  * @ictx: iommufd file descriptor
@@ -179,24 +198,11 @@ struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 	if (IS_ERR(igroup))
 		return ERR_CAST(igroup);
 
-	/*
-	 * For historical compat with VFIO the insecure interrupt path is
-	 * allowed if the module parameter is set. Secure/Isolated means that a
-	 * MemWr operation from the device (eg a simple DMA) cannot trigger an
-	 * interrupt outside this iommufd context.
-	 */
 	if (!iommufd_selftest_is_mock_dev(dev) &&
 	    !iommu_group_has_isolated_msi(igroup->group)) {
-		if (!allow_unsafe_interrupts) {
-			rc = -EPERM;
+		rc = iommufd_allow_unsafe_interrupts(dev);
+		if (rc)
 			goto out_group_put;
-		}
-
-		dev_warn(
-			dev,
-			"MSI interrupts are not secure, they cannot be isolated by the platform. "
-			"Check that platform features like interrupt remapping are enabled. "
-			"Use the \"allow_unsafe_interrupts\" module parameter to override\n");
 	}
 
 	rc = iommu_device_claim_dma_owner(dev, ictx);
