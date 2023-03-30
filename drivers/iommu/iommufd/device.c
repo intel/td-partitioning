@@ -164,6 +164,25 @@ static int iommufd_allow_unsafe_interrupts(struct device *dev)
 	return 0;
 }
 
+static struct iommufd_device *iommufd_alloc_device(struct iommufd_ctx *ictx,
+						   struct device *dev)
+{
+	struct iommufd_device *idev;
+
+	idev = iommufd_object_alloc(ictx, idev, IOMMUFD_OBJ_DEVICE);
+	if (IS_ERR(idev))
+		return idev;
+	idev->ictx = ictx;
+	if (!iommufd_selftest_is_mock_dev(dev))
+		iommufd_ctx_get(ictx);
+	idev->dev = dev;
+	idev->enforce_cache_coherency =
+		device_iommu_capable(dev, IOMMU_CAP_ENFORCE_CACHE_COHERENCY);
+	/* The calling driver is a user until iommufd_device_unbind() */
+	refcount_inc(&idev->obj.users);
+	return idev;
+}
+
 /**
  * iommufd_device_bind - Bind a physical device to an iommu fd
  * @ictx: iommufd file descriptor
@@ -209,19 +228,12 @@ struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
 	if (rc)
 		goto out_group_put;
 
-	idev = iommufd_object_alloc(ictx, idev, IOMMUFD_OBJ_DEVICE);
+	idev = iommufd_alloc_device(ictx, dev);
 	if (IS_ERR(idev)) {
 		rc = PTR_ERR(idev);
 		goto out_release_owner;
 	}
-	idev->ictx = ictx;
-	if (!iommufd_selftest_is_mock_dev(dev))
-		iommufd_ctx_get(ictx);
-	idev->dev = dev;
-	idev->enforce_cache_coherency =
-		device_iommu_capable(dev, IOMMU_CAP_ENFORCE_CACHE_COHERENCY);
-	/* The calling driver is a user until iommufd_device_unbind() */
-	refcount_inc(&idev->obj.users);
+
 	/* igroup refcount moves into iommufd_device */
 	idev->igroup = igroup;
 
