@@ -407,6 +407,9 @@ int vfio_device_block_group(struct vfio_device *device)
 	struct vfio_group *group = device->group;
 	int ret = 0;
 
+	if (!group)
+		return 0;
+
 	mutex_lock(&group->group_lock);
 	if (group->opened_file) {
 		ret = -EBUSY;
@@ -424,6 +427,8 @@ void vfio_device_unblock_group(struct vfio_device *device)
 {
 	struct vfio_group *group = device->group;
 
+	if (!group)
+		return;
 	mutex_lock(&group->group_lock);
 	group->cdev_device_open_cnt--;
 	mutex_unlock(&group->group_lock);
@@ -704,6 +709,10 @@ int vfio_device_set_group(struct vfio_device *device,
 {
 	struct vfio_group *group;
 
+	/* No group associate with a device with pasid */
+	if (type == VFIO_PASID_IOMMU)
+		return 0;
+
 	if (type == VFIO_IOMMU)
 		group = vfio_group_find_or_alloc(device->dev);
 	else
@@ -721,6 +730,9 @@ void vfio_device_remove_group(struct vfio_device *device)
 {
 	struct vfio_group *group = device->group;
 	struct iommu_group *iommu_group;
+
+	if (!group)
+		return;
 
 	if (group->type == VFIO_NO_IOMMU || group->type == VFIO_EMULATED_IOMMU)
 		iommu_group_remove_device(device->dev);
@@ -766,6 +778,9 @@ void vfio_device_remove_group(struct vfio_device *device)
 
 void vfio_device_group_register(struct vfio_device *device)
 {
+	if (!device->group)
+		return;
+
 	mutex_lock(&device->group->device_lock);
 	list_add(&device->group_next, &device->group->device_list);
 	mutex_unlock(&device->group->device_lock);
@@ -773,6 +788,9 @@ void vfio_device_group_register(struct vfio_device *device)
 
 void vfio_device_group_unregister(struct vfio_device *device)
 {
+	if (!device->group)
+		return;
+
 	mutex_lock(&device->group->device_lock);
 	list_del(&device->group_next);
 	mutex_unlock(&device->group->device_lock);

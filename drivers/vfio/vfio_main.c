@@ -335,6 +335,16 @@ int vfio_register_emulated_iommu_dev(struct vfio_device *device)
 EXPORT_SYMBOL_GPL(vfio_register_emulated_iommu_dev);
 
 /*
+ * Register a virtual device with IOMMU pasid protection. The user of
+ * this device can trigger DMA as long as all of its outgoing DMAs are
+ * always tagged with a pasid.
+ */
+int vfio_register_pasid_iommu_dev(struct vfio_device *device)
+{
+	return __vfio_register_dev(device, VFIO_PASID_IOMMU);
+}
+
+/*
  * Decrement the device reference count and wait for the device to be
  * removed.  Open file descriptors for the device... */
 void vfio_unregister_group_dev(struct vfio_device *device)
