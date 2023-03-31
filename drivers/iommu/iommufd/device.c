@@ -180,6 +180,7 @@ static struct iommufd_device *iommufd_alloc_device(struct iommufd_ctx *ictx,
 	idev->enforce_cache_coherency =
 		device_iommu_capable(dev, IOMMU_CAP_ENFORCE_CACHE_COHERENCY);
 	idev->sw_msi_start = PHYS_ADDR_MAX;
+	xa_init(&idev->pasid_hwpts);
 	/* The calling driver is a user until iommufd_device_unbind() */
 	refcount_inc(&idev->obj.users);
 	return idev;
@@ -416,8 +417,8 @@ static void iommufd_hw_pagetable_undo_attach(struct iommufd_hw_pagetable *hwpt,
 	iopt_remove_reserved_iova(&hwpt->ioas->iopt, idev->dev);
 }
 
-int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
-				struct iommufd_device *idev)
+static int iommufd_hw_pagetable_attach_group(struct iommufd_hw_pagetable *hwpt,
+					     struct iommufd_device *idev)
 {
 	int rc;
 
@@ -456,19 +457,72 @@ err_unlock:
 	return rc;
 }
 
+static int
+iommufd_hw_pagetable_attach_pasid(struct iommufd_hw_pagetable *hwpt,
+				  struct iommufd_device *idev, u32 pasid)
+{
+	struct iommufd_hw_pagetable *old_hwpt;
+	int rc;
+
+	old_hwpt = xa_load(&idev->pasid_hwpts, pasid);
+	if (old_hwpt) {
+		if (old_hwpt == hwpt)
+			return 0;
+		else
+			return -EINVAL;
+	}
+
+	rc = iommufd_hw_pagetable_prepare_attach(hwpt, idev, true);
+	if (rc)
+		return rc;
+
+	rc = iommu_attach_device_pasid(hwpt->domain, idev->dev, pasid);
+	if (rc)
+		goto err_undo_attach;
+
+	xa_store(&idev->pasid_hwpts, pasid, hwpt, GFP_KERNEL);
+	refcount_inc(&hwpt->obj.users);
+	return 0;
+
+err_undo_attach:
+	iommufd_hw_pagetable_undo_attach(hwpt, idev);
+	return rc;
+}
+
+int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
+				struct iommufd_device *idev)
+{
+	int rc = -EINVAL;
+
+	if (idev->igroup)
+		rc = iommufd_hw_pagetable_attach_group(hwpt, idev);
+	if (idev->default_pasid)
+		rc = iommufd_hw_pagetable_attach_pasid(hwpt, idev, idev->default_pasid);
+	return rc;
+}
+
 struct iommufd_hw_pagetable *
 iommufd_hw_pagetable_detach(struct iommufd_device *idev)
 {
-	struct iommufd_hw_pagetable *hwpt = idev->igroup->hwpt;
+	struct iommufd_hw_pagetable *hwpt;
 
-	mutex_lock(&idev->igroup->lock);
-	list_del(&idev->group_item);
-	if (list_empty(&idev->igroup->device_list)) {
-		iommu_detach_group(hwpt->domain, idev->igroup->group);
-		idev->igroup->hwpt = NULL;
+	if (idev->igroup) {
+		mutex_lock(&idev->igroup->lock);
+		hwpt = idev->igroup->hwpt;
+		list_del(&idev->group_item);
+		if (list_empty(&idev->igroup->device_list)) {
+			iommu_detach_group(hwpt->domain, idev->igroup->group);
+			idev->igroup->hwpt = NULL;
+		}
+	} else {
+		u32 pasid = idev->default_pasid;
+		hwpt = xa_load(&idev->pasid_hwpts, pasid);
+		iommu_detach_device_pasid(hwpt->domain, idev->dev, pasid);
+		xa_erase(&idev->pasid_hwpts, pasid);
 	}
 	iommufd_hw_pagetable_undo_attach(hwpt, idev);
-	mutex_unlock(&idev->igroup->lock);
+	if (idev->igroup)
+		mutex_unlock(&idev->igroup->lock);
 
 	/* Caller must destroy hwpt */
 	return hwpt;
@@ -487,8 +541,8 @@ iommufd_device_do_attach(struct iommufd_device *idev,
 }
 
 static struct iommufd_hw_pagetable *
-iommufd_device_do_replace(struct iommufd_device *idev,
-			  struct iommufd_hw_pagetable *hwpt)
+iommufd_device_do_replace_group(struct iommufd_device *idev,
+				struct iommufd_hw_pagetable *hwpt)
 {
 	struct iommufd_group *igroup = idev->igroup;
 	struct iommufd_hw_pagetable *old_hwpt;
@@ -549,6 +603,59 @@ err_unresv:
 err_unlock:
 	mutex_unlock(&idev->igroup->lock);
 	return ERR_PTR(rc);
+}
+
+static struct iommufd_hw_pagetable *
+iommufd_device_do_replace_pasid(struct iommufd_device *idev,
+				struct iommufd_hw_pagetable *hwpt, u32 pasid)
+{
+	struct iommufd_hw_pagetable *old_hwpt;
+	bool enforce_resv = false;
+	int rc;
+
+	old_hwpt = xa_load(&idev->pasid_hwpts, pasid);
+	if (!old_hwpt)
+		return ERR_PTR(-EINVAL);
+
+	if (hwpt == old_hwpt)
+		return NULL;
+
+	if (hwpt->ioas != old_hwpt->ioas)
+		enforce_resv = true;
+
+	rc = iommufd_hw_pagetable_prepare_attach(hwpt, idev, enforce_resv);
+	if (rc)
+		return ERR_PTR(rc);
+
+	// FIXME: need a pasid replace API
+	rc = iommu_attach_device_pasid(hwpt->domain, idev->dev,	pasid);
+	if (rc)
+		goto err_undo_attach;
+
+	if (hwpt->ioas != old_hwpt->ioas)
+		iommufd_hw_pagetable_undo_attach(old_hwpt, idev);
+
+	xa_store(&idev->pasid_hwpts, pasid, hwpt, GFP_KERNEL);
+	refcount_inc(&hwpt->obj.users);
+
+	/* Caller must destroy old_hwpt */
+	return old_hwpt;
+err_undo_attach:
+	iommufd_hw_pagetable_undo_attach(hwpt, idev);
+	return ERR_PTR(rc);
+}
+
+static struct iommufd_hw_pagetable *
+iommufd_device_do_replace(struct iommufd_device *idev,
+			  struct iommufd_hw_pagetable *hwpt)
+{
+	struct iommufd_hw_pagetable *old_hwpt = ERR_PTR(-EINVAL);
+
+	if (idev->igroup)
+		old_hwpt = iommufd_device_do_replace_group(idev, hwpt);
+	else if (idev->default_pasid)
+		old_hwpt = iommufd_device_do_replace_pasid(idev, hwpt, idev->default_pasid);
+	return old_hwpt;
 }
 
 typedef struct iommufd_hw_pagetable *(*attach_fn)(
