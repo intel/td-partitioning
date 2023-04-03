@@ -67,6 +67,7 @@ struct ve_info {
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 extern int tdx_notify_irq;
+extern int registered_cpu;
 
 void __init tdx_early_init(void);
 bool tdx_debug_enabled(void);
@@ -92,6 +93,8 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index);
 int tdx_hcall_get_quote(void *tdquote, int size);
 
 bool tdx_allowed_port(short int port);
+
+int tdx_hcall_setup_notify_intr(void *arg);
 
 #else
 

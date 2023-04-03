@@ -54,6 +54,9 @@
 int tdx_notify_irq = -1;
 EXPORT_SYMBOL_GPL(tdx_notify_irq);
 
+int registered_cpu = -1;
+EXPORT_SYMBOL_GPL(registered_cpu);
+
 /* Caches TD Attributes from TDG.VP.INFO TDCALL */
 static u64 td_attr;
 static u64 cc_mask;
@@ -252,6 +255,42 @@ int tdx_hcall_get_quote(void *tdquote, int size)
 	return __tdx_hypercall(&args, 0);
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
+
+/**
+ * tdx_hcall_setup_notify_intr() - Wrapper to setup notify intr
+ *                                 using hypercall.
+ *
+ * Return 0 on success, -EINVAL for invalid operands, or -EIO on
+ * other TDCALL failures.
+ */
+int tdx_hcall_setup_notify_intr(void *arg)
+{
+	struct irq_cfg *cfg;
+
+	if (tdx_notify_irq < 0) {
+		pr_err("Event notification tdx_notify_irq config not found\n");
+		return -EIO;
+	}
+
+	cfg = irq_cfg(tdx_notify_irq);
+	if (!cfg) {
+		pr_err("Event notification IRQ config not found\n");
+		return -EIO;
+	}
+	struct tdx_hypercall_args args = {0};
+	args.r10 = TDX_HYPERCALL_STANDARD;
+	args.r11 = TDVMCALL_SETUP_NOTIFY_INTR;
+	args.r12 = cfg->vector;
+
+	/*
+	 * Pass the physical address of TDREPORT to the VMM and
+	 * trigger the Quote generation. It is not a blocking
+	 * call, hence completion of this request will be notified to
+	 * the TD guest via a callback interrupt.
+	 */
+	return __tdx_hypercall(&args, 0);
+}
+EXPORT_SYMBOL_GPL(tdx_hcall_setup_notify_intr);
 
 static void __noreturn tdx_panic(const char *msg)
 {
@@ -1150,7 +1189,6 @@ static int __init tdx_arch_init(void)
 {
 	struct irq_alloc_info info;
 	cpumask_t saved_cpus;
-	struct irq_cfg *cfg;
 	int cpu;
 
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
@@ -1164,6 +1202,7 @@ static int __init tdx_arch_init(void)
 	 * So set the IRQ affinity to the current CPU.
 	 */
 	cpu = get_cpu();
+	registered_cpu = cpu;
 
 	saved_cpus = *current->cpus_ptr;
 
@@ -1184,19 +1223,13 @@ static int __init tdx_arch_init(void)
 
 	irq_set_handler(tdx_notify_irq, handle_edge_irq);
 
-	cfg = irq_cfg(tdx_notify_irq);
-	if (!cfg) {
-		pr_err("Event notification IRQ config not found\n");
-		goto init_failed;
-	}
-
 	/*
 	 * Register callback vector address with VMM. More details
 	 * about the ABI can be found in TDX Guest-Host-Communication
 	 * Interface (GHCI), sec titled
 	 * "TDG.VP.VMCALL<SetupEventNotifyInterrupt>".
 	 */
-	if (_tdx_hypercall(TDVMCALL_SETUP_NOTIFY_INTR, cfg->vector, 0, 0, 0)) {
+	if (tdx_hcall_setup_notify_intr(NULL)) {
 		pr_err("Setting event notification interrupt failed\n");
 		goto init_failed;
 	}
