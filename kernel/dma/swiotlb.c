@@ -655,6 +655,11 @@ static void swiotlb_bounce(struct device *dev, phys_addr_t tlb_addr, size_t size
 	}
 }
 
+static inline unsigned long io_tlb_offset(unsigned long val)
+{
+	return val & (IO_TLB_SEGSIZE - 1);
+}
+
 static inline phys_addr_t slot_addr(phys_addr_t start, phys_addr_t idx)
 {
 	return start + (idx << IO_TLB_SHIFT);
@@ -739,6 +744,9 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 		 * memory to be page aligned.
 		 */
 		if (alloc_size >= PAGE_SIZE && (slot_dma_addr & ~PAGE_MASK))
+			continue;
+
+		if (io_tlb_offset(slot_index) + nslots > IO_TLB_SEGSIZE)
 			continue;
 
 		/*
