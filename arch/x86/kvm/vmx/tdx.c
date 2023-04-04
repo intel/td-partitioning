@@ -124,6 +124,8 @@ enum tdvmcall_service_id {
 	TDVMCALL_SERVICE_ID_MIGTD = 1,
 	TDVMCALL_SERVICE_ID_VTPM,
 	TDVMCALL_SERVICE_ID_VTPMTD,
+	TDVMCALL_SERVICE_ID_TDCM,
+
 	TDVMCALL_SERVICE_ID_MAX,
 };
 
@@ -140,6 +142,9 @@ static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
 	[TDVMCALL_SERVICE_ID_VTPMTD]	= GUID_INIT(0xc3c87a08, 0x3b4a, 0x41ad,
 						    0xa5, 0x2d, 0x96, 0xf1,
 						    0x3c, 0xf8, 0x9a, 0x66),
+	[TDVMCALL_SERVICE_ID_TDCM]	= GUID_INIT(0x6270da51, 0x9a23, 0x4b6b,
+						    0x81, 0xce, 0xdd, 0xd8,
+						    0x69, 0x70, 0xf2, 0x96),
 };
 
 enum tdvmcall_service_status {
@@ -2160,6 +2165,7 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	struct tdvmcall_service *cmd_buf, *resp_buf;
 	enum tdvmcall_service_id service_id;
 	bool need_block = false;
+	int ret = 1;
 
 	if (kvm_mem_is_private(kvm, gpa_to_gfn(cmd_gpa)) ||
 	    kvm_mem_is_private(kvm, gpa_to_gfn(resp_gpa))) {
@@ -2179,42 +2185,41 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	service_id = tdvmcall_get_service_id(cmd_buf->guid);
 	switch (service_id) {
 	case TDVMCALL_SERVICE_ID_QUERY:
-		if (nvector)
-			goto err_vector;
 		tdx_handle_service_query(cmd_buf, resp_buf);
 		break;
 	case TDVMCALL_SERVICE_ID_MIGTD:
-		if (nvector)
-			goto err_vector;
+		if (nvector) {
+			pr_warn("%s: interrupt not supported, nvector %lld\n",
+				__func__, nvector);
+			break;
+		}
 		need_block = tdx_handle_service_migtd(tdx, cmd_buf, resp_buf);
 		break;
 	case TDVMCALL_SERVICE_ID_VTPM:
 	case TDVMCALL_SERVICE_ID_VTPMTD:
-		goto userspace;
+	case TDVMCALL_SERVICE_ID_TDCM:
+		ret = 0;
+		break;
 	default:
 		resp_buf->status = TDVMCALL_SERVICE_S_UNSUPP;
 		pr_warn("%s: unsupported service type\n", __func__);
 	}
 
-	/* Update the guest status buf and free the host buf */
-	tdvmcall_status_copy_and_free(resp_buf, vcpu, resp_gpa);
+	if (ret == 0) {
+		/* user handles the service and update the guest status buf */
+		ret = tdx_vp_vmcall_to_user(vcpu);
+		kfree(resp_buf);
+	} else {
+		/* Update the guest status buf and free the host buf */
+		tdvmcall_status_copy_and_free(resp_buf, vcpu, resp_gpa);
+	}
+
 err_status:
 	kfree(cmd_buf);
 	if (need_block && !nvector)
 		return kvm_emulate_halt_noskip(vcpu);
-
 err_cmd:
-	return 1;
-err_vector:
-	kfree(cmd_buf);
-	kfree(resp_buf);
-	pr_warn("%s: interrupt not supported, nvector %lld\n",
-		__func__, nvector);
-	return 1;
-userspace:
-	kfree(cmd_buf);
-	kfree(resp_buf);
-	return tdx_vp_vmcall_to_user(vcpu);
+	return ret;
 }
 
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
