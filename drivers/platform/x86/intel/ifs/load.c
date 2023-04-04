@@ -192,24 +192,30 @@ out:
 	return ret;
 }
 
-static int image_sanity_check(struct device *dev, const struct microcode_header_intel *data)
+static int image_sanity_check(struct device *dev, const struct firmware *fw)
 {
+	const struct microcode_header_intel *ifs_image = (struct microcode_header_intel *)fw->data;
 	struct ucode_cpu_info uci;
 
 	/* Provide a specific error message when loading an older/unsupported image */
-	if (data->hdrver != MC_HEADER_TYPE_IFS) {
-		dev_err(dev, "Header version %d not supported\n", data->hdrver);
+	if (ifs_image->hdrver != MC_HEADER_TYPE_IFS) {
+		dev_err(dev, "Header version %d not supported\n", ifs_image->hdrver);
 		return -EINVAL;
 	}
 
-	if (intel_microcode_sanity_check((void *)data, true, MC_HEADER_TYPE_IFS)) {
+	if (fw->size != ifs_image->totalsize) {
+		dev_err(dev, "File size mismatch. Possibly corrupted IFS image\n");
+		return -EINVAL;
+	}
+
+	if (intel_microcode_sanity_check((void *)ifs_image, true, MC_HEADER_TYPE_IFS)) {
 		dev_err(dev, "sanity check failed\n");
 		return -EINVAL;
 	}
 
 	intel_cpu_collect_info(&uci);
 
-	if (!intel_find_matching_signature((void *)data,
+	if (!intel_find_matching_signature((void *)ifs_image,
 					   uci.cpu_sig.sig,
 					   uci.cpu_sig.pf)) {
 		dev_err(dev, "cpu signature, processor flags not matching\n");
@@ -241,7 +247,7 @@ int ifs_load_firmware(struct device *dev)
 		goto done;
 	}
 
-	ret = image_sanity_check(dev, (struct microcode_header_intel *)fw->data);
+	ret = image_sanity_check(dev, fw);
 	if (ret)
 		goto release;
 
