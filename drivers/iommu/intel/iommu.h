@@ -592,6 +592,10 @@ struct dmar_domain {
 					 * otherwise, goes through the second
 					 * level.
 					 */
+	u8 read_only_mapped:1;		/* domain has mappings with read-only
+					 * permission.
+					 */
+	u8 set_nested:1;		/* has other domains nested on it */
 
 	spinlock_t lock;		/* Protect device tracking lists */
 	struct list_head devices;	/* all devices' list */
