@@ -163,6 +163,17 @@ static int doscan(void *data)
 	return 0;
 }
 
+static void update_ifs_last_wp(void *p)
+{
+	struct device *dev = p;
+	struct ifs_data *ifsd;
+	u64 last_wp;
+
+	ifsd = ifs_get_data(dev);
+	rdmsrl(MSR_LAST_SCAN_WP, last_wp);
+	ifsd->last_wp = (u32)last_wp;
+}
+
 static void ifs_test_core_gen2(int cpu, struct device *dev)
 {
 	union ifs_scan_gen2 activate;
@@ -224,6 +235,8 @@ static void ifs_test_core_gen2(int cpu, struct device *dev)
 	} else {
 		ifsd->status = SCAN_TEST_PASS;
 	}
+
+	smp_call_function_single(cpu, update_ifs_last_wp, dev, 1);
 }
 
 /*

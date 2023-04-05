@@ -136,6 +136,19 @@ static ssize_t image_version_show(struct device *dev,
 
 static DEVICE_ATTR_RO(image_version);
 
+/*
+ * Display last wake point
+ */
+static ssize_t wake_point_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct ifs_data *ifsd = ifs_get_data(dev);
+
+	return sysfs_emit(buf, "%#x\n", ifsd->last_wp);
+}
+
+static DEVICE_ATTR_RO(wake_point);
+
 /* global scan sysfs attributes */
 struct attribute *plat_ifs_attrs[] = {
 	&dev_attr_details.attr,
@@ -143,6 +156,7 @@ struct attribute *plat_ifs_attrs[] = {
 	&dev_attr_run_test.attr,
 	&dev_attr_current_batch.attr,
 	&dev_attr_image_version.attr,
+	&dev_attr_wake_point.attr,
 	NULL
 };
 
