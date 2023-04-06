@@ -294,7 +294,8 @@ static int td_part_map_gpa(struct kvm_vcpu *vcpu)
 	gfn_t s = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(kvm);
 	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
 	bool enc = kvm_is_private_gpa(kvm, gpa);
-	int numpages = size >> PAGE_SHIFT;
+	struct kvm_memory_slot *s_slot = NULL;
+	int numpages = 0;
 	unsigned long vaddr;
 	unsigned long attrs = enc ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	int ret;
@@ -305,11 +306,26 @@ static int td_part_map_gpa(struct kvm_vcpu *vcpu)
 		enc != kvm_is_private_gpa(kvm, end))
 		return 1;
 
+	s_slot = gfn_to_memslot(kvm, s);
+	if (!s_slot)
+		return 1;
+
+	if (e > s_slot->base_gfn + s_slot->npages)
+		e = s_slot->base_gfn + s_slot->npages;
+
 	ret = kvm_vm_set_mem_attributes(vcpu->kvm, attrs, s, e, false);
 	if (ret) {
 		pr_err("%s: failed to handle GPA 0x%llx size 0x%llx\n",
 			__func__, gpa, size);
 		return 1;
+	} else {
+		if (e != (gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm))) {
+			end = gfn_to_gpa(enc ? kvm_gfn_to_private(kvm, e) :
+					       kvm_gfn_to_shared(kvm, e));
+			tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_RETRY);
+			tdvmcall_set_return_val(vcpu, end);
+		}
+		numpages = e - s;
 	}
 
 	/* L2 GPA == L1 GPA */
