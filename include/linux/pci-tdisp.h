@@ -205,8 +205,6 @@ static inline u8 tdisp_req_to_rsp_message(u8 message)
 }
 
 //FIXME: Add arch tdisp dev init implementation
-static inline int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev) { return -ENOTTY; }
-static inline void pci_arch_tdisp_dev_uinit(struct pci_tdisp_dev *tdev) { return; }
 #ifdef CONFIG_PCI_TDISP
 struct pci_tdi *pci_tdi_init(struct pci_dev *pdev, struct pci_tdi_parm parm);
 void pci_tdi_uinit(struct pci_tdi *tdi);
@@ -220,6 +218,8 @@ int pci_tdi_process_rsp(struct pci_tdi *tdi, unsigned long rsp_va, size_t rsp_sz
 struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev,
 				       struct pci_tdi_parm parm);
 void pci_tdi_uinit_and_free(struct pci_tdi *tdi);
+int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev);
+void pci_arch_tdisp_dev_uinit(struct pci_tdisp_dev *tdev);
 #else
 static inline struct pci_tdi *pci_tdi_init(struct pci_dev *pdev,
 					   struct pci_tdi_parm parm)
@@ -239,5 +239,7 @@ static inline int pci_tdi_process_rsp(struct pci_tdi *tdi, unsigned long rsp_va,
 static inline struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev, struct pci_tdi_parm parm)
 				       { return NULL; }
 static inline void pci_tdi_uinit_and_free(struct pci_tdi *tdi) {};
+static inline int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev) { return -ENOTTY; }
+static inline void pci_arch_tdisp_dev_uinit(struct pci_tdisp_dev *tdev) { return; }
 #endif
 #endif /* LINUX_PCI_TDISP_H */
