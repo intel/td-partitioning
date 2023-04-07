@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# SPDM Manager Driver
+#
+config SPDM_MGR
+	bool "SPDM MGR support"
+	default y
+	help
+	  This option adds SPDM manager support. It provides APIs to create
+	  SPDM manager and also other helper functions to make SPDM connection
+	  with device.
