@@ -66,10 +66,12 @@ struct pci_tdi_parm {
 #define MAX_TDI_MMIO_RANGE	32
 
 struct pci_tdi_mmio {
-	u64 addr;
+	u64 haddr;
 	u32 pages;
 	u16 attr;
 	u16 id;
+	u64 gpa;
+	bool is_tee;
 };
 
 struct pci_tdi {

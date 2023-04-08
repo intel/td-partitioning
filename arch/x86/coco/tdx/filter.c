@@ -10,9 +10,12 @@
 #include <linux/cc_platform.h>
 #include <linux/export.h>
 #include <uapi/linux/virtio_ids.h>
+#include <crypto/hash.h>
 
 #include <asm/tdx.h>
+#include <asm/tdxio.h>
 #include <asm/cmdline.h>
+#include "tdx.h"
 
 #define CMDLINE_MAX_NODES		100
 #define CMDLINE_MAX_LEN			1000
@@ -44,6 +47,11 @@ static char acpi_allowed[CMDLINE_MAX_LEN];
 /* Set true if authorize_allow_devs is used */
 static bool filter_overridden;
 
+#define PCI_DEVICE_DATA2(vend, dev, data) \
+	.vendor = vend, .device = dev, \
+	.subvendor = PCI_ANY_ID, .subdevice = PCI_ANY_ID, 0, 0, \
+	.driver_data = (kernel_ulong_t)(data)
+
 /*
  * Allow list for PCI bus
  *
@@ -53,15 +61,15 @@ static bool filter_overridden;
  * and use it.
  */
 struct pci_device_id pci_allow_ids[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_NET) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_BLOCK) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_CONSOLE) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_9P) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_NET) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_BLOCK) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_CONSOLE) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_9P) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_VSOCK) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_NET, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_BLOCK, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_CONSOLE, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_9P, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_NET, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_BLOCK, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_CONSOLE, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_9P, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_VSOCK, MODE_SHARED) },
 	{ 0, },
 };
 
@@ -96,11 +104,472 @@ static bool dev_is_platform(struct device *dev)
        return !strcmp(dev_bus_name(dev), "platform");
 }
 
+#define DEVICE_INFO_DATA_BUF_SZ		(8 * PAGE_SIZE)
+
+static int tdxio_devif_get_dev_info(struct pci_tdi *tdi)
+{
+	struct tpa_dev_info_data *info;
+	unsigned int size;
+	void *buf_ptr;
+	int ret;
+
+	info = kmalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+
+	ret = tdx_get_dev_info(tdi, &buf_ptr, &size);
+	if (ret)
+		return ret;
+
+	parse_tpa_dev_info_data(info, buf_ptr);
+
+	tdi->priv = info;
+	tdi->identities = buf_ptr;
+	tdi->identities_len = size;
+
+	tdi->version                  = info->tdisp_info.tdisp_version;
+	tdi->cap.dsm_caps             = info->tdisp_info.dsm_caps;
+	tdi->cap.req_msgs_supported_l = info->tdisp_info.req_msgs_supported_l;
+	tdi->cap.req_msgs_supported_h = info->tdisp_info.req_msgs_supported_h;
+	tdi->cap.lock_flags_supported = info->tdisp_info.lock_flags_supported;
+	tdi->cap.dev_addr_width       = info->tdisp_info.dev_addr_width;
+	tdi->cap.num_req_this         = info->tdisp_info.num_req_this;
+	tdi->cap.num_req_all          = info->tdisp_info.num_req_all;
+	return ret;
+}
+
+struct sdesc {
+	struct shash_desc shash;
+	char ctx[];
+};
+
+static struct sdesc *init_sdesc(struct crypto_shash *alg)
+{
+	struct sdesc *sdesc;
+	int size;
+
+	size = sizeof(struct shash_desc) + crypto_shash_descsize(alg);
+	sdesc = kmalloc(size, GFP_KERNEL);
+	if (!sdesc)
+		return ERR_PTR(-ENOMEM);
+	sdesc->shash.tfm = alg;
+	return sdesc;
+}
+
+static int calc_hash(struct crypto_shash *alg,
+		     const unsigned char *data, unsigned int datalen,
+		     unsigned char *digest)
+{
+	struct sdesc *sdesc;
+	int ret;
+
+	sdesc = init_sdesc(alg);
+	if (IS_ERR(sdesc)) {
+		pr_info("can't alloc sdesc\n");
+		return PTR_ERR(sdesc);
+	}
+
+	ret = crypto_shash_digest(&sdesc->shash, data, datalen, digest);
+	kfree(sdesc);
+	return ret;
+}
+
+static int sha384_hash(const unsigned char *data, unsigned int datalen,
+		       unsigned char *digest)
+{
+	struct crypto_shash *alg;
+	char *hash_alg_name = "sha384";
+	int ret;
+
+	alg = crypto_alloc_shash(hash_alg_name, 0, 0);
+	if (IS_ERR(alg)) {
+		pr_info("can't alloc alg %s\n", hash_alg_name);
+		return PTR_ERR(alg);
+	}
+	ret = calc_hash(alg, data, datalen, digest);
+	crypto_free_shash(alg);
+	return ret;
+}
+
+static int tdxio_devif_validate(struct pci_tdi *tdi)
+{
+	u64 result[6];
+	int ret;
+
+	ret = sha384_hash(tdi->identities, tdi->identities_len, (char *)result);
+	if (ret)
+		return ret;
+
+	/* currently use SHA384 HASH for dev pub key hash */
+	return tdx_devif_validate(tdi->intf_id.func_id, result[5], result[4],
+				  result[3], result[2], result[1], result[0]);
+}
+
+static int tdxio_devif_get_state(struct pci_tdi *tdi)
+{
+	struct tdisp_request_parm parm = { 0 };
+	struct device *dev = &tdi->pdev->dev;
+	int ret;
+
+	parm.message = TDISP_GET_DEVIF_STATE;
+
+	ret = tdx_devif_tdisp(tdi, &parm);
+	if (ret)
+		return ret;
+
+	dev_dbg(dev, "%s: current TDI state is %u\n", __func__, tdi->state);
+	return 0;
+}
+
+static int tdxio_devif_get_report(struct pci_tdi *tdi)
+{
+	struct tdisp_request_parm parm = { 0 };
+	unsigned int max_len = PAGE_SIZE - 49;
+	int ret;
+
+	parm.message = TDISP_GET_DEVIF_REPORT;
+	parm.get_devif_report.offset = 0;
+	parm.get_devif_report.length = max_len;
+
+	ret = tdx_devif_tdisp(tdi, &parm);
+	if (ret)
+		return ret;
+
+	if (tdi->report_len == tdi->report_offset)
+		return 0;
+
+	/*
+	 * as remaining length is not zero, copy devif report in one
+	 * buffer for later phasing.
+	 */
+	while (tdi->report_offset < tdi->report_len) {
+		unsigned int remain = tdi->report_len - tdi->report_offset;
+
+		parm.message = TDISP_GET_DEVIF_REPORT;
+		parm.get_devif_report.offset = tdi->report_offset;
+		parm.get_devif_report.length = min(max_len, remain);
+
+		ret = tdx_devif_tdisp(tdi, &parm);
+		if (ret)
+			goto done;
+	}
+
+done:
+	return ret;
+}
+
+static u32 devif_rp_read(void *data, u32 offset)
+{
+	return *(u32 *)(data + offset);
+}
+
+static u64 devif_rp_read_mmio_addr(void *data, u32 index)
+{
+	return devif_rp_read(data, DEVIF_RP_MMIO_ADDR_LO(index)) |
+	 ((u64)devif_rp_read(data, DEVIF_RP_MMIO_ADDR_HI(index)) << 32);
+}
+
+static u32 devif_rp_read_mmio_pages(void *data, u32 index)
+{
+	return devif_rp_read(data, DEVIF_RP_MMIO_PAGES(index));
+}
+
+static u32 devif_rp_read_mmio_attr(void *data, u32 index)
+{
+	return devif_rp_read(data, DEVIF_RP_MMIO_ATTR(index));
+}
+
+static int tdxio_devif_parse_report(struct pci_tdi *tdi)
+{
+	u32 table_bir = ~1U, table_start = ~1U, table_end = ~1U, pba_bir = ~1U, pba_start = ~1U, pba_end = ~1U;
+	int msix_cap;
+	u32 i, bar, bar_prev = -1;
+	u64 gpa, size, offset = 0;
+	struct pci_dev *pdev = tdi->pdev;
+	struct device *dev = &pdev->dev;
+	struct pci_tdi_mmio *mmio;
+	void *data = tdi->report;
+	bool ismsix;
+
+	tdi->mmio_range_num = devif_rp_read(data, DEVIF_RP_MMIO_NUM);
+	dev_info(dev, "%s: mmio_range_num %d\n", __func__, tdi->mmio_range_num);
+
+	if (tdi->mmio_range_num > MAX_TDI_MMIO_RANGE)
+		return -ENOMEM;
+
+	msix_cap = pci_find_capability(pdev, PCI_CAP_ID_MSIX);
+	if (msix_cap) {
+		u16 control, vec_cnt;
+
+		pci_read_config_word(pdev, msix_cap + PCI_MSIX_FLAGS, &control);
+		vec_cnt = (control & PCI_MSIX_FLAGS_QSIZE) + 1;
+
+		pci_read_config_dword(pdev, msix_cap + PCI_MSIX_TABLE, &table_start);
+		table_end = table_start + vec_cnt * PCI_MSIX_ENTRY_SIZE;
+		table_bir = (u8)(table_start & PCI_MSIX_TABLE_BIR);
+		table_end = ALIGN(table_end, PAGE_SIZE);
+		table_start = ALIGN_DOWN(table_start, PAGE_SIZE);
+
+		pci_read_config_dword(pdev, msix_cap + PCI_MSIX_PBA, &pba_start);
+		pba_end = pba_start + vec_cnt * PCI_MSIX_ENTRY_SIZE;
+		pba_bir = (u8)(pba_start & PCI_MSIX_PBA_BIR);
+		pba_end = ALIGN(pba_end, PAGE_SIZE);
+		pba_start = ALIGN_DOWN(pba_start, PAGE_SIZE);
+
+		dev_info(dev, "msix table_size=%x, table_bir=%x, table_start=%x, table_end=%x\n", table_end - table_start, table_bir, table_start, table_end);
+		dev_info(dev, "msix pba_size=%x, pba_bir=%x, pba_start=%x, pba_end=%x\n", pba_end - pba_start, pba_bir, pba_start, pba_end);
+	}
+
+	for (i = 0; i < tdi->mmio_range_num; i++) {
+		mmio = &tdi->mmio[i];
+
+		mmio->haddr = devif_rp_read_mmio_addr(data, i);
+		mmio->pages = devif_rp_read_mmio_pages(data, i);
+		mmio->attr = devif_rp_read_mmio_attr(data, i);
+		mmio->id = (u16)(mmio->attr >> 16);
+		size = (u64)mmio->pages << PAGE_SHIFT;
+
+		dev_info(dev, "%s: range[%u]: haddr 0x%016llx pages 0x%x, attr 0x%x\n",
+			 __func__, i, mmio->haddr, mmio->pages, mmio->attr);
+
+		/* TODO here just skip msix regions as it's falsely reported in devif report
+		 * in future, if msix regions are included in devif report, it should be
+		 * accepted as private mmio
+		 */
+		ismsix = !!(mmio->attr & (DEVIF_RP_MMIO_ATTR_PBA | DEVIF_RP_MMIO_ATTR_MSIX));
+		if (ismsix)
+			mmio->is_tee = false;
+		else
+			mmio->is_tee = is_pci_tdi_mmio_tee(mmio);
+
+		bar = mmio->id;
+		if (bar != bar_prev) {
+			offset = 0;
+			bar_prev = bar;
+		}
+
+		gpa = pci_resource_start(tdi->pdev, bar) + offset;
+		if (gpa + size - 1 > pci_resource_end(tdi->pdev, bar))
+			return -EINVAL;
+
+		mmio->gpa = gpa;
+
+		dev_info(dev, "%s: mmio[%u](%s)(%s): haddr 0x%llx gpa 0x%llx size 0x%llx id 0x%x attr 0x%x\n", __func__,
+			 i, is_pci_tdi_mmio_tee(mmio) ? "TEE" : "non-TEE",
+			 ismsix ? "MSIX" : "non-MSIX",
+			 mmio->haddr, mmio->gpa, size, mmio->id, mmio->attr);
+
+		offset += size;
+	};
+
+	return 0;
+}
+
+static int tdxio_devif_verify(struct pci_tdi *tdi)
+{
+	return 0;
+}
+
+static int tdxio_devif_tdisp(struct pci_tdi *tdi, u8 message)
+{
+	struct tdisp_request_parm parm = { 0 };
+
+	parm.message = message;
+
+	return tdx_devif_tdisp(tdi, &parm);
+}
+
+static int tdxio_devif_dmar_accept(struct pci_tdi *tdi)
+{
+	return tdx_dmar_accept(tdi->intf_id.func_id, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+static int tdxio_devif_accept_mmios(struct pci_tdi *tdi)
+{
+	struct device *dev = &tdi->pdev->dev;
+	struct pci_tdi_mmio *mmio;
+	u32 i;
+
+	/* for each mmio range */
+	for (i = 0; i < tdi->mmio_range_num; i++) {
+		mmio = &tdi->mmio[i];
+
+		if (!mmio->is_tee)
+			continue;
+
+		dev_info(dev, "accept mmio range bar %x gpa=0x%llx haddr=0x%llx nr_pages=0x%x",
+			 mmio->id, mmio->gpa, mmio->haddr, mmio->pages);
+
+		tdx_map_private_mmio(mmio->gpa, mmio->haddr, mmio->pages);
+	}
+	return 0;
+}
+
+static int tdxio_devif_accept(struct pci_tdi *tdi)
+{
+	struct device *dev = &tdi->pdev->dev;
+	int ret;
+
+	ret = tdxio_devif_dmar_accept(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to accept DMAR %d\n", ret);
+		return ret;
+	}
+
+	ret = tdxio_devif_accept_mmios(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to accept MMIO %d\n", ret);
+		return ret;
+	}
+
+	ret = tdxio_devif_tdisp(tdi, TDISP_START_INTF_REQ);
+	if (ret) {
+		dev_err(dev, "Fail to issue START INTF REQ %d\n", ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
+{
+	u32 func_id, devid = pci_dev_id(pdev);
+	u64 nonce0, nonce1, nonce2, nonce3;
+	int ret, result = MODE_UNAUTHORIZED;
+	struct pci_tdi_parm parm = { 0 };
+	struct device *dev = &pdev->dev;
+	struct pci_tdi *tdi;
+
+	/*
+	 * Step 0: Get pci_tdi context from Host/VMM
+	 */
+	ret = tdx_get_dev_context(devid, &func_id,
+				  &nonce0, &nonce1, &nonce2, &nonce3);
+	if (ret) {
+		dev_err(dev, "failed to get dev context\n");
+		return result;
+	}
+
+	/* If invalid handle, means this pci_dev is a non-TDISP device */
+	if (!func_id) {
+		if (enum_mode == MODE_SHARED || enum_mode == MODE_UNAUTHORIZED) {
+			pdev->untrusted = true;
+			dev_info(dev, "return MODE SHARED\n");
+			return MODE_SHARED;
+		}
+
+		dev_info(dev, "no func_id but require PRIVATE Mode return UNAUTHORIZED\n");
+		return result;
+	}
+
+	/* uses TDI in shared mode is not possible as TDI may be locked already */
+	if (enum_mode == MODE_SHARED)
+		return result;
+
+	/*
+	 * Step 1: Pre-allocate pci_tdi data structure
+	 */
+	tdi = pci_tdi_alloc_and_init(pdev, parm);
+	if (!tdi) {
+		dev_err(dev, "failed to alloc TDI\n");
+		return result;
+	}
+
+	tdi->intf_id.func_id = func_id;
+	tdi->nonce[0] = nonce0;
+	tdi->nonce[0] = nonce0;
+	tdi->nonce[0] = nonce0;
+	tdi->nonce[0] = nonce0;
+
+	/*
+	 * Step 2: Device Data Collection for TDI
+	 *
+	 * 2.1 Get DEVICE_INFO_DATA by TDVMCALL from VMM
+	 * 2.2 TDG.DEVIF.VALIDATE
+	 *   ensure DEVIF is locked and DEVICE_INFO_DATA is trusted
+	 * 2.3 Get TDISP DEVIF report
+	 */
+	ret = tdxio_devif_get_dev_info(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to get DEVICE_INFO_DATA %d\n", ret);
+		goto done;
+	}
+
+	ret = tdxio_devif_validate(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to validate DEVICE_INFO_DATA %d\n", ret);
+		goto done;
+	}
+
+	ret = tdxio_devif_get_state(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to GET_DEVIF_STATE %d\n", ret);
+		goto done;
+	}
+
+	ret = tdxio_devif_get_report(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to get TDISP DEVIF Report %d\n", ret);
+		goto done;
+	}
+
+	ret = tdxio_devif_parse_report(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to parse TDISP DEVIF Report %d\n", ret);
+		goto done;
+	}
+
+	/*
+	 * Step 3: Device Verify
+	 *
+	 * Verify with evidence: DEVICE_INFO_DATA + TDISP DEVIF report
+	 */
+	ret = tdxio_devif_verify(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to verify TDISP DEVIF %d\n", ret);
+		goto done;
+	}
+
+	/*
+	 * Step 4: Additional Steps to accept TDISP DEVIF into TCB
+	 *
+	 * Including DMAR Accept, MMIO Accept, move DEVIF to TDISP RUN state.
+	 */
+	ret = tdxio_devif_accept(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to accept TDISP DEVIF %d\n", ret);
+		goto done;
+	}
+
+	ret = tdxio_devif_get_state(tdi);
+	if (ret) {
+		dev_err(dev, "Fail to GET_DEVIF_STATE %d\n", ret);
+		goto done;
+	}
+
+	/*
+	 * Step 5: last preparation steps before driver probing.
+	 *
+	 * Mark PCI device is trusted
+	 *
+	 * TODO:also mark PCI device is a TDISP Device in Run state
+	 * (configuration is locked). PCI device driver may need to check this
+	 * flag to prevent operations which may break the configuration and
+	 * cause device entering error state (see TDISP spec, 11.2.6).
+	 */
+	pdev->untrusted = false;
+	result = MODE_SECURE;
+	return result;
+
+done:
+	pci_tdi_uinit_and_free(tdi);
+	return result;
+}
+
 static int authorized_node_match(struct device *dev,
 				 struct authorize_node *node)
 {
 	int i;
-
 
 	/* If bus matches "ALL" and dev_list is NULL, return true */
 	if (!strcmp(node->bus, "ALL") && !node->dev_list)
@@ -124,10 +593,21 @@ static int authorized_node_match(struct device *dev,
 	 */
 	if (dev_is_pci(dev)) {
 		struct pci_dev *pdev = to_pci_dev(dev);
+		const struct pci_device_id *id;
+		int status;
 
-		if (pci_match_id((struct pci_device_id *)node->dev_list,
-				 to_pci_dev(dev)))
-			return MODE_SHARED;
+		id = pci_match_id((struct pci_device_id *)node->dev_list, pdev);
+		if (id)
+			status = tdx_guest_dev_attest(pdev, id->driver_data);
+		else
+			status = MODE_UNAUTHORIZED;
+
+		pr_info("PCI vendor:%x device:%x %s %s\n", pdev->vendor,
+			pdev->device, status ? "allowed" : "blocked",
+			status == MODE_SECURE ? "trusted" : "untrusted");
+
+		if (status != MODE_UNAUTHORIZED)
+			return status;
 
 		/*
 		 * Prevent any config space accesses in initcalls.
