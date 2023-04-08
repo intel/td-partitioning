@@ -26,6 +26,10 @@
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
 #include <asm/irqdomain.h>
+#include <asm/apic.h>
+#include <asm/idtentry.h>
+
+#include "tdx.h"
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -1205,7 +1209,7 @@ int tdx_devif_validate(u64 func_id, u64 pkh5, u64 pkh4, u64 pkh3, u64 pkh2, u64 
 	return ret ? -EIO : 0;
 }
 
-static int __maybe_unused __tdx_devif_request(u64 func_id, u64 payload)
+static int __tdx_devif_request(u64 func_id, u64 payload)
 {
 	struct tdx_module_args args = {
 		.rcx = func_id,
@@ -1221,7 +1225,7 @@ static int __maybe_unused __tdx_devif_request(u64 func_id, u64 payload)
 	return ret ? -EIO : 0;
 }
 
-static int __maybe_unused __tdx_devif_response(u64 func_id, u64 payload, u32 *size)
+static int __tdx_devif_response(u64 func_id, u64 payload, u32 *size)
 {
 	struct tdx_module_args args = {
 		.rcx = func_id,
@@ -1258,6 +1262,15 @@ struct tdx_serv {
 	u64 vector;
 	u64 timeout;
 };
+
+static struct completion tdcm_completion;
+
+/* TDCM Service GUID */
+static guid_t tdcm_guid =
+	GUID_INIT(0x6270da51, 0x9a23, 0x4b6b,
+		  0x81, 0xce, 0xdd, 0xd8, 0x69, 0x70, 0xf2, 0x96);
+
+#define TDCM_EVENT_VECTOR	0xc0
 
 #pragma pack(push, 1)
 
@@ -1298,7 +1311,81 @@ struct tdx_serv_resp {
 #define SERV_RESP_STS_DEFAULT		0xffffffff
 };
 
+/* TDG.VP.VMCALL <Service.TDCM> command header */
+struct tdcm_cmd_hdr {
+	struct tdx_serv_cmd cmd;
+
+	u8  version;
+	u8  command;
+#define TDCM_CMD_GET_DEV_CTX   0
+#define TDCM_CMD_TDISP         1
+#define TDCM_CMD_GET_DEV_INFO  3
+	u16 rsvd;
+	u32 devid;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM> response header */
+struct tdcm_resp_hdr {
+	struct tdx_serv_resp resp;
+
+	u8 version;
+	u8 command;
+	u8 status;
+#define TDCM_RESP_STS_OK   0
+#define TDCM_RESP_STS_FAIL 1
+	u8 rsvd;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceContext> command */
+struct tdcm_cmd_get_dev_ctx {
+	struct tdcm_cmd_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceHandle> response */
+struct tdcm_resp_get_dev_ctx {
+	struct tdcm_resp_hdr hdr;
+	u32 func_id;
+	u64 rsvd;
+	u64 nonce[4];
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.TDISP> command */
+struct tdcm_cmd_tdisp {
+	struct tdcm_cmd_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.TDISP> response */
+struct tdcm_resp_tdisp {
+	struct tdcm_resp_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceInfo> command */
+struct tdcm_cmd_get_dev_info {
+	struct tdcm_cmd_hdr hdr;
+	u64 tpa_request_nonce[4];
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceInfo> response */
+struct tdcm_resp_get_dev_info {
+	struct tdcm_resp_hdr hdr;
+	u8 dev_info_data[0];
+};
+
 #pragma pack(pop)
+
+static int tdx_tdcm_resp_status(unsigned long resp_va)
+{
+	struct tdcm_resp_hdr *hdr = (struct tdcm_resp_hdr *)resp_va;
+
+	return hdr->status ? -EFAULT : 0;
+}
+
+DEFINE_IDTENTRY_SYSVEC(sysvec_tdcm_event_callback)
+{
+	apic_eoi();
+	pr_info("TDVMCALL<Service> complete notification\n");
+	complete(&tdcm_completion);
+}
 
 /*
  * TDVMCALL service request
@@ -1358,6 +1445,30 @@ static int tdx_service_init(struct tdx_serv *serv, guid_t *guid,
 	return 0;
 }
 
+static int tdx_tdcm_serv_init(struct tdx_serv *serv, bool notify, u8 command,
+			      u32 devid, u32 cmd_len, u32 resp_len)
+{
+	struct tdcm_resp_hdr *resp;
+	struct tdcm_cmd_hdr *cmd;
+	int ret;
+
+	ret = tdx_service_init(serv, &tdcm_guid, cmd_len, resp_len,
+			       notify ? TDCM_EVENT_VECTOR : 0, 0);
+	if (ret)
+		return ret;
+
+	cmd = (struct tdcm_cmd_hdr *)serv->cmd_va;
+	resp = (struct tdcm_resp_hdr *)serv->resp_va;
+
+	cmd->version = 0;
+	cmd->command = command;
+	cmd->devid = devid;
+	resp->version = 0;
+	resp->command = command;
+	resp->status = TDCM_RESP_STS_FAIL;
+	return ret;
+}
+
 static void tdx_service_deinit(struct tdx_serv *serv)
 {
 	unsigned long total_sz = PAGE_ALIGN(serv->cmd_len) + PAGE_ALIGN(serv->resp_len);
@@ -1369,7 +1480,12 @@ static void tdx_service_deinit(struct tdx_serv *serv)
 
 static struct completion *tdx_get_completion(u64 vector)
 {
-	return NULL;
+	switch (vector) {
+	case TDCM_EVENT_VECTOR:
+		return &tdcm_completion;
+	default:
+		return NULL;
+	}
 }
 
 static int tdx_service(struct tdx_serv *serv)
@@ -1399,6 +1515,223 @@ static int tdx_service(struct tdx_serv *serv)
 		return -EFAULT;
 	}
 
+	return ret;
+}
+
+int tdx_get_dev_context(u32 devid, u32 *func_id,
+			u64 *nonce0, u64 *nonce1, u64 *nonce2, u64 *nonce3)
+{
+	struct tdcm_resp_get_dev_ctx *resp;
+	struct tdx_serv serv;
+	int ret;
+
+	ret = tdx_tdcm_serv_init(&serv, 0, TDCM_CMD_GET_DEV_CTX, devid,
+				 sizeof(struct tdcm_cmd_get_dev_ctx),
+				 sizeof(struct tdcm_resp_get_dev_ctx));
+	if (ret) {
+		pr_info("%s: tdcm_serv_init failed\n", __func__);
+		return ret;
+	}
+
+	ret = tdx_service(&serv);
+	if (ret) {
+		pr_info("%s: service request failed\n", __func__);
+		goto done;
+	}
+
+	if (tdx_tdcm_resp_status(serv.resp_va)) {
+		pr_info("%s: service respnse bad status\n", __func__);
+		ret = -EFAULT;
+		goto done;
+	}
+
+	resp = (struct tdcm_resp_get_dev_ctx *)serv.resp_va;
+
+	*func_id = resp->func_id;
+	*nonce0 = resp->nonce[0];
+	*nonce1 = resp->nonce[1];
+	*nonce2 = resp->nonce[2];
+	*nonce3 = resp->nonce[3];
+
+	pr_info("%s: devid %x func_id %x nonce0 %llx nonce1 %llx nonce2 %llx nonce3 %llx\n",
+		__func__, devid, *func_id, *nonce0, *nonce1, *nonce2, *nonce3);
+done:
+	tdx_service_deinit(&serv);
+	return ret;
+}
+
+struct tdx_tdi_request {
+	struct tdisp_request_parm parm;
+
+	unsigned long req_va;
+	unsigned long rsp_va;
+
+	size_t req_sz;
+	size_t rsp_sz;
+};
+
+struct tdx_payload_parm {
+	union {
+		u64 raw;
+		struct {
+			u64 size:12;
+			u64 pa:52;
+		};
+	};
+};
+
+#define TDI_BUFF_SIZE		PAGE_SIZE
+/*
+ * TDI_BUFF_SIZE - 8 (DOE header) - 8 (SPDM Secured Msg.header) -
+ * 11 (PCISIG vendor header) - 16 (SPDM Secured Msg.MAC) - 3 (max DW padding)
+ * - 1 (application id byte)
+ * = PAGE_SIZE - 47 = 4049
+ */
+#define TDI_MAX_PAYLOAD_SIZE	(TDI_BUFF_SIZE - 46)
+#define TDI_MIN_PAYLOAD_SIZE	16
+
+static void tdx_tdi_request_free(struct tdx_tdi_request *req)
+{
+	free_pages(req->req_va, get_order(req->req_sz));
+	free_pages(req->rsp_va, get_order(req->rsp_sz));
+}
+
+static struct tdx_tdi_request *tdx_tdi_request_alloc(void)
+{
+	unsigned int order = get_order(TDI_BUFF_SIZE);
+	struct tdx_tdi_request *req;
+
+	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	if (!req)
+		return NULL;
+
+	/*
+	 * TDX module only supports MAX message size to 4K including
+	 * DOE and SPDM header, per current version of TDX module it
+	 * only supports SPDM 1.2 and DOE 1.0. The headers are 44
+	 * byte, so MAX_TDX_SPDM_PAYLOAD_SIZE is PAGE_SIZE - 47, same
+	 * for TDISP requests and response, PAGE_SIZE buffer is enough
+	 */
+	req->req_sz = TDI_BUFF_SIZE;
+	req->rsp_sz = TDI_BUFF_SIZE;
+
+	req->req_va = __get_free_pages(GFP_KERNEL, order);
+	req->rsp_va = __get_free_pages(GFP_KERNEL, order);
+
+	if (!req->req_va || !req->rsp_va) {
+		tdx_tdi_request_free(req);
+		return NULL;
+	}
+
+	return req;
+}
+
+static inline u8 req_to_rsp_message(u8 message)
+{
+	return message & 0x7f;
+}
+
+/* For TDG.VP.VMCALL <service.TDCM.TDISP> */
+int tdx_devif_tdisp(struct pci_tdi *tdi, struct tdisp_request_parm *parm)
+{
+	struct tdisp_response_parm rsp_parm = { 0 };
+	struct tdx_payload_parm payload = { 0 };
+	u32 devid = pci_dev_id(tdi->pdev);
+	struct tdx_tdi_request *req;
+	struct tdx_serv serv;
+	unsigned int size;
+	int ret;
+
+	req = tdx_tdi_request_alloc();
+	if (!req)
+		return -ENOMEM;
+
+	ret = pci_tdi_gen_req(tdi, req->req_va, req->req_sz, parm, &size);
+	if (ret)
+		goto exit_req_free;
+
+	payload.raw = __pa(req->req_va);
+	payload.size = size;
+
+	ret = __tdx_devif_request(tdi->intf_id.func_id, payload.raw);
+	if (ret)
+		goto exit_req_free;
+
+	ret = tdx_tdcm_serv_init(&serv, true, TDCM_CMD_TDISP, devid,
+				 sizeof(struct tdcm_cmd_tdisp),
+				 sizeof(struct tdcm_resp_tdisp));
+	if (ret)
+		goto exit_req_free;
+
+	ret = tdx_service(&serv);
+	if (ret)
+		goto exit_serv_deinit;
+
+	ret = tdx_tdcm_resp_status(serv.resp_va);
+	if (ret)
+		goto exit_serv_deinit;
+
+	payload.raw = __pa(req->rsp_va);
+
+	ret = __tdx_devif_response(tdi->intf_id.func_id, payload.raw, &size);
+	if (ret)
+		goto exit_serv_deinit;
+
+	rsp_parm.message = req_to_rsp_message(parm->message);
+
+	ret = pci_tdi_process_rsp(tdi, req->rsp_va, size, &rsp_parm);
+
+exit_serv_deinit:
+	tdx_service_deinit(&serv);
+exit_req_free:
+	tdx_tdi_request_free(req);
+	return ret;
+}
+
+/* For TDG.VP.VMCALL <service.TDCM.GetDeviceInfo> */
+#define DEVICE_INFO_DATA_BUF_SZ		(8 * PAGE_SIZE)
+
+int tdx_get_dev_info(struct pci_tdi *tdi, void **buf_ptr, unsigned int *actual_sz)
+{
+	struct tdcm_resp_get_dev_info *resp;
+	u32 devid = pci_dev_id(tdi->pdev);
+	struct tdx_serv serv;
+	unsigned int size;
+	void *buf_va;
+	int ret;
+
+	ret = tdx_tdcm_serv_init(&serv, 0, TDCM_CMD_GET_DEV_INFO, devid,
+				 sizeof(struct tdcm_cmd_get_dev_info),
+				 DEVICE_INFO_DATA_BUF_SZ);
+	if (ret)
+		return ret;
+
+	ret = tdx_service(&serv);
+	if (ret)
+		goto done;
+
+	ret = tdx_tdcm_resp_status(serv.resp_va);
+	if (ret)
+		goto done;
+
+	resp = (struct tdcm_resp_get_dev_info *)serv.resp_va;
+
+	size = resp->hdr.resp.length - sizeof(*resp);
+
+	pr_debug("%s: dev_info_size 0x%x resp.length %x\n",
+		 __func__, size, resp->hdr.resp.length);
+
+	buf_va = kzalloc(size, GFP_KERNEL);
+	if (buf_va) {
+		memcpy(buf_va, (void *)resp->dev_info_data, size);
+		*buf_ptr = buf_va;
+		*actual_sz = size;
+	} else {
+		ret = -ENOMEM;
+	}
+
+done:
+	tdx_service_deinit(&serv);
 	return ret;
 }
 
@@ -1562,6 +1895,8 @@ void __init tdx_early_init(void)
 
 	pci_disable_early();
 	pci_disable_mmconf();
+
+	init_completion(&tdcm_completion);
 
 	pr_info("Guest detected\n");
 }

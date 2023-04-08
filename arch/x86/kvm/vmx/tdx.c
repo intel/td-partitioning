@@ -7762,7 +7762,7 @@ struct tdx_tdi_request {
 	size_t        rsp_out_sz;
 };
 
-void tdx_tdi_request_free(struct tdx_tdi_request *req)
+static void tdx_tdi_request_free(struct tdx_tdi_request *req)
 {
 	free_pages(req->req_in_va,  get_order(req->req_in_sz));
 	free_pages(req->req_out_va, get_order(req->req_out_sz));
@@ -7771,7 +7771,7 @@ void tdx_tdi_request_free(struct tdx_tdi_request *req)
 	kfree(req);
 }
 
-struct tdx_tdi_request *tdx_tdi_request_alloc(unsigned long flags)
+static struct tdx_tdi_request *tdx_tdi_request_alloc(unsigned long flags)
 {
 	unsigned int order = get_order(TDI_BUFF_SIZE);
 	struct tdx_tdi_request *req;

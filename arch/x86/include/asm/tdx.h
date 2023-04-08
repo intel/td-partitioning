@@ -98,11 +98,6 @@ void tdx_free_event_irq(int);
 
 int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages);
 
-int tdx_devif_validate(u64 func_id, u64 pkh5, u64 pkh4, u64 pkh3, u64 pkh2,
-		       u64 pkh1, u64 pkh0);
-int tdx_devif_read(u64 func_id, u64 field, u64 field_parm, u64 *value);
-int tdx_dmar_accept(u64 func_id, u64 gpasid, u64 parm0, u64 parm1, u64 parm2,
-		    u64 parm3, u64 parm4, u64 parm5, u64 parm6, u64 parm7);
 #else
 
 static inline void tdx_early_init(void) { };
@@ -113,13 +108,6 @@ static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
 
 static inline int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages)
 			{ return -EOPNOTSUPP; }
-static inline int tdx_devif_validate(u64 func_id, u64 pkh5, u64 pkh4,
-	u64 pkh3, u64 pkh2, u64 pkh1, u64 pkh0) { return -EOPNOTSUPP; };
-static inline int tdx_devif_read(u64 func_id, u64 field, u64 field_parm, u64 *value)
-			{ return -EOPNOTSUPP; };
-static inline int tdx_dmar_accept(u64 func_id, u64 gpasid, u64 parm0, u64 parm1,
-	u64 parm2, u64 parm3, u64 parm4, u64 parm5, u64 parm6, u64 parm7)
-			{ return -EOPNOTSUPP; };
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

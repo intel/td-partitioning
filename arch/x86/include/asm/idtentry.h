@@ -630,6 +630,7 @@ DECLARE_IDTENTRY_RAW(X86_TRAP_OTHER,	exc_xen_unknown_trap);
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 DECLARE_IDTENTRY(X86_TRAP_VE,		exc_virtualization_exception);
+DECLARE_IDTENTRY_SYSVEC(TDCM_EVENT_VECTOR,		sysvec_tdcm_event_callback);
 #endif
 
 /* Device interrupts common/spurious */
