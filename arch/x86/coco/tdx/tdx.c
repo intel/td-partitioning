@@ -1136,6 +1136,62 @@ static bool tdx_enc_status_change_finish(unsigned long vaddr, int numpages,
 	return true;
 }
 
+static int __tdx_map_gpa(phys_addr_t gpa, int numpages, bool enc)
+{
+	u64 ret;
+
+	if (!enc)
+		gpa |= cc_mkdec(0);
+
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0);
+	return ret ? -EIO : 0;
+}
+
+struct tdx_page_mapping_info {
+	union {
+		u64 raw;
+		struct {
+			u64 level:3;
+			u64 reserved0:9;
+			u64 gpa:40;
+			u64 reserved1:12;
+		};
+	};
+};
+
+static long tdx_mmio_accept(phys_addr_t gpa, u64 mmio_offset)
+{
+	struct tdx_page_mapping_info gpa_info = { 0 };
+	struct tdx_module_args args = { 0 };
+	u64 ret;
+
+	gpa_info.level = 0;
+	gpa_info.gpa = (gpa & GENMASK(51, 12)) >> 12;
+
+	args.rcx = gpa_info.raw;
+	args.rdx = mmio_offset;
+	ret = tdcall(TDG_MMIO_ACCEPT, &args);
+
+	pr_debug("%s gpa_info=%llx, mmio_offset=%llx, ret 0x%llx\n", __func__,
+		 gpa_info.raw, mmio_offset, ret);
+
+	return ret ? -EIO: 0;
+}
+
+int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages)
+{
+	int ret, i;
+
+	ret = __tdx_map_gpa(gpa, numpages, true);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < numpages; i++)
+		ret = tdx_mmio_accept(gpa + i * PAGE_SIZE, offset + i * PAGE_SIZE);
+
+	return 0;
+}
+
 void __init tdx_early_init(void)
 {
 	struct tdx_module_args args = {

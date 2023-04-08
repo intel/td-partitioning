@@ -96,6 +96,7 @@ int tdx_alloc_event_irq(void);
 
 void tdx_free_event_irq(int);
 
+int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages);
 #else
 
 static inline void tdx_early_init(void) { };
@@ -103,6 +104,9 @@ static inline void tdx_safe_halt(void) { };
 static inline void tdx_filter_init(void) { };
 
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
+
+static inline int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages)
+			{ return -EOPNOTSUPP; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 
