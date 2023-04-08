@@ -1444,6 +1444,40 @@ struct vfio_device_feature_mig_data_size {
 
 #define VFIO_DEVICE_FEATURE_MIG_DATA_SIZE 9
 
+/**
+ * VFIO_DEVICE_TDI_ENABLE - _IOW(VFIO_TYPE, VFIO_BASE + 24,
+ *                               struct vfio_device_tdi_parm)
+ *
+ * This ioctl is introduced to enable target vfio device as one TDI.
+ * If target vfio device doesn't have TDISP capability, then return
+ * error code -ENOTSUPP.
+ *
+ * Return 0 on success, -errno on failure.
+ */
+struct vfio_device_tdi_parm {
+	__u32   argsz;
+	__u32   flags;
+	__u8	meas_req_attr;
+#define TDI_PARM_SIGNATURE_REQUESTED		(1 << 0)
+#define TDI_PARM_RAW_BIT_STREAM_REQUESTED	(1 << 1)
+	__u8    session_policy;
+#define TDI_PARM_TERMINATION_POLICY		(1 << 0)
+	__u16   padding;
+};
+
+#define VFIO_DEVICE_TDI_ENABLE		_IO(VFIO_TYPE, VFIO_BASE + 24)
+
+/**
+ * VFIO_DEVICE_TDI_DISABLE - _IOW(VFIO_TYPE, VFIO_BASE + 25)
+ *
+ * This ioctl is introduced to disable target vfio device as one TDI.
+ * If target vfio device is not enabled as one TDI, then return error
+ * code -ENODEV;
+ *
+ * Return 0 on success, -errno on failure.
+ */
+#define VFIO_DEVICE_TDI_DISABLE		_IO(VFIO_TYPE, VFIO_BASE + 25)
+
 /* -------- API for Type1 VFIO IOMMU -------- */
 
 /**

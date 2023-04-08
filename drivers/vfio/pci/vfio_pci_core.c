@@ -710,6 +710,13 @@ void vfio_pci_core_close_device(struct vfio_device *core_vdev)
 		vdev->req_trigger = NULL;
 	}
 	mutex_unlock(&vdev->igate);
+
+	mutex_lock(&vdev->tdi_lock);
+	if (vdev->tdi) {
+		pci_tdi_uinit(vdev->tdi);
+		vdev->tdi = NULL;
+	}
+	mutex_unlock(&vdev->tdi_lock);
 }
 EXPORT_SYMBOL_GPL(vfio_pci_core_close_device);
 
@@ -1437,6 +1444,56 @@ static int vfio_pci_ioctl_ioeventfd(struct vfio_pci_core_device *vdev,
 				  ioeventfd.fd);
 }
 
+static int vfio_pci_ioctl_tdi_enable(struct vfio_pci_core_device *vdev,
+				     struct vfio_device_tdi_parm __user *arg)
+{
+	unsigned long minsz = offsetofend(struct vfio_device_tdi_parm, padding);
+	struct pci_tdi_parm tdi_parm = { 0 };
+	struct vfio_device_tdi_parm parm;
+	struct pci_tdi *tdi;
+
+	if (copy_from_user(&parm, (void __user *)arg, minsz))
+		return -EFAULT;
+
+	if (parm.argsz < minsz)
+		return -EINVAL;
+
+	mutex_lock(&vdev->tdi_lock);
+	if (vdev->tdi) {
+		mutex_unlock(&vdev->tdi_lock);
+		return -EEXIST;
+	}
+
+	tdi_parm.kvm = vdev->vdev.kvm;
+	tdi_parm.dparm.spdm_parm.meas_req_attr = parm.meas_req_attr;
+	tdi_parm.dparm.session_parm.session_policy = parm.session_policy;
+
+	tdi = pci_tdi_init(vdev->pdev, tdi_parm);
+	if (IS_ERR(tdi)) {
+		mutex_unlock(&vdev->tdi_lock);
+		return PTR_ERR(tdi);
+	}
+
+	vdev->tdi = tdi;
+	mutex_unlock(&vdev->tdi_lock);
+	return 0;
+}
+
+static int vfio_pci_ioctl_tdi_disable(struct vfio_pci_core_device *vdev,
+				      void __user *arg)
+{
+	mutex_lock(&vdev->tdi_lock);
+	if (!vdev->tdi) {
+		mutex_unlock(&vdev->tdi_lock);
+		return -ENODEV;
+	}
+
+	pci_tdi_uinit(vdev->tdi);
+	vdev->tdi = NULL;
+	mutex_unlock(&vdev->tdi_lock);
+	return 0;
+}
+
 long vfio_pci_core_ioctl(struct vfio_device *core_vdev, unsigned int cmd,
 			 unsigned long arg)
 {
@@ -1461,6 +1518,10 @@ long vfio_pci_core_ioctl(struct vfio_device *core_vdev, unsigned int cmd,
 		return vfio_pci_ioctl_reset(vdev, uarg);
 	case VFIO_DEVICE_SET_IRQS:
 		return vfio_pci_ioctl_set_irqs(vdev, uarg);
+	case VFIO_DEVICE_TDI_ENABLE:
+		return vfio_pci_ioctl_tdi_enable(vdev, uarg);
+	case VFIO_DEVICE_TDI_DISABLE:
+		return vfio_pci_ioctl_tdi_disable(vdev, uarg);
 	default:
 		return -ENOTTY;
 	}
@@ -2166,6 +2227,7 @@ int vfio_pci_core_init_dev(struct vfio_device *core_vdev)
 	INIT_LIST_HEAD(&vdev->sriov_pfs_item);
 	init_rwsem(&vdev->memory_lock);
 	xa_init(&vdev->ctx);
+	mutex_init(&vdev->tdi_lock);
 
 	return 0;
 }
@@ -2179,6 +2241,7 @@ void vfio_pci_core_release_dev(struct vfio_device *core_vdev)
 	mutex_destroy(&vdev->igate);
 	mutex_destroy(&vdev->ioeventfds_lock);
 	mutex_destroy(&vdev->vma_lock);
+	mutex_destroy(&vdev->tdi_lock);
 	kfree(vdev->region);
 	kfree(vdev->pm_save);
 }
