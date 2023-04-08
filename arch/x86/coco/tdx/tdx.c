@@ -16,6 +16,8 @@
 #include <linux/pci.h>
 #include <linux/random.h>
 #include <linux/virtio_anchor.h>
+#include <linux/uuid.h>
+#include <linux/set_memory.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/i8259.h>
@@ -1236,6 +1238,168 @@ static int __maybe_unused __tdx_devif_response(u64 func_id, u64 payload, u32 *si
 		*size = (u32)args.rdx;
 
 	return ret ? -EIO : 0;
+}
+
+/**
+ * struct tdx_serv - Generic Data structure for TDVMCALL Service.xxx
+ *
+ * @cmd_va: TDVMCALL Service command buffer
+ * @cmd_len: size for TDVMCALL Service command
+ * @resp_va: TDVMCALL Service response buffer
+ * @resp_len: size for TDVMCALL Service response
+ * @vector: vector for response ready notification
+ * @timeout: timeout for service command
+ */
+struct tdx_serv {
+	unsigned long cmd_va;
+	unsigned int cmd_len;
+	unsigned long resp_va;
+	unsigned int resp_len;
+	u64 vector;
+	u64 timeout;
+};
+
+#pragma pack(push, 1)
+
+/**
+ * struct tdx_serv_cmd - common command for TDVMCALL Service.xxx
+ *
+ * @guid: guid to identify service.
+ * @length: total length of command, including service specific data.
+ * @rsvd: reserved.
+ */
+struct tdx_serv_cmd {
+	guid_t guid;
+	u32 length;
+	u32 rsvd;
+};
+
+/**
+ * struct tdx_serv_resp - common response for TDVMCALL Service.xxx
+ *
+ * @guid: guid to identify service
+ * @length: total length of response, including service specific data.
+ * @status: 0 - success, 1 - failure
+ */
+struct tdx_serv_resp {
+	guid_t guid;
+	u32 length;
+	u32 status;
+#define SERV_RESP_STS_OK		0
+#define SERV_RESP_STS_DEV_ERR		1
+#define SERV_RESP_STS_TIMEOUT		2
+#define SERV_RESP_STS_RESP2BIG		3
+#define SERV_RESP_STS_BAD_CMDSIZE	4
+#define SERV_RESP_STS_BAD_RSPSIZE	5
+#define SERV_RESP_STS_BUSY		6
+#define SERV_RESP_STS_INVALID		7
+#define SERV_RESP_STS_NO_RES		8
+#define SERV_RESP_STS_NO_SERV		0xfffffffe
+#define SERV_RESP_STS_DEFAULT		0xffffffff
+};
+
+#pragma pack(pop)
+
+/*
+ * TDVMCALL service request
+ */
+static int __tdx_service(u64 cmd, u64 resp, u64 notify, u64 timeout)
+{
+	u64 ret;
+
+	ret = _tdx_hypercall(TDVMCALL_SERVICE, cmd, resp, notify, timeout);
+
+	pr_debug("%s ret 0x%llx cmd %llx resp %llx notify %llx timeout %llx\n",
+		 __func__, ret, cmd, resp, notify, timeout);
+
+	WARN_ON(ret);
+	return ret ? -EIO : 0;
+}
+
+/*
+ * @serv: service data structure to be initialized.
+ * @cmd_len: size of command.
+ * @resp_len: the max size that service responder can fill.
+ * @vector: vector for notification when response is ready.
+ * @timeout: timeout for this service request
+ */
+static int tdx_service_init(struct tdx_serv *serv, guid_t *guid,
+			    u32 cmd_len, u32 resp_len, u64 vector, u64 timeout)
+{
+	unsigned long total_sz = PAGE_ALIGN(cmd_len) + PAGE_ALIGN(resp_len);
+	unsigned long va = __get_free_pages(GFP_KERNEL, get_order(total_sz));
+	struct tdx_serv_resp *resp;
+	struct tdx_serv_cmd *cmd;
+
+	if (!va)
+		return -ENOMEM;
+
+	if (set_memory_decrypted(va, 1 << get_order(total_sz))) {
+		free_pages(va, get_order(total_sz));
+		return -EFAULT;
+	}
+
+	serv->cmd_va = va;
+	serv->cmd_len = cmd_len;
+	serv->resp_va = va + PAGE_ALIGN(cmd_len);
+	serv->resp_len = resp_len;
+	serv->vector = vector;
+	serv->timeout = timeout;
+
+	cmd = (struct tdx_serv_cmd *)serv->cmd_va;
+	guid_copy(&cmd->guid, guid);
+	cmd->length = cmd_len;
+
+	resp = (struct tdx_serv_resp *)serv->resp_va;
+	guid_copy(&resp->guid, guid);
+	resp->status = SERV_RESP_STS_DEFAULT;
+	resp->length = PAGE_ALIGN(resp_len);
+
+	return 0;
+}
+
+static void tdx_service_deinit(struct tdx_serv *serv)
+{
+	unsigned long total_sz = PAGE_ALIGN(serv->cmd_len) + PAGE_ALIGN(serv->resp_len);
+	int order = get_order(total_sz);
+
+	WARN_ON(set_memory_encrypted(serv->cmd_va, 1 << order));
+	free_pages(serv->cmd_va, order);
+}
+
+static struct completion *tdx_get_completion(u64 vector)
+{
+	return NULL;
+}
+
+static int tdx_service(struct tdx_serv *serv)
+{
+	struct tdx_serv_resp *resp = (struct tdx_serv_resp *)serv->resp_va;
+	struct tdx_serv_cmd *cmd = (struct tdx_serv_cmd *)serv->cmd_va;
+	struct completion *cmplt;
+	int ret;
+
+	ret = __tdx_service(__pa(serv->cmd_va), __pa(serv->resp_va),
+			    serv->vector, serv->timeout);
+	if (ret)
+		return ret;
+
+	if (serv->vector) {
+		cmplt = tdx_get_completion(serv->vector);
+		if (cmplt)
+			wait_for_completion(cmplt);
+	}
+
+	if (resp->status != SERV_RESP_STS_OK) {
+		pr_err("%s: failed to get a valid response. - %x\n",
+		       __func__, resp->status);
+		return -EIO;
+	} else if (!guid_equal(&resp->guid, &cmd->guid)) {
+		pr_info("%s: Unknown GUID: %pUl\n", __func__, &resp->guid);
+		return -EFAULT;
+	}
+
+	return ret;
 }
 
 static int __tdx_map_gpa(phys_addr_t gpa, int numpages, bool enc)
