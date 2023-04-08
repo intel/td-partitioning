@@ -16,6 +16,7 @@
 #include <asm/tdxio.h>
 #include <asm/cmdline.h>
 #include "tdx.h"
+#include "device-attest.h"
 
 #define CMDLINE_MAX_NODES		100
 #define CMDLINE_MAX_LEN			1000
@@ -46,6 +47,8 @@ static char acpi_allowed[CMDLINE_MAX_LEN];
 
 /* Set true if authorize_allow_devs is used */
 static bool filter_overridden;
+
+static bool no_dev_attest;
 
 #define PCI_DEVICE_DATA2(vend, dev, data) \
 	.vendor = vend, .device = dev, \
@@ -367,7 +370,21 @@ static int tdxio_devif_parse_report(struct pci_tdi *tdi)
 
 static int tdxio_devif_verify(struct pci_tdi *tdi)
 {
-	return 0;
+	struct pci_dev *pdev = tdi->pdev;
+	bool attested;
+
+	if (no_dev_attest) {
+		dev_info(&pdev->dev, "Skip device attestation\n");
+		return 0;
+	}
+
+	/* TODO: adding checking for pci_dev per device interface report */
+	attested = tdx_attest_device(tdi);
+
+	dev_info(&pdev->dev, "Device attestation for %04x:%04x(%s) done: %s",
+		 pdev->vendor, pdev->device, dev_name(&pdev->dev), attested ? "PASS" : "FAIL");
+
+	return attested ? 0 : -ENOTSUPP;
 }
 
 static int tdxio_devif_tdisp(struct pci_tdi *tdi, u8 message)
