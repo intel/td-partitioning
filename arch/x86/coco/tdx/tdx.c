@@ -1136,6 +1136,108 @@ static bool tdx_enc_status_change_finish(unsigned long vaddr, int numpages,
 	return true;
 }
 
+int tdx_dmar_accept(u64 func_id, u64 gpasid, u64 parm0, u64 parm1, u64 parm2, u64 parm3,
+		    u64 parm4, u64 parm5, u64 parm6, u64 parm7)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = gpasid,
+		.r8 = parm0,
+		.r9 = parm1,
+		.r10 = parm2,
+		.r11 = parm3,
+		.r12 = parm4,
+		.r13 = parm5,
+		.r14 = parm6,
+		.r15 = parm7,
+	};
+	u64 ret;
+
+	ret = tdcall_saved(TDG_DMAR_ACCEPT, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx gpasid %llx param %llx %llx %llx %llx %llx %llx %llx %llx\n",
+		 __func__, ret, func_id, gpasid, parm0, parm1, parm2, parm3,
+		 parm4, parm5, parm6, parm7);
+
+	return ret ? -EIO : 0;
+}
+
+int tdx_devif_read(u64 func_id, u64 field, u64 field_parm, u64 *value)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = field,
+		.r8 = field_parm,
+	};
+	u64 ret;
+
+	ret = tdcall_ret(TDG_DEVIF_READ, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx field %llx parm %llx data %llx\n",
+		 __func__, ret, func_id, field, field_parm, args.rdx);
+
+	if (!ret)
+		*value = args.rdx;
+
+	return ret ? -EIO : 0;
+}
+
+int tdx_devif_validate(u64 func_id, u64 pkh5, u64 pkh4, u64 pkh3, u64 pkh2, u64 pkh1, u64 pkh0)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = pkh5,
+		.r8 = pkh4,
+		.r9 = pkh3,
+		.r10 = pkh2,
+		.r11 = pkh1,
+		.r12 = pkh0,
+	};
+	u64 ret;
+
+	ret = tdcall_saved(TDG_DEVIF_VALIDATE, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx pkh %llx %llx %llx %llx %llx %llx\n", __func__,
+		 ret, func_id, pkh5, pkh4, pkh3, pkh2, pkh1, pkh0);
+
+	return ret ? -EIO : 0;
+}
+
+static int __maybe_unused __tdx_devif_request(u64 func_id, u64 payload)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = payload,
+	};
+	u64 ret;
+
+	ret = tdcall(TDG_DEVIF_REQUEST, &args);
+
+	pr_debug("%s ret 0x%llx func_id 0x%llx payload 0x%llx\n", __func__,
+		 ret, func_id, payload);
+
+	return ret ? -EIO : 0;
+}
+
+static int __maybe_unused __tdx_devif_response(u64 func_id, u64 payload, u32 *size)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = payload,
+	};
+	u64 ret;
+
+	ret = tdcall_ret(TDG_DEVIF_RESPONSE, &args);
+
+	pr_debug("%s ret 0x%llx func_id 0x%llx payload 0x%llx size 0x%llx\n",
+		 __func__, ret, func_id, payload, args.rdx);
+
+	if (!ret)
+		*size = (u32)args.rdx;
+
+	return ret ? -EIO : 0;
+}
+
 static int __tdx_map_gpa(phys_addr_t gpa, int numpages, bool enc)
 {
 	u64 ret;

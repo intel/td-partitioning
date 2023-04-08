@@ -19,6 +19,11 @@
 #define TDG_MEM_PAGE_ACCEPT		6
 #define TDG_VM_WR			8
 #define TDG_VERIFYREPORT		22
+#define TDG_DEVIF_VALIDATE		66
+#define TDG_DEVIF_READ			67
+#define TDG_DEVIF_REQUEST		68
+#define TDG_DEVIF_RESPONSE		69
+#define TDG_DMAR_ACCEPT			70
 #define TDG_MMIO_ACCEPT			71
 
 /* TDCS fields. To be used by TDG.VM.WR and TDG.VM.RD module calls */
