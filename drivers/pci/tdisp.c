@@ -11,12 +11,38 @@
 
 static int pci_tdi_bind_kvm(struct pci_tdi *tdi, struct kvm *kvm)
 {
-	return 0;
+	int (*fn)(struct kvm *kvm, struct pci_tdi *tdi);
+	int ret;
+
+	fn = symbol_get(kvm_bind_tdi);
+	if (!fn)
+		return -ENOENT;
+
+	ret = fn(kvm, tdi);
+
+	symbol_put(kvm_bind_tdi);
+
+	if (!ret)
+		tdi->kvm = kvm;
+
+	return ret;
 }
 
 #if 0
 static void pci_tdi_unbind_kvm(struct pci_tdi *tdi)
 {
+	void (*fn)(struct kvm *kvm, struct pci_tdi *tdi);
+
+	if (!tdi->kvm)
+		return;
+
+	fn = symbol_get(kvm_unbind_tdi);
+	if (!fn)
+		return;
+
+	fn(tdi->kvm, tdi);
+
+	symbol_put(kvm_bind_tdi);
 }
 #endif
 
