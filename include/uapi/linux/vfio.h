@@ -192,6 +192,16 @@ struct vfio_group_status {
  */
 #define VFIO_GROUP_GET_DEVICE_FD	_IO(VFIO_TYPE, VFIO_BASE + 6)
 
+/**
+ * VFIO_GROUP_SET_ATTRS - _IOW(VFIO_TYPE, VFIO_BASE + 23, unsigned int)
+ *
+ * Set attributes to vfio group.
+ */
+#define VFIO_GROUP_ATTRS_TRUSTED		(1 << 0)
+
+#define VFIO_GROUP_SET_ATTRS		_IO(VFIO_TYPE, VFIO_BASE + 23)
+
+
 /* --------------- IOCTLs for DEVICE file descriptors --------------- */
 
 /**

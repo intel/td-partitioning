@@ -2150,7 +2150,8 @@ static int vfio_iommu_domain_alloc(struct device *dev, void *data)
 }
 
 static int vfio_iommu_type1_attach_group(void *iommu_data,
-		struct iommu_group *iommu_group, enum vfio_group_type type)
+					 struct iommu_group *iommu_group,
+					 enum vfio_group_type type, unsigned int attrs)
 {
 	struct vfio_iommu *iommu = iommu_data;
 	struct vfio_iommu_group *group;
@@ -2207,6 +2208,9 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 				 vfio_iommu_domain_alloc);
 	if (!domain->domain)
 		goto out_free_domain;
+
+	if (attrs & VFIO_GROUP_ATTRS_TRUSTED)
+		iommu_domain_set_trusted(domain->domain);
 
 	if (iommu->nesting) {
 		ret = iommu_enable_nesting(domain->domain);
