@@ -14049,6 +14049,18 @@ bool kvm_arch_match_fw(struct kvm *kvm, struct kvm_firmware *fw)
 }
 #endif
 
+int kvm_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	return static_call(kvm_x86_bind_tdi)(kvm, tdi);
+}
+EXPORT_SYMBOL_GPL(kvm_bind_tdi);
+
+void kvm_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	static_call(kvm_x86_unbind_tdi)(kvm, tdi);
+}
+EXPORT_SYMBOL_GPL(kvm_unbind_tdi);
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_mmio);

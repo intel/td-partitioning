@@ -2491,4 +2491,8 @@ static inline int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update) 
 static inline void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu) {}
 #endif
 
+#include <linux/pci-tdisp.h>
+int kvm_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+void kvm_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+
 #endif
