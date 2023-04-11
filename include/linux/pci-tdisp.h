@@ -46,9 +46,7 @@ struct pci_tdisp_dev {
 	unsigned int flags;
 	struct pci_doe_mb *doe_mb;
 	struct pci_doe_mb *sec_doe_mb;
-#if 0 //FIXME: IDE
 	struct pci_ide_stream *stm;
-#endif
 
 	struct spdm *spdm;
 	struct spdm_session *session;

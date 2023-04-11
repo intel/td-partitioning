@@ -136,9 +136,7 @@ struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev,
 		/*
 		 * in TVM, no tdev (DSM), get below info using hypercall.
 		 */
-#if 0 //FIXME: IDE
 		tdi->stream_id = tdev->stm->stream_id;
-#endif
 		tdi->cap = tdev->cap;
 		tdi->version = tdev->version;
 		tdi->intf_id.func_id = pdev_to_func_id(pdev);
@@ -153,9 +151,7 @@ static int pci_tdisp_dev_init(struct pci_dev *pdev,
 			      struct pci_tdisp_dev_parm parm)
 {
 	struct pci_tdisp_dev *tdev;
-#if 0 //FIXME: IDE
 	struct pci_ide_stream *stm;
-#endif
 	int ret;
 
 	/*
@@ -219,7 +215,6 @@ static int pci_tdisp_dev_init(struct pci_dev *pdev,
 	 *
 	 * FIXME: how to handle multiple VF cases
 	 */
-#if 0 //FIXME: IDE
 	stm = pci_ide_stream_setup(pdev, tdev->session, PCI_IDE_FLAG_TEE);
 	if (IS_ERR(stm)) {
 		ret = PTR_ERR(stm);
@@ -227,15 +222,12 @@ static int pci_tdisp_dev_init(struct pci_dev *pdev,
 	}
 
 	tdev->stm = stm;
-#endif
 
 	pdev->tdisp_dev = tdev;
 	return 0;
 
-#if 0 //FIXME: IDE
 exit_arch_uinit:
 	pci_arch_tdisp_dev_uinit(tdev);
-#endif
 exit_remove_spdm:
 	pci_tdisp_remove_spdm(tdev);
 exit_free_tdev:
@@ -259,9 +251,7 @@ static void pci_tdisp_dev_uinit(struct pci_dev *pdev)
 		return;
 
 	pdev->tdisp_dev = NULL;
-#if 0 //FIXME: IDE
 	pci_ide_stream_remove(tdev->stm);
-#endif
 	pci_arch_tdisp_dev_uinit(tdev);
 	pci_tdisp_remove_spdm(tdev);
 	kfree(tdev);

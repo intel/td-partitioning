@@ -6,15 +6,11 @@
 #include <linux/uaccess.h>
 #include <linux/bitfield.h>
 #include <linux/pci-doe.h>
-#include <linux/rpb.h>
 
 #include "pci.h"
 
 static inline bool is_pcie_ide_supported(struct pci_dev *dev)
 {
-	if (is_vtc_device(dev))
-		return true;
-
 	return !!dev->ide_support;
 }
 
@@ -69,8 +65,7 @@ static struct pci_ide_stream *pci_ide_stream_alloc(struct pci_dev *rp_dev,
 		return ERR_PTR(-EINVAL);
 
 	dump_pci_ide_info(rp_dev);
-	if (!is_vtc_device(dev))
-		dump_pci_ide_info(dev);
+	dump_pci_ide_info(dev);
 
 	stm = kzalloc(sizeof(*stm), GFP_KERNEL);
 	if (!stm)
@@ -267,22 +262,17 @@ static int ide_init(struct pci_dev *dev, int pos)
 	 * via DOE mailbox.
 	 */
 
-	if (is_vtc_device(dev)) {
-		lnk_num = 1;
-		sel_num = 1;
-	} else {
-		pci_read_config_dword(dev, pos + PCI_IDE_CAP, &cap);
+	pci_read_config_dword(dev, pos + PCI_IDE_CAP, &cap);
 
-		if (!(cap & (PCI_IDE_CAP_LNK | PCI_IDE_CAP_SEL))) {
-			dev_info(&dev->dev, "IDE cap didn`t support link and selective stream\n");
-			return 0;
-		}
-
-		if (cap & PCI_IDE_CAP_LNK)
-			lnk_num = 1 + FIELD_GET(PCI_IDE_CAP_LNK_NUM, cap);
-		if (cap & PCI_IDE_CAP_SEL)
-			sel_num = 1 + FIELD_GET(PCI_IDE_CAP_SEL_NUM, cap);
+	if (!(cap & (PCI_IDE_CAP_LNK | PCI_IDE_CAP_SEL))) {
+		dev_info(&dev->dev, "IDE cap didn`t support link and selective stream\n");
+		return 0;
 	}
+
+	if (cap & PCI_IDE_CAP_LNK)
+		lnk_num = 1 + FIELD_GET(PCI_IDE_CAP_LNK_NUM, cap);
+	if (cap & PCI_IDE_CAP_SEL)
+		sel_num = 1 + FIELD_GET(PCI_IDE_CAP_SEL_NUM, cap);
 
 	ret = pci_ide_dev_init(dev);
 	if (!ret) {
@@ -310,9 +300,6 @@ int pci_ide_init(struct pci_dev *dev)
 
 	if (!pci_is_pcie(dev))
 		return -ENODEV;
-
-	if (is_vtc_device(dev))
-		return ide_init(dev, 0);
 
 	pos = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_IDE);
 	if (pos)
