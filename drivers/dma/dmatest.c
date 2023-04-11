@@ -88,6 +88,14 @@ static bool polled;
 module_param(polled, bool, 0644);
 MODULE_PARM_DESC(polled, "Use polling for completion instead of interrupts");
 
+static bool force_src_shared;
+module_param(force_src_shared, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(force_src_shared, "Force source buffer as shared (default: no)");
+
+static bool force_dst_shared;
+module_param(force_dst_shared, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(force_dst_shared, "Force destination buffer as shared (default: no)");
+
 /**
  * struct dmatest_params - test parameters.
  * @buf_size:		size of the memcpy test buffer
@@ -747,8 +755,16 @@ static int dmatest_func(void *data)
 			struct page *pg = virt_to_page(buf);
 			unsigned long pg_off = offset_in_page(buf);
 
-			um->addr[i] = dma_map_page(dma_dev, pg, pg_off,
-						   um->len, DMA_TO_DEVICE);
+			if (dev->dev->authorized == MODE_SECURE && force_src_shared)
+				um->addr[i] = dma_map_page_attrs(dev->dev, pg,
+								 pg_off, um->len,
+								 DMA_BIDIRECTIONAL,
+								 DMA_ATTR_FORCEUNENCRYPTED);
+			else
+				um->addr[i] = dma_map_page(dev->dev, pg, pg_off,
+							   um->len,
+							   DMA_TO_DEVICE);
+
 			srcs[i] = um->addr[i] + src->off;
 			ret = dma_mapping_error(dma_dev, um->addr[i]);
 			if (ret) {
@@ -765,8 +781,16 @@ static int dmatest_func(void *data)
 			struct page *pg = virt_to_page(buf);
 			unsigned long pg_off = offset_in_page(buf);
 
-			dsts[i] = dma_map_page(dma_dev, pg, pg_off, um->len,
-					       DMA_BIDIRECTIONAL);
+			if (dev->dev->authorized == MODE_SECURE && force_dst_shared)
+				dsts[i] = dma_map_page_attrs(dev->dev, pg,
+							     pg_off, um->len,
+							     DMA_BIDIRECTIONAL,
+							     DMA_ATTR_FORCEUNENCRYPTED);
+			else
+				dsts[i] = dma_map_page(dev->dev, pg, pg_off,
+						       um->len,
+						       DMA_BIDIRECTIONAL);
+
 			ret = dma_mapping_error(dma_dev, dsts[i]);
 			if (ret) {
 				result("dst mapping error", total_tests,
