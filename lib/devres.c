@@ -23,11 +23,13 @@ static int devm_ioremap_match(struct device *dev, void *res, void *match_data)
 	return *(void **)res == match_data;
 }
 
+#include <linux/cc_platform.h>
 static void __iomem *__devm_ioremap(struct device *dev, resource_size_t offset,
 				    resource_size_t size,
 				    enum devm_ioremap_type type)
 {
 	void __iomem **ptr, *addr = NULL;
+	bool trusted = (dev->authorized == MODE_SECURE);
 
 	ptr = devres_alloc_node(devm_ioremap_release, sizeof(*ptr), GFP_KERNEL,
 				dev_to_node(dev));
@@ -36,29 +38,48 @@ static void __iomem *__devm_ioremap(struct device *dev, resource_size_t offset,
 
 	switch (type) {
 	case DEVM_IOREMAP:
-		if (dev->authorized)
-			addr = ioremap_driver_hardened(offset, size);
-		else
+		if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 			addr = ioremap(offset, size);
+		} else if (trusted) {
+			dev_info(dev, "%s() calls ioremap_encrypted_flag() for DEVM_IOREMAP\n", __func__);
+			addr = ioremap_encrypted_flag(offset, size, _PAGE_CACHE_MODE_UC_MINUS);
+		} else {
+			dev_info(dev, "%s() calls ioremap_driver_hardened() for DEVM_IOREMAP\n", __func__);
+			addr = ioremap_driver_hardened(offset, size);
+		}
 		break;
 	case DEVM_IOREMAP_UC:
-		if (dev->authorized)
-			addr = ioremap_driver_hardened_uc(offset, size);
-		else
+		if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 			addr = ioremap_uc(offset, size);
+		} else if (trusted) {
+			dev_info(dev, "%s() calls ioremap_encrypted_flag() for DEVM_IOREMAP_UC\n", __func__);
+			addr = ioremap_encrypted_flag(offset, size, _PAGE_CACHE_MODE_UC);
+		} else {
+			dev_info(dev, "%s() calls ioremap_driver_hardened_uc() for DEVM_IOREMAP_UC\n", __func__);
+			addr = ioremap_driver_hardened_uc(offset, size);
+		}
 		break;
 	case DEVM_IOREMAP_WC:
-		if (dev->authorized)
-			addr = ioremap_driver_hardened_wc(offset, size);
-		else
+		if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 			addr = ioremap_wc(offset, size);
+		} else if (trusted) {
+			dev_info(dev, "%s() calls ioremap_encrypted_flag() for DEVM_IOREMAP_WC\n", __func__);
+			addr = ioremap_encrypted_flag(offset, size, _PAGE_CACHE_MODE_WC);
+		} else {
+			dev_info(dev, "%s() calls ioremap_driver_hardened_wc() for DEVM_IOREMAP_WC\n", __func__);
+			addr = ioremap_driver_hardened_wc(offset, size);
+		}
 		break;
 	case DEVM_IOREMAP_NP:
-		if (dev->authorized)
-			addr = ioremap_driver_hardened_np(offset, size);
-		else
+		if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 			addr = ioremap_np(offset, size);
-		break;
+		} else if (trusted) {
+			dev_err(dev, "No _PAGE_CACHE_MODE_NP flag for DEVM_IOREMAP_NP, just use ioremap_np\n");
+			addr = ioremap_np(offset, size);
+		} else {
+			dev_info(dev, "%s() calls ioremap_driver_hardened_np() for DEVM_IOREMAP_NP\n", __func__);
+			addr = ioremap_driver_hardened_np(offset, size);
+		}
 	}
 
 	if (addr) {

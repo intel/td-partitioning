@@ -1127,6 +1127,16 @@ static inline void __iomem *ioremap_np(phys_addr_t offset, size_t size)
 }
 #endif
 
+#ifndef ioremap_encrypted_flag
+#define ioremap_encrypted_flag ioremap_encrypted_flag
+static inline void __iomem *ioremap_encrypted_flag(resource_size_t phys_addr,
+						   unsigned long size,
+						   unsigned long flags)
+{
+	return NULL;
+}
+#endif
+
 #ifdef CONFIG_HAS_IOPORT_MAP
 #ifndef CONFIG_GENERIC_IOMAP
 #ifndef ioport_map
