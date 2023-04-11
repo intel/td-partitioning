@@ -30,6 +30,7 @@
 #include <linux/init.h>
 #include <linux/ioport.h>
 #include <linux/list.h>
+#include <linux/bitfield.h>
 #include <linux/compiler.h>
 #include <linux/errno.h>
 #include <linux/kobject.h>
@@ -784,6 +785,11 @@ static inline int pcibios_err_to_errno(int err)
 	}
 
 	return -ERANGE;
+}
+
+static inline bool pci_is_tee_dev(struct pci_dev *pdev)
+{
+	return !!FIELD_GET(PCI_EXP_DEVCAP_TEE_IO, pdev->devcap);
 }
 
 /* Low-level architecture-dependent routines */
