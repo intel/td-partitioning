@@ -318,6 +318,7 @@ struct pcie_link_state;
 struct pci_sriov;
 struct pci_p2pdma;
 struct rcec_ea;
+struct pci_ide_stream;
 
 /* The pci_dev structure describes PCI devices */
 struct pci_dev {
@@ -494,6 +495,16 @@ struct pci_dev {
 	u16		dpc_cap;
 	unsigned int	dpc_rp_extensions:1;
 	u8		dpc_rp_log_size;
+#endif
+#ifdef CONFIG_PCI_IDE
+	unsigned int	ide_support:1;
+	unsigned int	ide_lnk_num:4;
+	unsigned int	ide_sel_num:9;
+	struct ida	ide_ids;
+	int		ide_pos;
+	bool		tee_mode;
+	void		*ide_private;
+	struct pci_ide_stream *ide_stm;
 #endif
 #ifdef CONFIG_PCI_ATS
 	union {
@@ -2618,6 +2629,252 @@ static inline bool pci_is_thunderbolt_attached(struct pci_dev *pdev)
 
 	return false;
 }
+
+#define PCI_DOE_IDE_PROTOCOL_ID	(0x00)
+
+#define PCI_IDE_FLAG_TEE	0x1
+#define PCI_IDE_FLAG_LINK	0x2
+#define MAX_IDE_STREAM_ID	(255)
+
+#define PCI_IDE_GET_UPPER_ADDR_FIELD(_addr)	\
+	FIELD_GET(GENMASK_ULL(63, 32), (_addr))
+#define PCI_IDE_GET_LOWER_ADDR_FIELD(_addr)	\
+	FIELD_GET(GENMASK_ULL(31, 20), (_addr))
+
+#define PCI_IDE_LNK_REG_BLOCK_SIZE		(8)
+#define PCI_IDE_ADDR_ASSOC_REG_BLOCK_SIZE	(12)
+#define PCI_IDE_ADDR_ASSOC_REG_BLOCK_OFFSET	(PCI_IDE_RID_ASSOC2 + 4)
+
+enum pci_ide_object_id {
+	PCI_IDE_OBJECT_ID_QUERY        = 0,
+	PCI_IDE_OBJECT_ID_KEY_PROG     = 2,
+	PCI_IDE_OBJECT_ID_KP_ACK       = 3,
+	PCI_IDE_OBJECT_ID_K_SET_GO     = 4,
+	PCI_IDE_OBJECT_ID_K_SET_STOP   = 5,
+	PCI_IDE_OBJECT_ID_K_GOSTOP_ACK = 6,
+};
+
+enum pci_ide_stream_type {
+	PCI_IDE_STREAM_TYPE_LINK = 0,
+	PCI_IDE_STREAM_TYPE_SEL  = 1,
+};
+
+enum pci_ide_stream_algorithm {
+	PCI_IDE_ALGO_AES_GCM_256_96B_MAC = 0,
+};
+
+enum pci_ide_stream_key_set_sel {
+	PCI_IDE_KEY_SET_0 = 0,
+	PCI_IDE_KEY_SET_1 = 1,
+	PCI_IDE_KEY_SET_NUM,
+};
+
+enum pci_ide_stream_sub_stream {
+	PCI_IDE_SUB_STREAM_PR = 0,
+	PCI_IDE_SUB_STREAM_NPR = 1,
+	PCI_IDE_SUB_STREAM_CPL = 2,
+	PCI_IDE_SUB_STREAM_NUM,
+};
+
+enum pci_ide_sub_stream_direction {
+	PCI_IDE_SUB_STREAM_DIRECTION_RX = 0,
+	PCI_IDE_SUB_STREAM_DIRECTION_TX = 1,
+	PCI_IDE_SUB_STREAM_DIRECTION_NUM,
+};
+
+enum pci_ide_key_prog_status {
+	PCI_IDE_KEY_PROG_SUCCESS = 0,
+	PCI_IDE_KEY_PROG_INCORRECT_LENGTH = 1,
+	PCI_IDE_KEY_PROG_UNSUPPORTED_PORTINDEX = 2,
+	PCI_IDE_KEY_PROG_UNSUPPORTED_OTHER_FIELDS = 3,
+	PCI_IDE_KEY_PROG_UNSPECIFIED_FAILURE = 4,
+};
+
+struct pci_ide_km_ack {
+	u8 protocol_id;
+	u8 object_id;
+	u16 reserved1;
+	u8 stream_id;
+	u8 status;	/* Only kp_ack checks it */
+	u8 key_set_index:1;
+	u8 direction:1;
+	u8 reserved2:2;
+	u8 sub_stream:4;
+	u8 portindex;
+};
+
+struct pci_ide_stream {
+	int stream_id;
+	u32 flags;
+
+	enum pci_ide_stream_type type;
+	enum pci_ide_stream_algorithm algo;
+
+	struct pci_dev *rp_dev;
+	int rp_ide_id;
+
+	struct pci_dev *dev;
+	int ide_id;
+
+	struct spdm_session *sess;
+	void *private;
+};
+
+#ifdef CONFIG_PCI_IDE
+static inline bool stream_id_is_valid(int stream_id)
+{
+	return (stream_id >= 0 && stream_id <= MAX_IDE_STREAM_ID);
+}
+
+static inline bool pci_ide_type_is_valid(enum pci_ide_stream_type type)
+{
+	return (type == PCI_IDE_STREAM_TYPE_LINK ||
+		type == PCI_IDE_STREAM_TYPE_SEL);
+}
+
+static inline bool pci_ide_algorithm_is_valid(enum pci_ide_stream_algorithm algo)
+{
+	return (algo == PCI_IDE_ALGO_AES_GCM_256_96B_MAC);
+}
+
+static inline bool pci_ide_type_is_supported(struct pci_dev *dev, u8 type)
+{
+	switch (type) {
+	case PCI_IDE_STREAM_TYPE_LINK:
+		return !!dev->ide_lnk_num;
+	case PCI_IDE_STREAM_TYPE_SEL:
+		return !!dev->ide_sel_num;
+	default:
+		return false;
+	}
+}
+
+static inline int pci_ide_dev_init(struct pci_dev *dev)
+{
+	if (!dev)
+		return -EINVAL;
+	if (!pci_is_pcie(dev))
+		return -ENODEV;
+
+	dev->tee_mode = false;
+
+	return pci_arch_ide_dev_init(dev);
+}
+
+static inline void pci_ide_dev_release(struct pci_dev *dev)
+{
+	if (!dev)
+		return;
+	if (!pci_is_pcie(dev))
+		return;
+
+	pci_arch_ide_dev_release(dev);
+}
+
+static inline int pci_ide_stream_id_alloc(struct pci_dev *dev1, struct pci_dev *dev2, u32 flags)
+{
+	if (!dev1 || !dev2)
+		return -EINVAL;
+	if (dev1 == dev2)
+		return -EINVAL;
+	if (!pci_is_pcie(dev1) || !pci_is_pcie(dev2))
+		return -EINVAL;
+	if (pci_pcie_type(dev1) == PCI_EXP_TYPE_ROOT_PORT &&
+	    pci_pcie_type(dev2) == PCI_EXP_TYPE_ROOT_PORT)
+		return -EINVAL;
+
+	return pci_arch_ide_stream_id_alloc(dev1, dev2);
+}
+
+static inline void pci_ide_stream_id_free(struct pci_dev *dev1, struct pci_dev *dev2, int stream_id)
+{
+	if (!dev1 || !dev2)
+		return;
+	if (dev1 == dev2)
+		return;
+	if (!pci_is_pcie(dev1) || !pci_is_pcie(dev2))
+		return;
+	if (pci_pcie_type(dev1) == PCI_EXP_TYPE_ROOT_PORT &&
+	    pci_pcie_type(dev2) == PCI_EXP_TYPE_ROOT_PORT) {
+		pr_warn("%s(): Both %s and %s are Root Port\n",
+			__func__, dev_name(&dev1->dev), dev_name(&dev2->dev));
+		return;
+	}
+	if (!stream_id_is_valid(stream_id)) {
+		pr_warn("%s(): Stream ID(%d) is invalid.\n", __func__, stream_id);
+		return;
+	}
+
+	pci_arch_ide_stream_id_free(dev1, dev2, stream_id);
+}
+
+static inline int pci_ide_dev_tee_enter(struct pci_dev *dev)
+{
+	int ret;
+
+	if (dev->tee_mode)
+		return 0;
+
+	ret = pci_arch_ide_dev_tee_enter(dev);
+	if (!ret)
+		dev->tee_mode = true;
+
+	return ret;
+}
+
+static inline int pci_ide_dev_tee_exit(struct pci_dev *dev)
+{
+	int ret;
+
+	if (!dev->tee_mode)
+		return -ENOENT;
+
+	ret = pci_arch_ide_dev_tee_exit(dev);
+	if (!ret)
+		dev->tee_mode = false;
+
+	return ret;
+}
+
+static inline void pci_ide_set_private(struct pci_dev *dev, void *data)
+{
+	dev->ide_private = data;
+}
+
+static inline void *pci_ide_get_private(struct pci_dev *dev)
+{
+	return dev->ide_private;
+}
+
+static inline void pci_ide_stream_set_private(struct pci_ide_stream *stm,
+					      void *data)
+{
+	stm->private = data;
+}
+
+static inline void *pci_ide_stream_get_private(struct pci_ide_stream *stm)
+{
+	return stm->private;
+}
+
+struct pci_ide_stream *pci_ide_stream_setup(struct pci_dev *dev,
+					    struct spdm_session *sess,
+					    u32 flags);
+void pci_ide_stream_remove(struct pci_ide_stream *stm);
+void pci_ide_stream_save(struct pci_dev *dev);
+void pci_ide_stream_restore(struct pci_dev *dev);
+#else
+static inline struct pci_ide_stream *pci_ide_stream_setup(struct pci_dev *dev,
+							  struct spdm_session *sess,
+							  u32 flags)
+{
+	return NULL;
+}
+
+static inline void pci_ide_stream_remove(struct pci_ide_stream *stm) {}
+static inline void pci_ide_stream_save(struct pci_dev *dev) {}
+static inline void pci_ide_stream_restore(struct pci_dev *dev) {}
+#endif
 
 #if defined(CONFIG_PCIEPORTBUS) || defined(CONFIG_EEH)
 void pci_uevent_ers(struct pci_dev *pdev, enum  pci_ers_result err_type);
