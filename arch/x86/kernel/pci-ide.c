@@ -4,6 +4,7 @@
 #include <linux/kvm_host.h>
 #include <linux/pci.h>
 #include <linux/pci-doe.h>
+#include <linux/rpb.h>
 #include <linux/spdm_mgr.h>
 #include <linux/spinlock.h>
 #include <linux/bitfield.h>
@@ -1163,9 +1164,12 @@ int pci_arch_ide_stream_setup(struct pci_ide_stream *stm)
 		if (ret)
 			return ret;
 
-		ret = ide_set_target_device(stm->dev, stm);
-		if (ret)
-			goto err_clear_key_config;
+		/* WA - VTC does not have IDE ECAP */
+		if (!is_vtc_device(stm->dev)) {
+			ret = ide_set_target_device(stm->dev, stm);
+			if (ret)
+				goto err_clear_key_config;
+		}
 
 		ret = ide_stream_setup(stm->dev, stm);
 		if (ret)
