@@ -8219,6 +8219,11 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.match_fw = vt_match_fw,
 	.allow_write_without_running_vcpu =
 				vt_allow_write_without_running_vcpu,
+
+	/* tdx connect stuff */
+	.bind_tdi = vt_bind_tdi,
+	.unbind_tdi = vt_unbind_tdi,
+	/* tdx connect stuff end */
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)

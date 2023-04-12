@@ -1078,6 +1078,24 @@ bool vt_allow_write_without_running_vcpu(struct kvm *kvm)
 	return is_td(kvm);
 }
 
+/* tdx connect stuff */
+int vt_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_bind_tdi(kvm, tdi);
+}
+
+int vt_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_unbind_tdi(kvm, tdi);
+}
+/* tdx connect stuff end */
+
 struct kvm_x86_init_ops vt_init_ops __initdata = {
 	.hardware_setup = vt_hardware_setup,
 	.handle_intel_pt_intr = NULL,

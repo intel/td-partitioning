@@ -6147,3 +6147,15 @@ out_fput:
 		fput(src_kvm_file);
 	return ret;
 }
+
+/* TDX connect stuff */
+int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	return 0;
+}
+
+int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
+{
+	return 0;
+}
+/* TDX connect stuff end */

@@ -205,6 +205,11 @@ void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);
 
 void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end);
 int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd);
+
+/* TDX connect stuff */
+int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+/* TDX connect stuff end */
 #else
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP; }
 static inline void tdx_hardware_unsetup(void) {}
@@ -288,6 +293,11 @@ static inline int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int sou
 {
 	return -EOPNOTSUPP;
 }
+
+/* TDX connect stuff */
+static inline int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi) { return -EOPNOTSUPP; }
+static inline int tdx_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi) { return -EOPNOTSUPP; }
+/* TDX connect stuff end */
 #endif
 
 #if defined(CONFIG_INTEL_TDX_HOST) && defined(CONFIG_KVM_SMM)
@@ -450,5 +460,10 @@ int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
 int vt_move_enc_context_from(struct kvm *kvm, unsigned int source_fd);
 bool vt_match_fw(struct kvm *kvm, struct kvm_firmware *fw);
 bool vt_allow_write_without_running_vcpu(struct kvm *kvm);
+
+/* tdx connect stuff */
+int vt_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+int vt_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi);
+/* tdx connect stuff end */
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */
