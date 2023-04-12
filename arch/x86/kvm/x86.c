@@ -7197,6 +7197,32 @@ set_pit2_out:
 		r = kvm_vm_ioctl_set_msr_filter(kvm, &filter);
 		break;
 	}
+	case KVM_TDI_GET_INFO: {
+		struct kvm_tdi_info info;
+
+		r = -EFAULT;
+		if (copy_from_user(&info, argp, sizeof(info)))
+			goto out;
+
+		r = -ENOTTY;
+		if (kvm_x86_ops.tdi_get_info)
+			r = static_call(kvm_x86_tdi_get_info)(kvm, &info);
+		if (!r && copy_to_user(argp, &info, sizeof(info)))
+			r = -EFAULT;
+		break;
+	}
+	case KVM_TDI_USER_REQUEST: {
+		struct kvm_tdi_user_request request;
+
+		r = -EFAULT;
+		if (copy_from_user(&request, argp, sizeof(request)))
+			goto out;
+
+		r = -ENOTTY;
+		if (kvm_x86_ops.tdi_user_request)
+			r = static_call(kvm_x86_tdi_user_request)(kvm, &request);
+		break;
+	}
 	default:
 		r = -ENOTTY;
 	}

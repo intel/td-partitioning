@@ -1094,6 +1094,22 @@ int vt_unbind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 
 	return tdx_unbind_tdi(kvm, tdi);
 }
+
+int vt_tdi_get_info(struct kvm *kvm, struct kvm_tdi_info *info)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_tdi_get_info(kvm, info);
+}
+
+int vt_tdi_user_request(struct kvm *kvm, struct kvm_tdi_user_request *req)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_tdi_user_request(kvm, req);
+}
 /* tdx connect stuff end */
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

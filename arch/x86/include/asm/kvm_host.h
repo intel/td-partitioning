@@ -1889,6 +1889,8 @@ struct kvm_x86_ops {
 
 	int (*bind_tdi)(struct kvm *kvm, struct pci_tdi *tdev);
 	int (*unbind_tdi)(struct kvm *kvm, struct pci_tdi *tdev);
+	int (*tdi_get_info)(struct kvm *kvm, struct kvm_tdi_info *info);
+	int (*tdi_user_request)(struct kvm *kvm, struct kvm_tdi_user_request *req);
 };
 
 struct kvm_x86_nested_ops {

@@ -8223,6 +8223,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	/* tdx connect stuff */
 	.bind_tdi = vt_bind_tdi,
 	.unbind_tdi = vt_unbind_tdi,
+	.tdi_get_info = vt_tdi_get_info,
+	.tdi_user_request = vt_tdi_user_request,
 	/* tdx connect stuff end */
 };
 
