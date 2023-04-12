@@ -796,6 +796,15 @@ static int get_mem_range(struct pci_dev *pdev, resource_size_t *start, resource_
 			continue;
 
 		s = min_t(resource_size_t, s, pci_resource_start(pdev, bar));
+		if (is_rpb_device(pdev) &&
+		    !is_vtc_device(pdev) &&
+		    !pci_is_tee_dev(pdev)) {
+			pr_info("%s: WA - export IDE related registers for vDSM\n",
+				__func__);
+			e = s + 0x100000 - 1;
+		} else {
+			e = max_t(resource_size_t, e, pci_resource_end(pdev, bar));
+		}
 	}
 
 	*start = s;
