@@ -1195,14 +1195,16 @@ err_clear_key_config:
 
 void pci_arch_ide_stream_remove(struct pci_ide_stream *stm)
 {
+	pr_info("%s: WA - Disable device IDE stream in IDE ECAP first\n", __func__);
+	ide_target_device_stream_ctrl(stm->dev, stm->ide_id, false);
 	if (ide_stream_release(stm)) {
+
 		WARN(true, "%s(): Cannot release stream ID %d of %s-%s\n",
 		     __func__, stm->stream_id, dev_name(&stm->rp_dev->dev),
 		     dev_name(&stm->dev->dev));
 		/* Skip ide_key_config_cleanup() when releasing stream failed */
 		return;
 	}
-	ide_target_device_stream_ctrl(stm->dev, stm->ide_id, false);
 
 	ide_key_config_cleanup(stm);
 }
