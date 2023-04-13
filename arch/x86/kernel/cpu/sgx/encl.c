@@ -332,7 +332,7 @@ static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
 	 * phase. The enclave decides the permissions by the means of
 	 * EACCEPT, EACCEPTCOPY and EMODPE.
 	 */
-	secinfo_flags = SGX_SECINFO_R | SGX_SECINFO_W | SGX_SECINFO_X;
+	secinfo_flags = SGX_SECINFO_R | SGX_SECINFO_W | SGX_SECINFO_X | SGX_SECINFO_REG;
 	encl_page = sgx_encl_page_alloc(encl, addr - encl->base, secinfo_flags);
 	if (IS_ERR(encl_page))
 		return VM_FAULT_OOM;
@@ -373,9 +373,7 @@ static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
 	if (ret)
 		goto err_out;
 
-	encl_page->encl = encl;
 	encl_page->epc_page = epc_page;
-	encl_page->type = SGX_PAGE_TYPE_REG;
 	encl->secs_child_cnt++;
 
 	sgx_mark_page_reclaimable(encl_page->epc_page);
@@ -1148,6 +1146,7 @@ struct sgx_encl_page *sgx_encl_page_alloc(struct sgx_encl *encl,
 
 	encl_page->desc = encl->base + offset;
 	encl_page->encl = encl;
+	encl_page->type = (secinfo_flags & SGX_SECINFO_PAGE_TYPE_MASK) >> 8;
 
 	prot = _calc_vm_trans(secinfo_flags, SGX_SECINFO_R, PROT_READ)  |
 	       _calc_vm_trans(secinfo_flags, SGX_SECINFO_W, PROT_WRITE) |
