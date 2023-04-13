@@ -25,6 +25,9 @@
 /* 'desc' bit marking that the page is being reclaimed. */
 #define SGX_ENCL_PAGE_BEING_RECLAIMED	BIT(3)
 
+/* 'desc' bit marking that the page to be eaug'd on PF */
+#define SGX_ENCL_PAGE_TO_EAUG		BIT(0)
+
 struct sgx_encl_page {
 	unsigned long desc;
 	unsigned long vm_max_prot_bits:8;

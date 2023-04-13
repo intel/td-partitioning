@@ -84,7 +84,7 @@ static int reclaimer_writing_to_pcmd(struct sgx_encl *encl,
 			break;
 
 		entry = xa_load(&encl->page_array, PFN_DOWN(addr));
-		if (!entry)
+		if (!entry || (entry->desc & SGX_ENCL_PAGE_TO_EAUG))
 			continue;
 
 		/*
@@ -244,6 +244,8 @@ static struct sgx_encl_page *__sgx_encl_load_page(struct sgx_encl *encl,
 	if (entry->epc_page) {
 		if (entry->desc & SGX_ENCL_PAGE_BEING_RECLAIMED)
 			return ERR_PTR(-EBUSY);
+		if (entry->desc & SGX_ENCL_PAGE_TO_EAUG)
+			return ERR_PTR(-EFAULT);
 
 		return entry;
 	}
@@ -301,8 +303,7 @@ struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 /**
  * sgx_encl_eaug_page() - Dynamically add page to initialized enclave
  * @vma:	VMA obtained from fault info from where page is accessed
- * @encl:	enclave accessing the page
- * @addr:	address that triggered the page fault
+ * @encl_page:	info of the page to be added
  *
  * When an initialized enclave accesses a page with no backing EPC page
  * on a SGX2 system then the EPC can be added dynamically via the SGX2
@@ -312,30 +313,17 @@ struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
  * successfully, VM_FAULT_SIGBUS or VM_FAULT_OOM as error otherwise.
  */
 static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
-				     struct sgx_encl *encl, unsigned long addr)
+				     struct sgx_encl_page *encl_page)
 {
+	unsigned long addr = encl_page->desc & PAGE_MASK;
+	struct sgx_encl *encl = encl_page->encl;
 	vm_fault_t vmret = VM_FAULT_SIGBUS;
 	struct sgx_pageinfo pginfo = {0};
-	struct sgx_encl_page *encl_page;
 	struct sgx_epc_page *epc_page;
 	struct sgx_va_page *va_page;
+	struct sgx_secinfo secinfo;
 	unsigned long phys_addr;
-	u64 secinfo_flags;
 	int ret;
-
-	if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
-		return VM_FAULT_SIGBUS;
-
-	/*
-	 * Ignore internal permission checking for dynamically added pages.
-	 * They matter only for data added during the pre-initialization
-	 * phase. The enclave decides the permissions by the means of
-	 * EACCEPT, EACCEPTCOPY and EMODPE.
-	 */
-	secinfo_flags = SGX_SECINFO_R | SGX_SECINFO_W | SGX_SECINFO_X | SGX_SECINFO_REG;
-	encl_page = sgx_encl_page_alloc(encl, addr - encl->base, secinfo_flags);
-	if (IS_ERR(encl_page))
-		return VM_FAULT_OOM;
 
 	mutex_lock(&encl->lock);
 
@@ -356,24 +344,23 @@ static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
 	if (va_page)
 		list_add(&va_page->list, &encl->va_pages);
 
-	ret = xa_insert(&encl->page_array, PFN_DOWN(encl_page->desc),
-			encl_page, GFP_KERNEL);
-	/*
-	 * If ret == -EBUSY then page was created in another flow while
-	 * running without encl->lock
-	 */
-	if (ret)
-		goto err_out_shrink;
-
 	pginfo.secs = (unsigned long)sgx_get_epc_virt_addr(encl->secs.epc_page);
 	pginfo.addr = encl_page->desc & PAGE_MASK;
-	pginfo.metadata = 0;
+	if ((encl_page->type & SGX_PAGE_TYPE_MASK) == SGX_PAGE_TYPE_REG) {
+		pginfo.metadata = 0;
+	} else {
+		memset(&secinfo, 0, sizeof(secinfo));
+		secinfo.flags = SGX_SECINFO_R | SGX_SECINFO_W |
+		    ((encl_page->type << 8) & SGX_SECINFO_PAGE_TYPE_MASK);
+		pginfo.metadata = (u64)&secinfo;
+	}
 
 	ret = __eaug(&pginfo, sgx_get_epc_virt_addr(epc_page));
 	if (ret)
-		goto err_out;
+		goto err_out_shrink;
 
 	encl_page->epc_page = epc_page;
+	encl_page->desc &= ~SGX_ENCL_PAGE_TO_EAUG;
 	encl->secs_child_cnt++;
 
 	sgx_mark_page_reclaimable(encl_page->epc_page);
@@ -391,16 +378,12 @@ static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
 	mutex_unlock(&encl->lock);
 	return VM_FAULT_NOPAGE;
 
-err_out:
-	xa_erase(&encl->page_array, PFN_DOWN(encl_page->desc));
-
 err_out_shrink:
 	sgx_encl_shrink(encl, va_page);
 err_out_epc:
 	sgx_encl_free_epc_page(epc_page);
 err_out_unlock:
 	mutex_unlock(&encl->lock);
-	kfree(encl_page);
 
 	return vmret;
 }
@@ -412,6 +395,7 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	struct sgx_encl_page *entry;
 	unsigned long phys_addr;
 	struct sgx_encl *encl;
+	u64 secinfo_flags;
 	vm_fault_t ret;
 
 	encl = vma->vm_private_data;
@@ -431,9 +415,42 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	 * a new enclave page. This is only possible for an initialized
 	 * enclave that will be checked for right away.
 	 */
-	if (cpu_feature_enabled(X86_FEATURE_SGX2) &&
-	    (!xa_load(&encl->page_array, PFN_DOWN(addr))))
-		return sgx_encl_eaug_page(vma, encl, addr);
+	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
+	if (!entry &&
+	    cpu_feature_enabled(X86_FEATURE_SGX2)) {
+		if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
+			return VM_FAULT_SIGBUS;
+
+		/*
+		 * Ignore internal permission checking for dynamically added pages.
+		 * They matter only for data added during the pre-initialization
+		 * phase. The enclave decides the permissions by the means of
+		 * EACCEPT, EACCEPTCOPY and EMODPE.
+		 */
+		secinfo_flags = SGX_SECINFO_R
+		    | SGX_SECINFO_W | SGX_SECINFO_X | SGX_SECINFO_REG;
+		entry = sgx_encl_page_alloc(encl, addr - encl->base, secinfo_flags);
+		if (IS_ERR(entry))
+			return VM_FAULT_OOM;
+
+		mutex_lock(&encl->lock);
+		if (xa_insert(&encl->page_array, PFN_DOWN(entry->desc),
+			      entry, GFP_KERNEL)) {
+		/*
+		 * The page was created in another flow while
+		 * running without encl->lock
+		 */
+			mutex_unlock(&encl->lock);
+			kfree(entry);
+			return VM_FAULT_SIGBUS;
+		}
+		mutex_unlock(&encl->lock);
+
+		/* Keep the entry even if eaug failed */
+		entry->desc |= SGX_ENCL_PAGE_TO_EAUG;
+
+		return sgx_encl_eaug_page(vma, entry);
+	}
 
 	mutex_lock(&encl->lock);
 
