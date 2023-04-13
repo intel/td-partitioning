@@ -1225,6 +1225,115 @@ static long sgx_ioc_enclave_remove_pages(struct sgx_encl *encl,
 	return ret;
 }
 
+static int sgx_validate_secinfo_for_eaug(struct sgx_secinfo *secinfo)
+{
+	u64 perm = secinfo->flags & SGX_SECINFO_PERMISSION_MASK;
+	u64 pt   = secinfo->flags & SGX_SECINFO_PAGE_TYPE_MASK;
+
+	if (pt != SGX_SECINFO_REG &&
+	    pt != SGX_SECINFO_SS_FIRST && pt != SGX_SECINFO_SS_REST)
+		return -EINVAL;
+
+	if (!(perm & SGX_SECINFO_W) || !(perm & SGX_SECINFO_R))
+		return -EINVAL;
+
+	if (secinfo->flags & SGX_SECINFO_RESERVED_MASK)
+		return -EINVAL;
+
+	if (memchr_inv(secinfo->reserved, 0, sizeof(secinfo->reserved)))
+		return -EINVAL;
+
+	return 0;
+}
+
+/**
+ * sgx_ioc_enclave_augment_pages() - The handler for %SGX_IOC_ENCLAVE_AUGMENT_PAGES
+ * @encl:       an enclave pointer
+ * @arg:	a user pointer to a struct sgx_enclave_augment_pages instance
+ *
+ * Add one or more pages to an initialized enclave. VMA for the range should
+ * have already configured with VM_READ | VM_WRITE at minimum.
+ * Three types of pages can be EAUG'd: PT_{REG, SS_FIRST, SS_REST}
+ * Note: current implementation does EAUG on PF only. This ioctl can be extended
+ * to do EAUG immediately in future as indicated by a bit set in arg.flags
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_ioc_enclave_augment_pages(struct sgx_encl *encl, void __user *arg)
+{
+	struct sgx_enclave_augment_pages params;
+	struct sgx_encl_page *encl_page;
+	unsigned long c, start, end;
+	struct sgx_secinfo secinfo;
+	struct vm_area_struct *vma;
+	long ret = 0;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	if (params.count)
+		return -EINVAL;
+
+	if (copy_from_user(&secinfo, (void __user *)params.secinfo,
+			   sizeof(secinfo)))
+		return -EFAULT;
+
+	if (sgx_validate_secinfo_for_eaug(&secinfo))
+		return -EINVAL;
+
+	start = params.offset + encl->base;
+	end = start + params.length;
+
+	mmap_read_lock(current->mm);
+
+	vma = find_vma(current->mm, start);
+	if (!vma || vma->vm_private_data != encl ||
+	    start < vma->vm_start ||
+	    end > vma->vm_end ||
+	    (vma->vm_flags & (VM_WRITE | VM_READ)) != (VM_WRITE | VM_READ)) {
+		// No proper VMA found for the range to do EAUG
+		ret = -EACCES;
+	}
+
+	mmap_read_unlock(current->mm);
+	if (ret)
+		return ret;
+
+	for (c = 0 ; c < params.length; c += PAGE_SIZE) {
+		encl_page = sgx_encl_page_alloc(encl, params.offset + c, secinfo.flags);
+		if (IS_ERR(encl_page)) {
+			ret = PTR_ERR(encl_page);
+			break;
+		}
+
+		mutex_lock(&encl->lock);
+		ret = xa_insert(&encl->page_array, PFN_DOWN(encl_page->desc),
+				encl_page, GFP_KERNEL);
+		mutex_unlock(&encl->lock);
+
+		if (ret) {
+			kfree(encl_page);
+			break;
+		}
+
+		encl_page->desc |= SGX_ENCL_PAGE_TO_EAUG;
+	}
+
+	params.count = c;
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct sgx_encl *encl = filep->private_data;
@@ -1255,6 +1364,9 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		break;
 	case SGX_IOC_ENCLAVE_REMOVE_PAGES:
 		ret = sgx_ioc_enclave_remove_pages(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_AUGMENT_PAGES:
+		ret = sgx_ioc_enclave_augment_pages(encl, (void __user *)arg);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;

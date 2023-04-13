@@ -302,7 +302,7 @@ struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 
 /**
  * sgx_encl_eaug_page() - Dynamically add page to initialized enclave
- * @vma:	VMA obtained from fault info from where page is accessed
+ * @vma:	VMA into which this page is added
  * @encl_page:	info of the page to be added
  *
  * When an initialized enclave accesses a page with no backing EPC page
@@ -416,38 +416,42 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	 * enclave that will be checked for right away.
 	 */
 	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
-	if (!entry &&
+	if ((!entry || (entry->desc & SGX_ENCL_PAGE_TO_EAUG)) &&
 	    cpu_feature_enabled(X86_FEATURE_SGX2)) {
 		if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
 			return VM_FAULT_SIGBUS;
 
+		if (!entry) {
 		/*
-		 * Ignore internal permission checking for dynamically added pages.
-		 * They matter only for data added during the pre-initialization
-		 * phase. The enclave decides the permissions by the means of
+		 * This is the case for EAUG on demand when no EAUG ioctl was invoked
+		 * after mmap. Only PT_REG page type is supported.
+		 * Ignore internal permission checking for such pages.
+		 * The enclave decides the permissions by the means of
 		 * EACCEPT, EACCEPTCOPY and EMODPE.
 		 */
-		secinfo_flags = SGX_SECINFO_R
-		    | SGX_SECINFO_W | SGX_SECINFO_X | SGX_SECINFO_REG;
-		entry = sgx_encl_page_alloc(encl, addr - encl->base, secinfo_flags);
-		if (IS_ERR(entry))
-			return VM_FAULT_OOM;
+			secinfo_flags = SGX_SECINFO_R
+			    | SGX_SECINFO_W | SGX_SECINFO_X | SGX_SECINFO_REG;
+			entry = sgx_encl_page_alloc(encl, addr - encl->base,
+						    secinfo_flags);
+			if (IS_ERR(entry))
+				return VM_FAULT_OOM;
 
-		mutex_lock(&encl->lock);
-		if (xa_insert(&encl->page_array, PFN_DOWN(entry->desc),
-			      entry, GFP_KERNEL)) {
-		/*
-		 * The page was created in another flow while
-		 * running without encl->lock
-		 */
+			mutex_lock(&encl->lock);
+			if (xa_insert(&encl->page_array, PFN_DOWN(entry->desc),
+				      entry, GFP_KERNEL)) {
+			/*
+			 * The page was created in another flow while
+			 * running without encl->lock
+			 */
+				mutex_unlock(&encl->lock);
+				kfree(entry);
+				return VM_FAULT_SIGBUS;
+			}
 			mutex_unlock(&encl->lock);
-			kfree(entry);
-			return VM_FAULT_SIGBUS;
-		}
-		mutex_unlock(&encl->lock);
 
-		/* Keep the entry even if eaug failed */
-		entry->desc |= SGX_ENCL_PAGE_TO_EAUG;
+			/* At this point, keep the entry even if eaug failed */
+			entry->desc |= SGX_ENCL_PAGE_TO_EAUG;
+		}
 
 		return sgx_encl_eaug_page(vma, entry);
 	}
