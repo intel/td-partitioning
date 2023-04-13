@@ -105,6 +105,8 @@ static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 
 /* TDX connect declarations */
 static int tdx_tdi_iq_inv_iotlb(struct kvm_tdx *kvm_tdx);
+static int tdx_tdi_mmio_map(struct kvm_tdx *kvm_tdx, gfn_t gfn,
+			    enum pg_level level, kvm_pfn_t pfn);
 /* TDX connect declarations end */
 
 static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6);
@@ -2502,8 +2504,15 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	u64 err;
 	int i;
 
-	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) ||
-			 !kvm_pfn_to_refcounted_page(pfn)))
+	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn)))
+		return 0;
+
+	if (kvm_is_mmio_pfn(pfn)) {
+		tdx_tdi_mmio_map(kvm_tdx, gfn, level, pfn);
+		return 0;
+	}
+
+	if (!kvm_pfn_to_refcounted_page(pfn))
 		return 0;
 
 	/*
@@ -2627,6 +2636,13 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	int r = 0;
 	u64 err;
 	int i;
+
+	/*
+	 * we couldn't block and unmap private mmio here, cause devif should
+	 * be unlocked first
+	 */
+	if (kvm_is_mmio_pfn(pfn))
+		return 0;
 
 	if (unlikely(!is_hkid_assigned(kvm_tdx))) {
 		/*
@@ -6734,7 +6750,122 @@ static int tdx_tdi_mmiomt_init(struct tdx_tdi *ttdi)
 	return 0;
 }
 
-static void tdx_tdi_mmio_unmap_all(struct tdx_tdi *ttdi) { }
+/* level 0 corresponds to PG_LEVEL_4K */
+#define to_gpa_info_level(x)   ((x) - 1)
+
+union mmio_map_page_info {
+	struct {
+		u64 level:3;		/* Level */
+		u64 reserved_0:9;	/* Must be 0 */
+		u64 gpa:40;		/* GPA of the page */
+		u64 reserved_1:12;	/* Must be 0 */
+	};
+	u64 raw;
+};
+
+static u64 tdx_mmio_map(hpa_t tdr, gpa_t gpa, hpa_t mmio_pa, int level)
+{
+	union mmio_map_page_info gpa_page_info = { 0 };
+	u64 ret;
+
+	if (level < PG_LEVEL_4K) {
+		pr_err("%s wrong level %d\n", __func__, level);
+		return -EINVAL;
+	}
+
+	gpa_page_info.level = to_gpa_info_level(level);
+	gpa_page_info.gpa = (gpa & GENMASK(51, 12)) >> 12;
+
+	ret = tdh_mmio_map(gpa_page_info.raw, tdr, mmio_pa);
+	pr_debug("%s: ret=%llx tdr %llx mmio_pa %llx gpa info %llx\n",
+		 __func__, ret, tdr, mmio_pa, gpa);
+
+	return ret;
+}
+
+static void tdx_mmio_block(hpa_t tdr, gpa_t gpa, int level)
+{
+	union mmio_map_page_info gpa_page_info = { 0 };
+	u64 ret;
+
+	gpa_page_info.level = to_gpa_info_level(level);
+	gpa_page_info.gpa = (gpa & GENMASK(51, 12)) >> 12;
+
+	ret = tdh_mmio_block(gpa_page_info.raw, tdr);
+	pr_debug("%s: ret=%llx tdr %llx gpa info=%llx\n", __func__,
+		 ret, tdr, gpa_page_info.raw);
+}
+
+static void tdx_mmio_unmap(hpa_t tdr, gpa_t gpa, int level)
+{
+	union mmio_map_page_info gpa_page_info = { 0 };
+	u64 ret;
+
+	gpa_page_info.level = to_gpa_info_level(level);
+	gpa_page_info.gpa = (gpa & GENMASK(51, 12)) >> 12;
+
+	ret = tdh_mmio_unmap(gpa_page_info.raw, tdr);
+	pr_debug("%s: ret=%llx tdr %llx gpa info=%llx\n",
+		 __func__, ret, tdr, gpa_page_info.raw);
+}
+
+static struct tdx_tdi *tdx_mmio_pfn_to_tdi(struct kvm_tdx *kvm_tdx,
+					   enum pg_level level, kvm_pfn_t pfn);
+
+struct devif_mmio {
+	gfn_t mmio_gfn;
+	int level;
+	struct list_head list;
+};
+
+static int tdx_tdi_mmio_map(struct kvm_tdx *kvm_tdx, gfn_t gfn,
+			    enum pg_level level, kvm_pfn_t pfn)
+{
+	struct devif_mmio *mmio;
+	struct tdx_tdi *ttdi;
+	u64 ret;
+
+	ttdi = tdx_mmio_pfn_to_tdi(kvm_tdx, level, pfn);
+	if (!ttdi)
+		return -ENODEV;
+
+	ret = tdx_mmio_map(kvm_tdx->tdr_pa, gfn << PAGE_SHIFT, pfn << PAGE_SHIFT, level);
+	if (ret)
+		return -EFAULT;
+
+	mmio = kzalloc(sizeof(*mmio), GFP_ATOMIC);
+	if (!mmio)
+		return -ENOMEM;
+
+	mmio->mmio_gfn = gfn;
+	mmio->level = level;
+	list_add(&mmio->list, &ttdi->mmio);
+
+	return 0;
+}
+
+static void tdx_tdi_mmio_unmap_all(struct tdx_tdi *ttdi)
+{
+	struct kvm_tdx *kvm_tdx = ttdi->kvm_tdx;
+	struct list_head *mmio_list = &ttdi->mmio;
+	struct pci_dev *pdev = ttdi->tdi->pdev;
+	struct devif_mmio *mmio, *tmp;
+
+	dev_info(&pdev->dev, "%s: mmio unmap\n", __func__);
+
+	list_for_each_entry_safe(mmio, tmp, mmio_list, list) {
+		/* TODO: handle large pages. */
+		if (KVM_BUG_ON(mmio->level != PG_LEVEL_4K, &kvm_tdx->kvm))
+			continue;
+
+		tdx_mmio_block(kvm_tdx->tdr_pa, mmio->mmio_gfn << PAGE_SHIFT, mmio->level);
+		tdx_sept_flush_remote_tlbs(&kvm_tdx->kvm);
+		tdx_mmio_unmap(kvm_tdx->tdr_pa, mmio->mmio_gfn << PAGE_SHIFT, mmio->level);
+
+		list_del(&mmio->list);
+		kfree(mmio);
+	}
+}
 
 enum tdxio_inv_type {
 	INVAL_IOTLB,
@@ -7345,6 +7476,40 @@ static int tdx_tdi_dmar_init(struct tdx_tdi *ttdi)
 	return 0;
 }
 
+static struct tdx_tdi *tdx_mmio_pfn_to_tdi(struct kvm_tdx *kvm_tdx,
+					   enum pg_level level, kvm_pfn_t pfn)
+{
+	struct tdx_tdi *ttdi;
+	struct pci_dev *pdev;
+	u64 size = page_level_size(level);
+	u64 start = pfn << PAGE_SHIFT;
+	u64 end = start + size - 1;
+	struct resource *res;
+	int bar, i;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(ttdi, &kvm_tdx->ttdi_list, node) {
+		pdev = ttdi->tdi->pdev;
+		for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+			bar = i + PCI_STD_RESOURCES;
+			res = &pdev->resource[bar];
+
+			if (!(res->flags & IORESOURCE_MEM))
+				continue;
+
+			if (res->start <= start && res->end >= end) {
+				rcu_read_unlock();
+				return ttdi;
+			}
+		}
+	}
+	rcu_read_unlock();
+
+	pr_err("%s fail! pfn 0x%llx, level %d\n", __func__, pfn, level);
+
+	return NULL;
+}
+
 static void tdx_tdi_free(struct tdx_tdi *ttdi)
 {
 	kfree(ttdi);
@@ -7361,6 +7526,7 @@ static struct tdx_tdi *tdx_tdi_alloc(struct kvm_tdx *kvm_tdx,
 		return NULL;
 
 	INIT_LIST_HEAD(&ttdi->mmiomt);
+	INIT_LIST_HEAD(&ttdi->mmio);
 	ttdi->tdi = tdi;
 	ttdi->kvm_tdx = kvm_tdx;
 	ttdi->rid = PCI_DEVID(pdev->bus->number, pdev->devfn);
