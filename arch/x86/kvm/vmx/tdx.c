@@ -2531,6 +2531,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 			r = -EIO;
 		} else {
 			tdx_set_page_present(hpa);
+			tdx_clear_page(hpa, PAGE_SIZE);
 			tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
 		}
 		hpa += PAGE_SIZE;
@@ -2661,6 +2662,7 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	}
 
 	tdx_set_page_present(__pa(private_spt));
+	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
 	return 0;
 }
 
@@ -2778,6 +2780,7 @@ static int tdx_free_l2sept(struct kvm *kvm, enum tdx_vm_index vm_index,
 	}
 
 	tdx_set_page_present(l2sept_hpa);
+	tdx_clear_page(l2sept_hpa, PAGE_SIZE);
 
 	l2sept_page = pfn_to_page(__phys_to_pfn(l2sept_hpa));
 	header = (struct l2sept_header *)page_private(l2sept_page);
@@ -2819,6 +2822,7 @@ static int tdx_sept_remove(struct kvm *kvm, gpa_t gpa, int tdx_level, void *l1se
 	}
 
 	tdx_set_page_present(__pa(l1sept_page));
+	tdx_clear_page(__pa(l1sept_page), PAGE_SIZE);
 
 	/*
 	 * Free each valid page returned in tdx_module_out represents the paging
