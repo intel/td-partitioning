@@ -4979,7 +4979,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private))
 		return kvm_do_memory_fault_exit(vcpu, fault);
 
-	if (fault->slot && fault->is_private) {
+	if (fault->slot && fault->is_private && !kvm_is_mmio_pfn(fault->pfn)) {
 		int i;
 
 		for (i = 0; i < KVM_PAGES_PER_HPAGE(fault->max_level); i++)
