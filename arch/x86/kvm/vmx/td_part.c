@@ -11,6 +11,7 @@
 
 static DECLARE_BITMAP(td_part_vm_id_bitmap, TD_PART_MAX_NUM_VMS);
 static int num_l2_vms;
+static union tdx_l2_vcpu_ctls l2_ctls[TD_PART_MAX_NUM_VMS - 1];
 
 bool td_part_is_vm_type_supported(unsigned long type)
 {
@@ -1061,15 +1062,11 @@ static void set_control(void *data)
 {
 	struct kvm *kvm = data;
 	struct tdx_module_output out;
-	union tdx_l2_vcpu_ctls l2_ctls = {0};
 	u16 vm_id = kvm->arch.vm_id;
+	union tdx_l2_vcpu_ctls *ctls = &l2_ctls[vm_id - 1];
 	u64 ret;
 
-	/*
-	 * Turn off TDVMCALL and #VE for TD partitioning guests.
-	 */
-	l2_ctls.enable_shared_eptp = 1;
-	ret = tdg_vp_write(TDX_MD_TDVPS_L2_CTLS + vm_id, l2_ctls.full, TDX_L2_CTLS_MASK, &out);
+	ret = tdg_vp_write(TDX_MD_TDVPS_L2_CTLS + vm_id, ctls->full, TDX_L2_CTLS_MASK, &out);
 	if (KVM_BUG_ON(ret != TDX_SUCCESS, kvm)) {
 		pr_err("%s: tdg_vp_write L2 CTLS field failed, err=%llx\n",
 			__func__, ret);
@@ -1099,7 +1096,13 @@ int td_part_vm_init(struct kvm *kvm)
 	set_bit(vm_id, td_part_vm_id_bitmap);
 	kvm->arch.vm_id = vm_id;
 
-	/* L2 control field is per-CPU */
+	/*
+	 * Turn off all l2 ctls (shared EPTP/tdvmcall/#VE) for TD partitioning guests
+	 * by default. These features will be enabled according to the requirement
+	 * from user space VMM. L2 control field is per-CPU so needs to do this on
+	 * all CPUs.
+	 */
+	l2_ctls[vm_id - 1].full = 0;
 	on_each_cpu_cond(set_control_cond, set_control, kvm, 1);
 
 	KVM_BUG_ON(!enable_ept, kvm);
