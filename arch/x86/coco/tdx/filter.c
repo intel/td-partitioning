@@ -614,7 +614,9 @@ static int authorized_node_match(struct device *dev,
 		int status;
 
 		id = pci_match_id((struct pci_device_id *)node->dev_list, pdev);
-		if (id)
+		if (id && (id->driver_data == MODE_SHARED))
+			status = MODE_SHARED;
+		else if (id)
 			status = tdx_guest_dev_attest(pdev, id->driver_data);
 		else
 			status = MODE_UNAUTHORIZED;
