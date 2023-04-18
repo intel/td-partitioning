@@ -67,6 +67,8 @@ static const char * const packet_name[] = {
 	[INTEL_PT_CFE]		= "CFE",
 	[INTEL_PT_CFE_IP]	= "CFE",
 	[INTEL_PT_EVD]		= "EVD",
+	[INTEL_PT_TRIG]		= "TRIG",
+	[INTEL_PT_TRIG_IP]	= "TRIG",
 };
 
 const char *intel_pt_pkt_name(enum intel_pt_pkt_type type)
@@ -552,6 +554,26 @@ static int intel_pt_get_mtc(const unsigned char *buf, size_t len,
 	return 2;
 }
 
+static int intel_pt_get_trig(const unsigned char *buf, size_t len,
+			     struct intel_pt_pkt *packet)
+{
+	int ret = 3;
+
+	if (len < 3)
+		return INTEL_PT_NEED_MORE_BYTES;
+	packet->type = buf[1] & 0x80 ? INTEL_PT_TRIG_IP : INTEL_PT_TRIG;
+	if (buf[1] & 0x40) {
+		if (len < 5)
+			return INTEL_PT_NEED_MORE_BYTES;
+		packet->count = buf[3] | (buf[4] << 8);
+		ret = 5;
+	} else {
+		packet->count = 0;
+	}
+	packet->payload = buf[1] | (buf[2] << 8);
+	return ret;
+}
+
 static int intel_pt_do_get_packet(const unsigned char *buf, size_t len,
 				  struct intel_pt_pkt *packet,
 				  enum intel_pt_pkt_ctx ctx)
@@ -610,6 +632,8 @@ static int intel_pt_do_get_packet(const unsigned char *buf, size_t len,
 			return intel_pt_get_tsc(buf, len, packet);
 		case 0x59:
 			return intel_pt_get_mtc(buf, len, packet);
+		case 0xd9:
+			return intel_pt_get_trig(buf, len, packet);
 		default:
 			return INTEL_PT_BAD_PACKET;
 		}
@@ -657,6 +681,8 @@ void intel_pt_upd_pkt_ctx(const struct intel_pt_pkt *packet,
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 		*ctx = INTEL_PT_NO_CTX;
 		break;
 	case INTEL_PT_BBP:
@@ -792,6 +818,22 @@ int intel_pt_pkt_desc(const struct intel_pt_pkt *packet, char *buf,
 	case INTEL_PT_EVD:
 		return snprintf(buf, buf_len, "%s Type 0x%02x Payload 0x%llx",
 				name, packet->count, payload);
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP: {
+		uint8_t flags = intel_pt_pkt_trig_flags(packet);
+		unsigned int trbv = intel_pt_pkt_trbv(packet);
+		bool ip = packet->type == INTEL_PT_TRIG_IP;
+		bool mult = flags & INTEL_PT_TRIG_MULT;
+		bool inst = flags & INTEL_PT_TRIG_INST;
+		bool icntv = flags & INTEL_PT_TRIG_ICNTV;
+
+		if (icntv)
+			return snprintf(buf, buf_len,
+					"%s IP:%d ICNTV:%d MULT:%d INST:%d TRBV:0x%x ICNT:%d",
+					name, ip, icntv, mult, inst, trbv, packet->count);
+		return snprintf(buf, buf_len, "%s IP:%d ICNTV:%d MULT:%d INST:%d TRBV:0x%x",
+				name, ip, icntv, mult, inst, trbv);
+		}
 	default:
 		break;
 	}

@@ -835,6 +835,8 @@ static int intel_pt_calc_cyc_cb(struct intel_pt_pkt_info *pkt_info)
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 		return 0;
 
 	case INTEL_PT_MTC:
@@ -1578,6 +1580,8 @@ static int intel_pt_eptw_lookahead_cb(struct intel_pt_pkt_info *pkt_info)
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 		break;
 
 	case INTEL_PT_TNT:
@@ -2114,6 +2118,8 @@ static int intel_pt_walk_psbend(struct intel_pt_decoder *decoder)
 		case INTEL_PT_CFE:
 		case INTEL_PT_CFE_IP:
 		case INTEL_PT_EVD:
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
 			decoder->have_tma = false;
 			intel_pt_log("ERROR: Unexpected packet\n");
 			err = -EAGAIN;
@@ -2219,6 +2225,8 @@ static int intel_pt_walk_fup_tip(struct intel_pt_decoder *decoder)
 		case INTEL_PT_CFE:
 		case INTEL_PT_CFE_IP:
 		case INTEL_PT_EVD:
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
 			intel_pt_log("ERROR: Missing TIP after FUP\n");
 			decoder->pkt_state = INTEL_PT_STATE_ERR3;
 			decoder->pkt_step = 0;
@@ -2382,6 +2390,8 @@ static int intel_pt_vm_psb_lookahead_cb(struct intel_pt_pkt_info *pkt_info)
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 	default:
 		return 1;
 	}
@@ -2904,6 +2914,8 @@ static int intel_pt_vm_time_correlation(struct intel_pt_decoder *decoder)
 		case INTEL_PT_CFE:
 		case INTEL_PT_CFE_IP:
 		case INTEL_PT_EVD:
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
 		case INTEL_PT_MODE_EXEC:
 		case INTEL_PT_MODE_TSX:
 		case INTEL_PT_MNT:
@@ -3044,6 +3056,8 @@ static int intel_pt_hop_trace(struct intel_pt_decoder *decoder, bool *no_tip, in
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 	default:
 		return HOP_PROCESS;
 	}
@@ -3115,6 +3129,8 @@ static int intel_pt_psb_lookahead_cb(struct intel_pt_pkt_info *pkt_info)
 	case INTEL_PT_CFE:
 	case INTEL_PT_CFE_IP:
 	case INTEL_PT_EVD:
+	case INTEL_PT_TRIG:
+	case INTEL_PT_TRIG_IP:
 		if (data->after_psbend) {
 			data->after_psbend -= 1;
 			if (!data->after_psbend)
@@ -3518,6 +3534,10 @@ next:
 				return err;
 			break;
 
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
+			break;
+
 		default:
 			return intel_pt_bug(decoder);
 		}
@@ -3563,6 +3583,8 @@ static int intel_pt_walk_psb(struct intel_pt_decoder *decoder)
 		case INTEL_PT_CFE:
 		case INTEL_PT_CFE_IP:
 		case INTEL_PT_EVD:
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
 			intel_pt_log("ERROR: Unexpected packet\n");
 			err = -ENOENT;
 			goto out;
@@ -3777,6 +3799,8 @@ static int intel_pt_walk_to_ip(struct intel_pt_decoder *decoder)
 		case INTEL_PT_CFE:
 		case INTEL_PT_CFE_IP:
 		case INTEL_PT_EVD:
+		case INTEL_PT_TRIG:
+		case INTEL_PT_TRIG_IP:
 		default:
 			break;
 		}
