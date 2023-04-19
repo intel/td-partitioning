@@ -441,7 +441,9 @@ static int ide_key_config_init(struct pci_ide_stream *stm)
 err_key_id_free:
 	key_config_key_id_free(ide->kconfig, istm->key_id);
 err_td_page_free:
-	tdx_reclaim_td_page(istm->exinfo_pa);
+	/* TODO: WIP on discuss whether reclaim is needed */
+	//tdx_reclaim_td_page(istm->exinfo_pa);
+	free_page((unsigned long)__va(istm->exinfo_pa));
 err_istm_free:
 	kfree(istm);
 	return ret;
@@ -454,7 +456,9 @@ static void ide_key_config_cleanup(struct pci_ide_stream *stm)
 
 	pci_ide_stream_set_private(stm, NULL);
 
-	tdx_reclaim_td_page(istm->exinfo_pa);
+	/* TODO: WIP on discuss whether reclaim is needed */
+	//tdx_reclaim_td_page(istm->exinfo_pa);
+	free_page((unsigned long)__va(istm->exinfo_pa));
 	key_config_key_id_free(ide->kconfig, istm->key_id);
 	key_config_slot_id_free(ide->kconfig, istm);
 

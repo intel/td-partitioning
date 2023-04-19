@@ -749,7 +749,9 @@ static int tdisp_mgr_spdm_session_complete(struct tdisp_mgr *tmgr)
 	if (retval)
 		return -EFAULT;
 
-	tdx_reclaim_td_page(tmgr->session_page_pa);
+	/* TODO: WIP on discuss whether reclaim is needed */
+//	tdx_reclaim_td_page(tmgr->session_page_pa);
+	free_page((unsigned long)__va(tmgr->session_page_pa));
 	tdisp_mgr_session_idx_free(tmgr->iommu_id, tmgr->session_idx);
 	return 0;
 }
