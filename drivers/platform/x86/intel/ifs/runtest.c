@@ -195,6 +195,9 @@ static void ifs_test_core_gen2(int cpu, struct device *dev)
 	activate.sigmce = 0;
 	activate.start = 0;
 	activate.stop = ifsd->valid_chunks - 1;
+	activate.start = (ifsd->dfs_start < (ifsd->valid_chunks - 1) ? ifsd->dfs_start : 0);
+	activate.stop = (ifsd->dfs_stop > (ifsd->valid_chunks - 1) ?
+				(ifsd->valid_chunks - 1) : ifsd->dfs_stop);
 
 	timeout = jiffies + HZ / 2;
 	retries = MAX_IFS_RETRIES;
@@ -267,6 +270,9 @@ static void ifs_test_core(int cpu, struct device *dev)
 	activate.sigmce = 0;
 	activate.start = 0;
 	activate.stop = ifsd->valid_chunks - 1;
+	activate.start = (ifsd->dfs_start < (ifsd->valid_chunks - 1) ? ifsd->dfs_start : 0);
+	activate.stop = (ifsd->dfs_stop > (ifsd->valid_chunks - 1) ?
+				(ifsd->valid_chunks - 1) : ifsd->dfs_stop);
 
 	timeout = jiffies + HZ / 2;
 	retries = MAX_IFS_RETRIES;

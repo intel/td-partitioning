@@ -348,6 +348,9 @@ struct ifs_test_caps {
  * @array_gen: test generation of array test
  * @last_wp: additional details of activate test
  * @max_bundle: maximum bundle index
+ * @dfs_dir: debugfs dentry pointer
+ * @dfs_start: starting range for test
+ * @dfs_stop: stopping range for test
  */
 struct ifs_data {
 	int	loaded_version;
@@ -362,6 +365,9 @@ struct ifs_data {
 	u32	array_gen;
 	u32	last_wp;
 	u32	max_bundle;
+	struct dentry *dfs_dir;
+	u16	dfs_start;
+	u16	dfs_stop;
 };
 
 struct ifs_work {

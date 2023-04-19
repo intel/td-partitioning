@@ -3,6 +3,7 @@
 
 #include <linux/module.h>
 #include <linux/kdev_t.h>
+#include <linux/debugfs.h>
 #include <linux/semaphore.h>
 #include <linux/slab.h>
 
@@ -47,6 +48,9 @@ static const struct ifs_test_caps sbft_test = {
 static struct ifs_device ifs_devices[] = {
 	[IFS_TYPE_SAF] = {
 		.test_caps = &scan_test,
+		.rw_data = {
+			.dfs_stop = ~0,
+		},
 		.misc = {
 			.name = "intel_ifs_0",
 			.minor = MISC_DYNAMIC_MINOR,
@@ -80,6 +84,7 @@ static void ifs_cleanup(void)
 	for (i = 0; i < IFS_NUMTESTS; i++) {
 		if (ifs_devices[i].misc.this_device)
 			misc_deregister(&ifs_devices[i].misc);
+		debugfs_remove_recursive(ifs_devices[i].rw_data.dfs_dir);
 	}
 	kfree(ifs_pkg_auth);
 }
@@ -118,6 +123,17 @@ static int __init ifs_init(void)
 			goto err_exit;
 		pr_info("intel_ifs device: %d gen_rev: %d integrity caps: %llx\n",
 			i, ifs_devices[i].rw_data.test_gen, msrval);
+
+		if (ifs_devices[i].test_caps->test_num == IFS_TYPE_SAF) {
+			ifs_devices[i].rw_data.dfs_dir = debugfs_create_dir(ifs_devices[i].misc.name,
+									    NULL);
+			debugfs_create_x16("start", 0644,
+					   ifs_devices[i].rw_data.dfs_dir,
+					   &ifs_devices[i].rw_data.dfs_start);
+			debugfs_create_x16("stop", 0644,
+					   ifs_devices[i].rw_data.dfs_dir,
+					   &ifs_devices[i].rw_data.dfs_stop);
+		}
 	}
 	return 0;
 
