@@ -589,7 +589,13 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 
 	timeout = jiffies + (2 * HZ);
 	retries = MAX_IFS_RETRIES;
-	stop_bundle = ifsd->max_bundle - 1;
+	//activate.bundle_idx = 0;
+	//stop_bundle = ifsd->max_bundle - 1;
+	activate.bundle_idx = (ifsd->dfs_start < (ifsd->max_bundle - 1) ? ifsd->dfs_start : 0);
+	stop_bundle = (ifsd->dfs_stop > (ifsd->max_bundle - 1) ?
+				(ifsd->max_bundle - 1) : ifsd->dfs_stop);
+
+	dev_info(dev, "debugfs start bundle %d stop %d\n", activate.bundle_idx, stop_bundle);
 
 	while (activate.bundle_idx <= stop_bundle) {
 		if (time_after(jiffies, timeout)) {

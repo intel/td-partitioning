@@ -67,6 +67,9 @@ static struct ifs_device ifs_devices[] = {
 	},
 	[IFS_TYPE_SBFT] = {
 		.test_caps = &sbft_test,
+		.rw_data = {
+			.dfs_stop = ~0,
+		},
 		.misc = {
 			.name = "intel_ifs_2",
 			.minor = MISC_DYNAMIC_MINOR,
@@ -124,7 +127,8 @@ static int __init ifs_init(void)
 		pr_info("intel_ifs device: %d gen_rev: %d integrity caps: %llx\n",
 			i, ifs_devices[i].rw_data.test_gen, msrval);
 
-		if (ifs_devices[i].test_caps->test_num == IFS_TYPE_SAF) {
+		if (ifs_devices[i].test_caps->test_num == IFS_TYPE_SAF ||
+			ifs_devices[i].test_caps->test_num == IFS_TYPE_SBFT) {
 			ifs_devices[i].rw_data.dfs_dir = debugfs_create_dir(ifs_devices[i].misc.name,
 									    NULL);
 			debugfs_create_x16("start", 0644,
