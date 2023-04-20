@@ -500,6 +500,13 @@ static void sbft_message_fail(struct device *dev, int cpu, union ifs_sbft_status
 	}
 }
 
+static bool sbft_bundle_completed(union ifs_sbft_status status)
+{
+	if (status.test_fail || status.sbft_status || status.error_code)
+		return false;
+	return true;
+}
+
 static bool sbft_can_restart(union ifs_sbft_status status)
 {
 	enum sbft_status_err_code err_code = status.error_code;
@@ -565,6 +572,7 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 	union ifs_sbft activate;
 	unsigned long timeout;
 	struct ifs_data *ifsd;
+	int stop_bundle;
 	u64 msrvals[2];
 	int retries;
 
@@ -575,8 +583,9 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 
 	timeout = jiffies + (2 * HZ);
 	retries = MAX_IFS_RETRIES;
+	stop_bundle = ifsd->max_bundle - 1;
 
-	while (activate.bundle_idx <= ifsd->max_bundle) {
+	while (activate.bundle_idx <= stop_bundle) {
 		if (time_after(jiffies, timeout)) {
 			status.error_code = IFS_SW_TIMEOUT;
 			break;
@@ -589,20 +598,29 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 
 		trace_ifs_sbft(cpu, activate, status);
 
+		if (sbft_bundle_completed(status)) {
+			/* whole bundle completed proceed to next */
+			dev_info(dev, "bundle passed %d\n", activate.bundle_idx);
+			activate.bundle_idx = status.bundle_idx + 1;
+			activate.pgm_idx = 0;
+			retries = MAX_IFS_RETRIES;
+			continue;
+		}
+
 		/* Some cases can be retried, give up for others */
 		// TODO adjust restart for restartable errors
 		if (!sbft_can_restart(status))
 			break;
 
-		if (status.bundle_idx == activate.bundle_idx &&
-		    status.pgm_idx == activate.pgm_idx) {
-			/* Check for forward progress */
+		if (status.pgm_idx == activate.pgm_idx) {
+			/* If no progress retry */
 			if (--retries == 0) {
 				if (status.error_code == IFS_NO_ERROR)
 					status.error_code = IFS_SW_PARTIAL_COMPLETION;
 				break;
 			}
 		} else {
+			/* if some progress, more pgms remaining in bundle, reset retries */
 			retries = MAX_IFS_RETRIES;
 			activate.bundle_idx = status.bundle_idx;
 			activate.pgm_idx = status.pgm_idx;
@@ -615,7 +633,8 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 	if (status.test_fail || status.sbft_status == 1 || status.sbft_status == 3) {
 		ifsd->status = SCAN_TEST_FAIL;
 		sbft_message_fail(dev, cpu, status);
-	} else if (status.error_code) {
+	} else if (status.error_code || status.sbft_status == 2 ||
+		   (activate.bundle_idx < stop_bundle)) {
 		ifsd->status = SCAN_NOT_TESTED;
 		sbft_message_not_tested(dev, cpu, status.data);
 	} else {
