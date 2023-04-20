@@ -25,10 +25,7 @@ static int pci_arch_tdisp_dev_tee_enter(struct pci_tdisp_dev *tdev)
 	if (!rp)
 		return -ENODEV;
 
-#if 0 //FIXME: IDE
 	return pci_ide_dev_tee_enter(rp);
-#endif
-	return 0;
 }
 
 static void pci_arch_tdisp_dev_tee_exit(struct pci_tdisp_dev *tdev)
@@ -39,10 +36,8 @@ static void pci_arch_tdisp_dev_tee_exit(struct pci_tdisp_dev *tdev)
 		return;
 
 	rp = pcie_find_root_port(tdev->pdev);
-#if 0 //FIXME: IDE
 	if (rp)
 		pci_ide_dev_tee_exit(rp);
-#endif
 }
 
 static inline char *treq_to_str(struct tmgr_request *treq)
