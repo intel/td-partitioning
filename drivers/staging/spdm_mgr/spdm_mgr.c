@@ -11,7 +11,7 @@
 /*
  * test_keyupdate: shorten threshold of keyupdate for testing purpose.
  */
-static int test_keyupdate;
+static int test_keyupdate = 15;
 module_param(test_keyupdate, int, 0644);
 
 struct spdm *spdm_create(struct device *dev, const char *name,
