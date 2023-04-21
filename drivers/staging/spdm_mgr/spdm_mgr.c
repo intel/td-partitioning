@@ -11,8 +11,8 @@
 /*
  * test_keyupdate: shorten threshold of keyupdate for testing purpose.
  */
-static bool test_keyupdate = true;
-module_param(test_keyupdate, bool, 0644);
+static int test_keyupdate;
+module_param(test_keyupdate, int, 0644);
 
 struct spdm *spdm_create(struct device *dev, const char *name,
 			 unsigned long flags, struct spdm_parm parm, void *priv)
@@ -81,7 +81,7 @@ struct spdm_session *spdm_session_create(struct spdm *spdm,
 	session->parm = parm;
 	session->state = SPDM_SESS_STATE_NONE;
 	session->keyupdate_threshold = test_keyupdate ?
-			SPDM_KEYUPD_THR_TEST : SPDM_KEYUPD_THR_DEFAULT;
+			test_keyupdate : SPDM_KEYUPD_THR_DEFAULT;
 
 	mutex_init(&session->state_lock);
 	atomic64_set(&session->seq_num, 0);

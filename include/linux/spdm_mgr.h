@@ -45,7 +45,6 @@ struct spdm_session {
 
 	u64 keyupdate_threshold;
 #define SPDM_KEYUPD_THR_DEFAULT	0xffff
-#define SPDM_KEYUPD_THR_TEST	0x4
 
 	u8 version;
 	u32 session_id;
