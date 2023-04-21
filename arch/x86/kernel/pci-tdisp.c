@@ -539,6 +539,9 @@ static void tdisp_mgr_sess_hbeat_timeout(struct work_struct *work)
 	struct tdisp_mgr *tmgr = dwork_to_tmgr(dwork);
 	struct pci_tdisp_dev *tdev = tmgr->tdev;
 	unsigned long delay = tdev->session->heartbeat_period * HZ;
+	struct device *dev = tmgr_to_dev(tmgr);
+
+	dev_dbg(dev, "%s\n", __func__);
 
 	tdisp_mgr_get_spdm(tmgr);
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
@@ -549,6 +552,8 @@ static void tdisp_mgr_sess_hbeat_timeout(struct work_struct *work)
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);
+
+	dev_dbg(dev, "%s ------>\n", __func__);
 }
 
 #define work_to_tmgr(x) container_of((x), struct tdisp_mgr, sess_keyupd_work)
@@ -556,6 +561,9 @@ static void tdisp_mgr_sess_keyupdate(struct work_struct *work)
 {
 	struct tdisp_mgr *tmgr = work_to_tmgr(work);
 	struct spdm_session *session = tmgr->tdev->session;
+	struct device *dev = tmgr_to_dev(tmgr);
+
+	dev_dbg(dev, "%s\n", __func__);
 
 	tdisp_mgr_get_spdm(tmgr);
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
@@ -566,6 +574,8 @@ static void tdisp_mgr_sess_keyupdate(struct work_struct *work)
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);
+
+	dev_dbg(dev, "%s ------>\n", __func__);
 }
 
 static DEFINE_IDA(tdisp_mgr_ida);
@@ -660,6 +670,7 @@ static int tdisp_mgr_session_msg_exchange(struct spdm_session *session,
 					  struct spdm_message *msg)
 {
 	struct tdisp_mgr *tmgr = session->priv;
+	struct device *dev = tmgr_to_dev(tmgr);
 	struct pci_tdisp_dev *tdev = tmgr->tdev;
 	int ret;
 
@@ -669,6 +680,8 @@ static int tdisp_mgr_session_msg_exchange(struct spdm_session *session,
 		return ret;
 
 	atomic64_inc(&session->seq_num);
+
+	dev_dbg(dev, "session seq_num %llx\n", atomic64_read(&session->seq_num));
 
 	if (!is_spdm_keyupdate_required(session))
 		return ret;
@@ -880,6 +893,10 @@ done:
 
 static void tdisp_mgr_stop(struct tdisp_mgr *tmgr)
 {
+	struct device *dev = tmgr_to_dev(tmgr);
+
+	dev_dbg(dev, "%s\n", __func__);
+
 	/* stop heartbeat for end session */
 	if (delayed_work_pending(&tmgr->sess_hbeat_dwork))
 		cancel_delayed_work(&tmgr->sess_hbeat_dwork);
@@ -889,6 +906,8 @@ static void tdisp_mgr_stop(struct tdisp_mgr *tmgr)
 	tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_END_SESSION);
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);
+
+	dev_dbg(dev, "%s <---------- done\n", __func__);
 }
 
 int pci_arch_tdisp_dev_init(struct pci_tdisp_dev *tdev)
