@@ -411,7 +411,7 @@ int pci_tdi_gen_req(struct pci_tdi *tdi, unsigned long req_va, size_t req_sz,
 
 	switch (parm->message) {
 	case TDISP_LOCK_INTF_REQ:
-		req->lock_intf.flags = 0;
+		req->lock_intf.flags = parm->lock_intf.lock_flags;
 		req->lock_intf.stream_id = tdi->stream_id;
 		req->lock_intf.mmio_offset = tdi->mmio_offset;
 		*actual_sz = TDISP_HEADER_SIZE + 20;

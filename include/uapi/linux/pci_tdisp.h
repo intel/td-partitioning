@@ -38,6 +38,9 @@
 #define TDI_STATE_RUN			0x2
 #define TDI_STATE_ERROR			0x3
 
+/* TEE Device Interface Lock Flags */
+#define TDI_LOCK_FLAGS_NO_FW_UPDATE	0x1
+
 /*
  * Device Interface Report - content
  * The Device Interface Report header is taken into account, but the TDISP

@@ -7827,6 +7827,13 @@ static bool is_tdx_tdisp_req_parm_valid(struct tdisp_request_parm *parm)
 	 * spec.
 	 */
 
+	switch (parm->message) {
+	case TDISP_LOCK_INTF_REQ:
+		/* Only allow NO_FW_UPDATE other bits must be 0 */
+		if (parm->lock_intf.lock_flags & 0xfffe)
+			return false;
+	}
+
 	return true;
 }
 
@@ -8008,6 +8015,7 @@ int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 
 	/* Move TDISP Device Interface state from UNLOCKED to LOCKED */
 	parm.message = TDISP_LOCK_INTF_REQ;
+	parm.lock_intf.lock_flags = TDI_LOCK_FLAGS_NO_FW_UPDATE;
 	ret = tdx_tdi_req(ttdi, 0, &parm);
 	if (ret)
 		goto dmar_uinit;

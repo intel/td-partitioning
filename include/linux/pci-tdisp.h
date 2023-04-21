@@ -187,6 +187,9 @@ struct tdisp_request_parm {
 	u8 message;
 	union {
 		struct {
+			u16 lock_flags;
+		} lock_intf;
+		struct {
 			u16 offset;
 			u16 length;
 		} get_devif_report;
