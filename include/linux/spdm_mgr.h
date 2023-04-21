@@ -41,6 +41,7 @@ struct spdm_session {
 	atomic64_t seq_num;
 	int (*msg_exchange)(struct spdm_session *session,
 			    struct spdm_message *msg);
+	int (*keyupdate)(struct spdm_session *session);
 
 	u64 keyupdate_threshold;
 #define SPDM_KEYUPD_THR_DEFAULT	0xffff
@@ -153,9 +154,32 @@ struct spdm_session *spdm_session_create(struct spdm *spdm,
 					 struct spdm_session_parm parm);
 void spdm_session_remove(struct spdm_session *session);
 
-static inline int spdm_session_msg_exchange_prepare(struct spdm_session *session)
+static inline bool is_spdm_session_keyupdate_required(struct spdm_session *session, int budget)
 {
-	return mutex_lock_interruptible(&session->transfer_lock);
+	u64 seq_num = atomic64_read(&session->seq_num);
+	struct spdm *spdm = session->spdm;
+
+	return (spdm->capability_flags & SPDM_KEY_UPD_CAP) &&
+	       (seq_num + budget >= session->keyupdate_threshold);
+}
+
+static inline int spdm_session_msg_exchange_prepare(struct spdm_session *session, int budget)
+{
+	int ret;
+
+	ret = mutex_lock_interruptible(&session->transfer_lock);
+	if (ret)
+		return ret;
+
+	if (is_spdm_session_keyupdate_required(session, budget)) {
+		ret = session->keyupdate(session);
+		if (ret)
+			mutex_unlock(&session->transfer_lock);
+		else
+			atomic64_set(&session->seq_num, 0);
+	}
+
+	return ret;
 }
 
 static inline void spdm_session_msg_exchange_complete(struct spdm_session *session)
@@ -170,15 +194,6 @@ static inline bool is_spdm_hbeat_required(struct spdm_session *session)
 	struct spdm *spdm = session->spdm;
 
 	return (spdm->capability_flags & SPDM_HBEAT_CAP) && session->heartbeat_period;
-}
-
-static inline bool is_spdm_keyupdate_required(struct spdm_session *session)
-{
-	u64 seq_num = atomic64_read(&session->seq_num);
-	struct spdm *spdm = session->spdm;
-
-	return (spdm->capability_flags & SPDM_KEY_UPD_CAP) &&
-	       (seq_num >= session->keyupdate_threshold);
 }
 
 #endif /* LINUX_SPDM_MGR_H */

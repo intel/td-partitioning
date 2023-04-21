@@ -30,7 +30,6 @@ struct tdisp_mgr {
 #define TMGR_SPDM_OWNER_KERNEL	2
 
 	struct delayed_work sess_hbeat_dwork;
-	struct work_struct sess_keyupd_work;
 
 	/*
 	 * iommu_id

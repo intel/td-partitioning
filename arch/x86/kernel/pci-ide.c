@@ -1119,7 +1119,7 @@ static int ide_stream_setup(struct pci_dev *pdev, struct pci_ide_stream *stm)
 	if (ret)
 		goto exit_stream_release;
 
-	ret = spdm_session_msg_exchange_prepare(stm->sess);
+	ret = spdm_session_msg_exchange_prepare(stm->sess, 12);
 	if (ret)
 		goto exit_stream_release;
 	req.object_id = PCI_IDE_OBJECT_ID_KEY_PROG;
@@ -1160,7 +1160,7 @@ static void ide_stream_stop(struct pci_dev *pdev, struct pci_ide_stream *stm)
 	if (ret)
 		return;
 
-	if (!spdm_session_msg_exchange_prepare(stm->sess)) {
+	if (!spdm_session_msg_exchange_prepare(stm->sess, 6)) {
 		req.object_id = PCI_IDE_OBJECT_ID_K_SET_STOP;
 		ide_km_msg_exchange(pdev, stm->sess, istm, &req);
 		spdm_session_msg_exchange_complete(stm->sess);

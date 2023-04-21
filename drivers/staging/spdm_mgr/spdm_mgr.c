@@ -53,13 +53,20 @@ EXPORT_SYMBOL_GPL(spdm_msg_exchange);
 
 int spdm_session_msg_exchange(struct spdm_session *session, struct spdm_message *msg)
 {
+	int ret;
+
 	if (!(msg->flags & SPDM_MSG_FLAGS_SECURE))
 		return -EINVAL;
 
 	if (!session->msg_exchange)
 		return -ENOTTY;
 
-	return session->msg_exchange(session, msg);
+	ret = session->msg_exchange(session, msg);
+	if (ret)
+		return ret;
+
+	atomic64_inc(&session->seq_num);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(spdm_session_msg_exchange);
 

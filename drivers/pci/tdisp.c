@@ -370,7 +370,8 @@ int pci_tdi_msg_exchange_prepare(struct pci_tdi *tdi)
 	struct pci_tdisp_dev *tdev = tdi->parent;
 	struct spdm_session *session = tdev->session;
 
-	return spdm_session_msg_exchange_prepare(session);
+	/* require only 1 spdm session budget for each prepare/complete pair */
+	return spdm_session_msg_exchange_prepare(session, 1);
 }
 EXPORT_SYMBOL_GPL(pci_tdi_msg_exchange_prepare);
 
