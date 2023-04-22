@@ -32,6 +32,7 @@
 #include <asm/cpu_entry_area.h>		/* exception stack		*/
 #include <asm/pgtable_areas.h>		/* VMALLOC_START, ...		*/
 #include <asm/kvm_para.h>		/* kvm_handle_async_pf		*/
+#include <asm/sgx.h>			/* sgx_enclave_vma		*/
 #include <asm/vdso.h>			/* fixup_vdso_exception()	*/
 #include <asm/irq_stack.h>
 
@@ -1114,11 +1115,14 @@ access_error(unsigned long error_code, struct vm_area_struct *vma)
 
 	/*
 	 * Shadow stack accesses (PF_SHSTK=1) are only permitted to
-	 * shadow stack VMAs. All other accesses result in an error.
+	 * shadow stack VMAs unless it is within an SGX enclave.
+	 * All other accesses result in an error.
 	 */
 	if (error_code & X86_PF_SHSTK) {
-		if (unlikely(!(vma->vm_flags & VM_SHADOW_STACK)))
-			return 1;
+		if (unlikely(!(vma->vm_flags & VM_SHADOW_STACK))) {
+			if (!sgx_enclave_vma(vma))
+				return 1;
+		}
 		if (unlikely(!(vma->vm_flags & VM_WRITE)))
 			return 1;
 		return 0;

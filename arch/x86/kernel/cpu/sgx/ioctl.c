@@ -174,7 +174,8 @@ static int sgx_validate_secinfo(struct sgx_secinfo *secinfo)
 	u64 perm = secinfo->flags & SGX_SECINFO_PERMISSION_MASK;
 	u64 pt   = secinfo->flags & SGX_SECINFO_PAGE_TYPE_MASK;
 
-	if (pt != SGX_SECINFO_REG && pt != SGX_SECINFO_TCS)
+	if (pt != SGX_SECINFO_REG && pt != SGX_SECINFO_TCS &&
+	    pt != SGX_SECINFO_SS_FIRST && pt != SGX_SECINFO_SS_REST)
 		return -EINVAL;
 
 	if ((perm & SGX_SECINFO_W) && !(perm & SGX_SECINFO_R))

@@ -118,6 +118,12 @@ static unsigned long sgx_get_unmapped_area(struct file *file,
 	return current->mm->get_unmapped_area(file, addr, len, pgoff, flags);
 }
 
+bool sgx_enclave_vma(struct vm_area_struct *vma)
+{
+	return vma->vm_ops && vma->vm_ops == &sgx_vm_ops;
+}
+EXPORT_SYMBOL_GPL(sgx_enclave_vma);
+
 #ifdef CONFIG_COMPAT
 static long sgx_compat_ioctl(struct file *filep, unsigned int cmd,
 			      unsigned long arg)
