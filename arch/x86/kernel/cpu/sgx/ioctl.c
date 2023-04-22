@@ -508,6 +508,10 @@ static int sgx_encl_init(struct sgx_encl *encl, struct sgx_sigstruct *sigstruct,
 	    sgx_attributes_reserved_mask)
 		return -EINVAL;
 
+	if (sigstruct->body.cet_attributes & sigstruct->body.cet_attributes_mask &
+	    sgx_cet_attributes_reserved_mask)
+		return -EINVAL;
+
 	if (sigstruct->body.miscselect & sigstruct->body.misc_mask &
 	    sgx_misc_reserved_mask)
 		return -EINVAL;

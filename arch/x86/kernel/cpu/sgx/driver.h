@@ -19,6 +19,7 @@
 extern u64 sgx_attributes_reserved_mask;
 extern u64 sgx_xfrm_reserved_mask;
 extern u32 sgx_misc_reserved_mask;
+extern u8 sgx_cet_attributes_reserved_mask;
 
 extern const struct file_operations sgx_provision_fops;
 

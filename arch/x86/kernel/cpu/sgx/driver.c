@@ -6,6 +6,7 @@
 #include <linux/mman.h>
 #include <linux/security.h>
 #include <linux/suspend.h>
+#include <asm/tlbflush.h>
 #include <asm/traps.h>
 #include "driver.h"
 #include "encl.h"
@@ -13,6 +14,7 @@
 u64 sgx_attributes_reserved_mask;
 u64 sgx_xfrm_reserved_mask = ~0x3;
 u32 sgx_misc_reserved_mask;
+u8 sgx_cet_attributes_reserved_mask = SGX_CET_ATTR_RESERVED_MASK;
 
 static int sgx_open(struct inode *inode, struct file *file)
 {
@@ -166,6 +168,17 @@ int __init sgx_drv_init(void)
 
 	attr_mask = (((u64)ebx) << 32) + (u64)eax;
 	sgx_attributes_reserved_mask = ~attr_mask | SGX_ATTR_RESERVED_MASK;
+
+	/* Only enable enclave shstk features when user shstk is enabled */
+	if (!cpu_feature_enabled(X86_FEATURE_USER_SHSTK))
+		sgx_cet_attributes_reserved_mask |= SGX_CET_ATTR_SH_STK_EN |
+						    SGX_CET_ATTR_WR_SHSTK_EN;
+
+	/* CR4.CET is set before SGX driver initialization, and stays unchanged
+	 * at runtime.
+	 */
+	if (!(cr4_read_shadow() & X86_CR4_CET))
+		sgx_attributes_reserved_mask |= SGX_ATTR_CET;
 
 	if (cpu_feature_enabled(X86_FEATURE_OSXSAVE)) {
 		xfrm_mask = (((u64)edx) << 32) + (u64)ecx;
