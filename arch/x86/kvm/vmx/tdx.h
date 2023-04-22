@@ -114,7 +114,7 @@ struct kvm_tdx {
 	 */
 	spinlock_t binding_slot_lock;
 
-	void *mig_state;
+	struct tdx_mig_state *mig_state;
 };
 
 union tdx_exit_reason {

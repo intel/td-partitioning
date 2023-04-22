@@ -19,8 +19,6 @@ struct tdx_mig_mbmd {
 	uint64_t addr_and_size;
 };
 
-#define TDX_MIG_NULL_PA		~(0ULL)
-
 #define TDX_MIG_EPOCH_START_TOKEN 0xffffffff
 
 /*
@@ -65,6 +63,9 @@ struct tdx_mig_page_list {
 	union tdx_mig_page_list_info info;
 };
 
+/* TODO: check physical_mask */
+#define TDX_SPTE_PFN_MASK 0xffffffffff000
+
 union tdx_mig_gpa_list_entry {
 	uint64_t val;
 	struct{
@@ -74,9 +75,12 @@ union tdx_mig_gpa_list_entry {
 		uint64_t l2_map         : 3;   // Bits 9:7  :  L2 mapping flags
 		uint64_t mig_type       : 2;   // Bits 11:10:  Migration type
 		uint64_t gfn            : 40;  // Bits 51:12
+#define GPA_LIST_OP_NOP		0
 #define GPA_LIST_OP_EXPORT	1
+#define GPA_LIST_OP_CANCEL	2
 		uint64_t operation      : 2;   // Bits 53:52
 		uint64_t reserved_1     : 2;   // Bits 55:54
+#define GPA_LIST_S_SUCCESS		0
 #define GPA_LIST_S_SEPT_WALK_FAILED	2
 		uint64_t status         : 5;   // Bits 56:52
 		uint64_t reserved_2     : 3;   // Bits 63:61
@@ -147,11 +151,15 @@ union tdx_mig_stream_info {
 
 struct tdx_mig_stream {
 	uint16_t idx;
-	unsigned long migsc_pa;
 	uint32_t buf_list_pages;
 	struct tdx_mig_mbmd mbmd;
-	/* List of buffers to export/import the TD private memory data */
+	/* List of buffers to export the TD private memory data */
 	struct tdx_mig_buf_list mem_buf_list;
+	/*
+	 * List of buffers grabbed either from the private_fd allocated pages
+	 * for in place import or from mem_buf_list for non-in-place import.
+	 */
+	struct tdx_mig_buf_list import_mem_buf_list;
 	/* List of buffers to export/miport the TD non-memory state data */
 	struct tdx_mig_page_list page_list;
 	/* List of GPA entries used when export/import the TD private memory */
@@ -160,16 +168,34 @@ struct tdx_mig_stream {
 	struct tdx_mig_mac_list mac_list[2];
 	/* List of TD private pages */
 	struct tdx_mig_buf_list td_buf_list;
+	/*
+	 * Bitmap to get if a gpa in the gpa_list to import needs first-time
+	 * import, i.e. the sept entry has not been setup on the TDX side.
+	 * 512 bits which supports 512 pages in a batch.
+	 */
+	uint64_t first_time_import_bitmap[8];
+	/* GFNs of the pages to import */
+	gfn_t gfns[TDX_MIG_GPA_LIST_MAX_ENTRIES];
+	uint64_t sptes[TDX_MIG_GPA_LIST_MAX_ENTRIES];
 };
 
 struct tdx_mig_state {
-	/* Migration (forward) stream to migrate the TD states */
-	struct tdx_mig_stream stream;
+	atomic_t streams_added;
+	/*
+	 * Array to store physical addresses of the migration stream context
+	 * pages that have been added to the TDX module. The pages can be
+	 * reclaimed from TDX when TD is torn down.
+	 */
+	hpa_t *migsc_addrs;
+
+	struct tdx_mig_stream *default_stream;
 	/*
 	 * Backward stream not used in the version. But required by the TDX
 	 * architecture to be created.
 	 */
 	struct tdx_mig_stream backward_stream;
+	hpa_t backward_migsc_addr;
+
 	/* Indicate if TD is the source TD in the current migration session */
 	bool is_src;
 	bool bugged;
@@ -221,14 +247,6 @@ static int tdx_mig_capabilities_setup(void)
 	return 0;
 }
 
-static inline bool tdx_mig_stream_is_src(struct tdx_mig_stream *stream)
-{
-	struct tdx_mig_state *mig_state =
-		container_of(stream, struct tdx_mig_state, stream);
-
-	return mig_state->is_src;
-}
-
 static void tdx_mig_gpa_list_setup(struct tdx_mig_gpa_list *gpa_list,
 				   gfn_t *gfns, uint32_t num)
 {
@@ -271,9 +289,9 @@ static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
 		do {
 			err = tdh_export_blockw(kvm_tdx->tdr_pa,
 						gpa_list->info.val, &out);
-			if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+			if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 				gpa_list->info.val = out.rcx;
-		} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+		} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 		if (err != TDX_SUCCESS) {
 			mig_state->bugged = true;
@@ -500,7 +518,8 @@ static int tdx_mig_stream_mac_list_setup(struct tdx_mig_mac_list *mac_list)
 	return 0;
 }
 
-static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
+static int tdx_mig_stream_setup(struct tdx_mig_state *mig_state,
+				struct tdx_mig_stream *stream)
 {
 	int ret;
 
@@ -541,13 +560,18 @@ static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 	 * Allocate the list, and the list will be later filled with QEMU pages
 	 * to do in-place memory import.
 	 */
-	if (!tdx_mig_stream_is_src(stream)) {
+	if (!mig_state->is_src) {
 		ret = tdx_mig_stream_buf_list_alloc(&stream->td_buf_list);
 		if (ret)
 			goto err_td_buf_list;
+		ret = tdx_mig_stream_buf_list_alloc(&stream->import_mem_buf_list);
+		if (ret)
+			goto err_import_mem_buf_list;
 	}
 
 	return 0;
+err_import_mem_buf_list:
+	free_page((unsigned long)stream->td_buf_list.entries);
 err_td_buf_list:
 	if (stream->mac_list[1].entries)
 		free_page((unsigned long)stream->mac_list[1].entries);
@@ -569,6 +593,8 @@ err_mbmd:
 static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 				   struct kvm_device_attr *attr)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	struct tdx_mig_stream *stream = dev->private;
 	u64 __user *uaddr = (u64 __user *)(long)attr->addr;
 	int ret;
@@ -587,7 +613,7 @@ static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 		if (ret)
 			break;
 
-		ret = tdx_mig_stream_setup(stream);
+		ret = tdx_mig_stream_setup(mig_state, stream);
 		break;
 	}
 	default:
@@ -671,11 +697,11 @@ static int tdx_mig_export_state_immutable(struct kvm_tdx *kvm_tdx,
 						 page_list->info.val,
 						 stream_info.val,
 						 &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (tdx_masked_status(err) == TDX_SUCCESS) {
+	if (seamcall_masked_status(err) == TDX_SUCCESS) {
 		stream->idx = stream->mbmd.data->migs_index;
 		/* Tell userspace the num of exported 4KB pages */
 		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
@@ -707,18 +733,18 @@ static int tdx_mig_import_state_immutable(struct kvm_tdx *kvm_tdx,
 						 page_list->info.val,
 						 stream_info.val,
 						 &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (tdx_masked_status(err) == TDX_SUCCESS) {
+	if (seamcall_masked_status(err) == TDX_SUCCESS) {
 		stream->idx = stream->mbmd.data->migs_index;
 	} else {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
 		return -EIO;
 	}
 
-	return kvm_prealloc_private_pages(&kvm_tdx->kvm);
+	return kvm_prealloc_private_pages(&kvm_tdx->kvm, true);
 }
 
 static void tdx_mig_buf_list_set_valid(struct tdx_mig_buf_list *mem_buf_list,
@@ -737,12 +763,25 @@ static void tdx_mig_buf_list_set_valid(struct tdx_mig_buf_list *mem_buf_list,
 	}
 }
 
+static void tdx_mig_handle_export_mem_error(struct kvm *kvm,
+					    struct tdx_mig_gpa_list *gpa_list,
+					    uint64_t npages)
+{
+	union tdx_mig_gpa_list_entry *entry;
+	uint64_t i;
+
+	for (i = 0; i < npages; i++) {
+		entry = &gpa_list->entries[i];
+		if (entry->status != GPA_LIST_S_SUCCESS)
+			mark_page_dirty(kvm, (gfn_t)entry->gfn);
+	}
+}
+
 static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 					 struct tdx_mig_stream *stream,
 					 uint64_t __user *data)
 {
-	struct tdx_mig_state *mig_state =
-		container_of(stream, struct tdx_mig_state, stream);
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	/* Userspace is expected to fill the gpa_list.buf[i] fields */
 	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
 	struct tdx_mig_buf_list *mem_buf_list = &stream->mem_buf_list;
@@ -777,12 +816,12 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 				     stream->mac_list[1].hpa,
 				     stream_info.val,
 				     &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
 			stream_info.resume = 1;
 			/* Update the gpa_list_info (mainly first_entry) */
 			gpa_list->info.val = out.rcx;
 		}
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	/*
 	 * It is possible that TDX module returns a general success,
@@ -795,7 +834,12 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 	 * The number of failed pages is put in the operand id field, so
 	 * we mask that part to indicate a general success of the call.
 	 */
-	if (tdx_masked_status(err) == TDX_SUCCESS) {
+	if (seamcall_masked_status(err) == TDX_SUCCESS) {
+		if (err != TDX_SUCCESS) {
+			tdx_mig_handle_export_mem_error(&kvm_tdx->kvm,
+							gpa_list, npages);
+		}
+
 		/*
 		 * 1 for GPA list and 1 for MAC list
 		 * TODO: Improve by checking GPA list entries
@@ -812,63 +856,135 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
-static inline bool gpa_first_time_import(union tdx_mig_gpa_list_entry *entry)
+static bool gpa_skip_import(union tdx_mig_gpa_list_entry *entry)
 {
-	return entry->operation == GPA_LIST_OP_EXPORT;
+	return entry->operation == GPA_LIST_OP_NOP;
 }
 
-static void tdx_mig_mem_buf_copy(union tdx_mig_buf_list_entry *to_entry,
-				 union tdx_mig_buf_list_entry *from_entry)
+static bool gpa_cancel_import(union tdx_mig_gpa_list_entry *entry)
 {
-	void *to_va =  __va((kvm_pfn_t)(to_entry->pfn) << PAGE_SHIFT);
-	void *from_va = __va((kvm_pfn_t)(from_entry->pfn) << PAGE_SHIFT);
+	return entry->operation == GPA_LIST_OP_CANCEL;
+}
+
+static void tdx_mig_mem_buf_copy(kvm_pfn_t to_pfn, kvm_pfn_t from_pfn)
+{
+	void *to_va =  __va(to_pfn << PAGE_SHIFT);
+	void *from_va = __va(from_pfn << PAGE_SHIFT);
 
 	memcpy(to_va, from_va, PAGE_SIZE);
 }
 
-
-static int tdx_mig_td_buf_list_add(struct kvm *kvm,
-				   uint64_t npages,
-				   struct tdx_mig_gpa_list *gpa_list,
-				   struct tdx_mig_buf_list *td_buf_list,
-				   struct tdx_mig_buf_list *mem_buf_list)
+static int import_mem_buf_init(struct kvm *kvm,
+			       uint64_t *sptes,
+			       uint64_t npages,
+			       struct tdx_mig_gpa_list *gpa_list,
+			       struct tdx_mig_buf_list *td_buf_list,
+			       struct tdx_mig_buf_list *import_mem_buf_list,
+			       struct tdx_mig_buf_list *mem_buf_list,
+			       uint64_t *first_time_import_bitmap)
 {
-	int ret, i;
-	gfn_t gfn;
+	int i;
 	kvm_pfn_t pfn;
-	union tdx_mig_buf_list_entry *td_buf_entries, *mem_buf_entries;
-
-	td_buf_entries = td_buf_list->entries;
-	mem_buf_entries = mem_buf_list->entries;
+	union tdx_mig_buf_list_entry *td_buf_entries = td_buf_list->entries;
+	union tdx_mig_buf_list_entry *import_mem_buf_entries =
+						import_mem_buf_list->entries;
+	union tdx_mig_buf_list_entry *mem_buf_entries = mem_buf_list->entries;
+	union tdx_mig_gpa_list_entry *gpa_list_entry;
 
 	for (i = 0; i < npages; i++) {
-		gfn = (gfn_t)gpa_list->entries[i].gfn;
-		ret = kvm_restricted_mem_get_pfn(gfn_to_memslot(kvm, gfn),
-						 gfn, &pfn, NULL);
-		if (ret) {
-			pr_err("%s: failed, ret=%d, gfn=%llx\n",
-				__func__, ret, gfn);
-			return -EIO;
-		}
-		td_buf_entries[i].pfn = pfn;
-		td_buf_entries[i].invalid = false;
-
-		if (!gpa_first_time_import(&gpa_list->entries[i]))
+		if (!sptes[i])
 			continue;
 
-		/*
-		 * First time import: copy data from shared memory to the TD
-		 * private page and do in-place import.
-		 */
-		tdx_mig_mem_buf_copy(&td_buf_entries[i], &mem_buf_entries[i]);
+		gpa_list_entry = &gpa_list->entries[i];
+		pfn = (sptes[i] & TDX_SPTE_PFN_MASK) >> PAGE_SHIFT;
+		import_mem_buf_entries[i].invalid = false;
+		if (test_bit_le(i, first_time_import_bitmap)) {
+			if (gpa_list_entry->operation != GPA_LIST_OP_EXPORT) {
+				pr_err("%s: unexpected, entry->operation=%d\n",
+					__func__, gpa_list_entry->operation);
+				return -EINVAL;
+			}
+			 /*
+			  * First time import: copy data from shared memory to
+			  * the restricted memory page that will be used as the
+			  * TD private page with in-place import. According to
+			  * the TDX ABI spec, the restricted mem page's pfn
+			  * needs to be set to the related mem_buf_list entry
+			  * for in-place import.
+			  */
+			tdx_mig_mem_buf_copy(pfn,
+					(kvm_pfn_t)mem_buf_entries[i].pfn);
+			import_mem_buf_entries[i].pfn = pfn;
+			td_buf_entries[i].invalid = true;
+		} else {
+			import_mem_buf_entries[i].pfn = mem_buf_entries[i].pfn;
+			td_buf_entries[i].pfn = pfn;
+			td_buf_entries[i].invalid = false;
+		}
 	}
+
+	/*
+	 * Pages that skipped to import still need their GPA list entries to imported
+	 */
+	gpa_list->info.first_entry = 0;
+	gpa_list->info.last_entry = npages - 1;
 
 	/*
 	 * TODO: remove if not necessary.
 	 * TDX module checks GPA list for the end.
 	 */
-	if (i < TDX_MIG_BUF_LIST_PAGES_MAX)
+	if (i < TDX_MIG_BUF_LIST_PAGES_MAX) {
 		td_buf_entries[i].invalid = true;
+		mem_buf_entries[i].invalid = true;
+	}
+
+	return 0;
+}
+
+static int tdx_mig_stream_import_private_pages(struct kvm *kvm,
+					       uint64_t *sptes,
+					       uint64_t npages,
+					       void *opaque)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_mig_stream *stream = (struct tdx_mig_stream *)opaque;
+	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_module_output out;
+	uint64_t err;
+	int ret;
+
+	ret = import_mem_buf_init(kvm, sptes, npages, gpa_list,
+				  &stream->td_buf_list,
+				  &stream->import_mem_buf_list,
+				  &stream->mem_buf_list,
+				  stream->first_time_import_bitmap);
+	if (ret)
+		return ret;
+
+	stream_info.index = stream->idx;
+	do {
+		err = tdh_import_mem(kvm_tdx->tdr_pa,
+				     stream->mbmd.addr_and_size,
+				     gpa_list->info.val,
+				     stream->import_mem_buf_list.hpa,
+				     stream->mac_list[0].hpa,
+				     stream->mac_list[1].hpa,
+				     stream->td_buf_list.hpa,
+				     stream_info.val,
+				     &out);
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
+			stream_info.resume = 1;
+			gpa_list->info.val = out.rcx;
+		}
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err != TDX_SUCCESS) {
+		pr_err("%s failed gfn=%llx, status=%d, err=%llx, npage=%lld\n",
+			__func__, (gfn_t)gpa_list->entries[0].gfn,
+			gpa_list->entries[0].status, err, npages);
+		return -EIO;
+	}
 
 	return 0;
 }
@@ -877,81 +993,45 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 				     struct tdx_mig_stream *stream,
 				     uint64_t __user *data)
 {
-	union tdx_mig_stream_info stream_info = {.val = 0};
-	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
-	union tdx_mig_gpa_list_entry *gpa_list_entry = &gpa_list->entries[0];
-	hpa_t mem_buf_list_hpa, td_buf_list_hpa;
-	struct tdx_module_output out;
-	struct kvm_gfn_range gfn_range;
-	gfn_t gfn;
-	uint64_t npages, err;
 	int ret;
+	uint64_t i, npages;
+	gfn_t gfn;
+	kvm_pfn_t pfn;
+	struct kvm *kvm = &kvm_tdx->kvm;
+	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	union tdx_mig_gpa_list_entry *gpa_list_entries =
+						stream->gpa_list.entries;
 
 	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;
 
-	gfn = (gfn_t)gpa_list->entries[0].gfn;
-	/* The page isn't mapped on the source side sept, so unmap it. */
-	if (gpa_list->entries[0].status == GPA_LIST_S_SEPT_WALK_FAILED) {
-		gfn_range.slot = gfn_to_memslot(&kvm_tdx->kvm, gfn);
-		gfn_range.start = gfn;
-		gfn_range.end = gfn + 1;
-		gfn_range.pte = __pte(0);
-		gfn_range.may_block = true;
-		gfn_range.flags = KVM_GFN_RANGE_FLAGS_RESTRICTED_MEM;
+	memset(stream->gfns, 0, npages * sizeof(gfn_t));
+	memset(stream->sptes, 0, npages * sizeof(uint64_t));
+	for (i = 0; i < npages; i++) {
+		if (gpa_skip_import(&gpa_list_entries[i]))
+			continue;
 
-		kvm_unmap_gfn_range(&kvm_tdx->kvm, &gfn_range);
-	} else {
-		/*
-		 * An unmapped page on the source could be mapped during the
-		 * migration process, map it accordingly. If the page has been
-		 * mapped on the destination via the pre-allocation optimization,
-		 * kvm_mmu_map_private_page won't make any update.
-		 */
-		kvm_mmu_map_private_page(&kvm_tdx->kvm, gfn);
-	}
-
-	ret = tdx_mig_td_buf_list_add(&kvm_tdx->kvm, npages, gpa_list,
-				      &stream->td_buf_list,
-				      &stream->mem_buf_list);
-	if (ret)
-		return ret;
-
-	if (gpa_first_time_import(gpa_list_entry)) {
-		/*
-		 * For in-place import, the memory data has been put into the
-		 * pages to be used as TD pages.
-		 */
-		mem_buf_list_hpa = stream->td_buf_list.hpa;
-		td_buf_list_hpa = TDX_MIG_NULL_PA;
-	} else {
-		mem_buf_list_hpa = stream->mem_buf_list.hpa;
-		td_buf_list_hpa = stream->td_buf_list.hpa;
-	}
-
-	stream_info.index = stream->idx;
-	do {
-		err = tdh_import_mem(kvm_tdx->tdr_pa,
-				     stream->mbmd.addr_and_size,
-				     gpa_list->info.val,
-				     mem_buf_list_hpa,
-				     stream->mac_list[0].hpa,
-				     stream->mac_list[1].hpa,
-				     td_buf_list_hpa,
-				     stream_info.val,
-				     &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
-			stream_info.val = 1;
-			gpa_list->info.val = out.rcx;
+		gfn = (gfn_t)(gpa_list_entries[i].gfn);
+		if (!gpa_cancel_import(&gpa_list_entries[i])) {
+			ret = kvm_restricted_mem_get_pfn(gfn_to_memslot(kvm, gfn),
+							 gfn, &pfn, NULL);
+			if (ret) {
+				pr_err("%s: failed, ret=%d, i=%lld, gfn=%llx, npages=%lld\n",
+					__func__, ret, i, gfn, npages);
+				return -EIO;
+			}
+			stream->sptes[i] = (u64)pfn << PAGE_SHIFT | VMX_EPT_RWX_MASK |
+					(MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT) |
+					VMX_EPT_IPAT_BIT | VMX_EPT_SUPPRESS_VE_BIT;
 		}
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (err != TDX_SUCCESS) {
-		pr_err("%s failed, err=%llx\n", __func__, err);
-		return -EIO;
+		stream->gfns[i] = gfn;
 	}
 
-	return 0;
+	return kvm_mmu_import_private_pages(vcpu, stream->gfns,
+					    stream->sptes, npages,
+					    stream->first_time_import_bitmap,
+					    stream);
 }
 
 static int tdx_mig_export_track(struct kvm_tdx *kvm_tdx,
@@ -999,14 +1079,13 @@ static int tdx_mig_import_track(struct kvm_tdx *kvm_tdx,
 	}
 
 	if (tdx_mig_epoch_is_start_token(stream->mbmd.data)) {
-		err = tdh_import_end(kvm_tdx->tdr_pa);
+		err = tdh_import_commit(kvm_tdx->tdr_pa);
 		if (err != TDX_SUCCESS) {
-			pr_err("tdh_import_end failed, err=%llx\n", err);
+			pr_err("tdh_import_commit failed, err=%llx\n", err);
 			return -EIO;
 		}
+
 		kvm_tdx->finalized = true;
-		pr_info("migration flow is done, userspace pid %d\n",
-			kvm_tdx->kvm.userspace_pid);
 	}
 
 	return 0;
@@ -1039,9 +1118,9 @@ static int tdx_mig_export_state_td(struct kvm_tdx *kvm_tdx,
 					  stream->page_list.info.val,
 					  stream_info.val,
 					  &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err == TDX_SUCCESS) {
 		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
@@ -1073,9 +1152,9 @@ static int tdx_mig_import_state_td(struct kvm_tdx *kvm_tdx,
 					  page_list->info.val,
 					  stream_info.val,
 					  &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err != TDX_SUCCESS) {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
@@ -1120,9 +1199,9 @@ static int tdx_mig_export_state_vp(struct kvm_tdx *kvm_tdx,
 					  stream->page_list.info.val,
 					  stream_info.val,
 					  &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err == TDX_SUCCESS) {
 		mig_state->vcpu_export_next_idx++;
@@ -1175,9 +1254,9 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 					  page_list->info.val,
 					  stream_info.val,
 					  &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			stream_info.resume = 1;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (err != TDX_SUCCESS) {
 		pr_err("%s: failed, err=%llx\n", __func__, err);
@@ -1194,25 +1273,39 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static int tdx_mig_import_end(struct kvm_tdx *kvm_tdx)
+{
+	uint64_t err;
+
+	err = tdh_import_end(kvm_tdx->tdr_pa);
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	pr_info("migration flow is done, userspace pid %d\n",
+		kvm_tdx->kvm.userspace_pid);
+
+	return 0;
+}
+
 static int tdx_restore_private_page(struct kvm *kvm, gfn_t gfn)
 {
 	uint64_t err;
 	struct tdx_module_output out;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_mig_state *mig_state =
-			(struct tdx_mig_state *)kvm_tdx->mig_state;
-	struct tdx_mig_stream *stream = &mig_state->stream;
+	struct tdx_mig_stream *stream = kvm_tdx->mig_state->default_stream;
 	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
 
 	tdx_mig_gpa_list_setup(gpa_list, &gfn, 1);
 	do {
 		err = tdh_export_restore(kvm_tdx->tdr_pa,
 					 gpa_list->info.val, &out);
-		if (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
 			gpa_list->info.val = out.rcx;
-	} while (tdx_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
-	if (tdx_masked_status(err) != TDX_SUCCESS) {
+	if (seamcall_masked_status(err) != TDX_SUCCESS) {
 		pr_err("%s failed, err=%llx, gfn=%lx\n",
 			__func__, err, (long)gpa_list->entries[0].gfn);
 		return -EIO;
@@ -1297,6 +1390,9 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		r = tdx_mig_export_abort(kvm_tdx, stream,
 					 (uint64_t __user *)tdx_cmd.data);
 		break;
+	case KVM_TDX_MIG_IMPORT_END:
+		r = tdx_mig_import_end(kvm_tdx);
+		break;
 	default:
 		r = -EINVAL;
 	}
@@ -1305,10 +1401,11 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 }
 
 static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
-				    struct tdx_mig_stream *stream)
+				    struct tdx_mig_stream *stream,
+				    hpa_t *migsc_addr)
 {
 	struct tdx_module_output out;
-	unsigned long migsc_va, migsc_pa;
+	hpa_t migsc_va, migsc_pa;
 	uint64_t err;
 
 	/*
@@ -1318,7 +1415,7 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 	 * for later re-migration). No need to proceed to the creation in this
 	 * case.
 	 */
-	if (stream->migsc_pa)
+	if (*migsc_addr)
 		return 0;
 
 	migsc_va = __get_free_page(GFP_KERNEL_ACCOUNT);
@@ -1332,7 +1429,32 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 		free_page(migsc_va);
 		return -EIO;
 	}
-	stream->migsc_pa = migsc_pa;
+
+	*migsc_addr = migsc_pa;
+	return 0;
+}
+
+static int tdx_mig_state_init(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	struct tdx_binding_slot *slot =
+			&kvm_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
+
+	/* TODO: add a helper to get is_src. Move tdx_binding_slot to tdx.c */
+	mig_state->is_src = slot->migtd_data.is_src;
+	if (mig_state->is_src && !mig_state->blockw_gpa_list.entries)
+		tdx_mig_stream_gpa_list_setup(&mig_state->blockw_gpa_list);
+
+	/*
+	 * The backward stream has been created and added to TDX in the
+	 * previous migration sessions.
+	 */
+	if (mig_state->backward_migsc_addr)
+		return 0;
+
+	if (tdx_mig_do_stream_create(kvm_tdx, &mig_state->backward_stream,
+				     &mig_state->backward_migsc_addr))
+		return -EIO;
 
 	return 0;
 }
@@ -1340,42 +1462,39 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 {
 	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
-	struct tdx_binding_slot *slot =
-		&kvm_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
 
-	/*
-	 * Current version supports only one migration stream. The mig_state
-	 * has been allocated when the stream is created.
-	 */
-	if (!mig_state) {
-		mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
-		if (!mig_state)
-			return -ENOMEM;
+	mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
+	if (!mig_state)
+		return -ENOMEM;
 
-		if (tdx_mig_do_stream_create(kvm_tdx, &mig_state->backward_stream)) {
-			kfree(mig_state);
-			return -EIO;
-		}
-		kvm_tdx->mig_state = mig_state;
+	mig_state->migsc_addrs = kzalloc(sizeof(hpa_t) * tdx_mig_caps.max_migs,
+					 GFP_KERNEL_ACCOUNT);
+	if (!mig_state->migsc_addrs) {
+		kfree(mig_state);
+		return -ENOMEM;
 	}
 
-	mig_state->is_src = slot->migtd_data.is_src;
-	if (mig_state->is_src)
-		tdx_mig_stream_gpa_list_setup(&mig_state->blockw_gpa_list);
+	kvm_tdx->mig_state = mig_state;
+
 	return 0;
 }
 
 static void tdx_mig_state_destroy(struct kvm_tdx *kvm_tdx)
 {
-	struct tdx_mig_state *mig_state =
-		(struct tdx_mig_state *)kvm_tdx->mig_state;
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	uint32_t i;
 
 	if (!mig_state)
 		return;
 
-	free_page((unsigned long)mig_state->blockw_gpa_list.entries);
-	tdx_reclaim_td_page(mig_state->stream.migsc_pa);
-	tdx_reclaim_td_page(mig_state->backward_stream.migsc_pa);
+	WARN_ON_ONCE(atomic_read(&mig_state->streams_added));
+	if (mig_state->blockw_gpa_list.entries)
+		free_page((unsigned long)mig_state->blockw_gpa_list.entries);
+
+	tdx_reclaim_td_page(mig_state->backward_migsc_addr);
+	for (i = 0; i < tdx_mig_caps.max_migs; i++)
+		tdx_reclaim_td_page(mig_state->migsc_addrs[i]);
+
 	kfree(mig_state);
 	kvm_tdx->mig_state = NULL;
 }
@@ -1383,35 +1502,53 @@ static void tdx_mig_state_destroy(struct kvm_tdx *kvm_tdx)
 static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
-	struct tdx_mig_state *mig_state;
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	struct tdx_mig_stream *stream;
 	int ret;
 
+	stream = kzalloc(sizeof(struct tdx_mig_stream), GFP_KERNEL_ACCOUNT);
 	/*
-	 * At least two migration streams (forward stream + backward stream)
-	 * are required to be created.
+	 * mig_state will be cleaned up via tdx_vm_free->tdx_mig_state_destroy
+	 * later.
 	 */
-	if (unlikely(tdx_mig_caps.max_migs < 2))
-		return -ENOENT;
-
-	ret = tdx_mig_state_create(kvm_tdx);
-	if (ret)
-		return ret;
-
-	mig_state = (struct tdx_mig_state *)kvm_tdx->mig_state;
-	stream = &mig_state->stream;
-	ret = tdx_mig_do_stream_create(kvm_tdx, stream);
-	if (ret)
-		return ret;
+	if (!stream)
+		return -ENOMEM;
 
 	dev->private = stream;
+	stream->idx = atomic_inc_return(&mig_state->streams_added) - 1;
+	/* The first stream is used as the default stream */
+	if (!stream->idx) {
+		WARN_ON_ONCE(mig_state->default_stream);
+		tdx_mig_state_init(kvm_tdx);
+		mig_state->default_stream = stream;
+	}
+
+	ret = tdx_mig_do_stream_create(kvm_tdx, stream,
+				       &mig_state->migsc_addrs[stream->idx]);
+	/*
+	 * No need to call tdx_mig_state_destroy on errors here. The
+	 * cleanup work is done via tdx_vm_free later, as the pages (e.g.
+	 * migsc_addrs) that are added to TDX module can be reclaimed only
+	 * in the TD teardown flow.
+	 */
+	if (ret) {
+		kfree(stream);
+		return ret;
+	}
 
 	return 0;
 }
 
 static void tdx_mig_stream_release(struct kvm_device *dev)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	struct tdx_mig_stream *stream = dev->private;
+
+	if (!stream->idx)
+		mig_state->default_stream = NULL;
+
+	atomic_dec(&mig_state->streams_added);
 
 	free_page((unsigned long)stream->mbmd.data);
 	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
@@ -1426,6 +1563,8 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 		free_page((unsigned long)stream->mac_list[1].entries);
 	if (stream->td_buf_list.entries)
 		free_page((unsigned long)stream->td_buf_list.entries);
+	if (stream->import_mem_buf_list.entries)
+		free_page((unsigned long)stream->import_mem_buf_list.entries);
 }
 
 static struct kvm_device_ops kvm_tdx_mig_stream_ops = {

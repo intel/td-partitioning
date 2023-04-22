@@ -3919,6 +3919,21 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	return ret;
 }
 
+int kvm_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				 gfn_t *gfns,
+				 uint64_t *sptes,
+				 uint64_t npages,
+				 void *first_time_import_bitmap,
+				 void *opaque)
+{
+	if (!tdp_mmu_enabled)
+		return -EOPNOTSUPP;
+
+	return kvm_tdp_mmu_import_private_pages(vcpu, gfns, sptes, npages,
+					first_time_import_bitmap, opaque);
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_import_private_pages);
+
 static void mmu_free_root_page(struct kvm *kvm, hpa_t *root_hpa,
 			       struct list_head *invalid_list)
 {
@@ -4968,7 +4983,7 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 }
 
 kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
-			       u32 error_code, int max_level)
+			       u32 error_code, int max_level, bool nonleaf)
 {
 	int r;
 	struct kvm_page_fault fault = (struct kvm_page_fault) {
@@ -4983,6 +4998,7 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 		.is_tdp = true,
 		.nx_huge_page_workaround_enabled = is_nx_huge_page_enabled(vcpu->kvm),
 		.is_private = kvm_is_private_gpa(vcpu->kvm, gpa),
+		.nonleaf = nonleaf,
 	};
 
 	WARN_ON_ONCE(!vcpu->arch.mmu->root_role.direct);
@@ -5011,7 +5027,8 @@ kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_map_tdp_page);
 
-static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
+static int
+kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot, bool nonleaf)
 {
 	int idx, ret = 0;
 	struct kvm *kvm = memslot->kvm;
@@ -5020,10 +5037,7 @@ static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
 	gfn_t start = memslot->base_gfn;
 	gfn_t end = memslot->base_gfn + npages;
 	gpa_t gpa = gfn_to_gpa(memslot->base_gfn);
-	u64 attrs = KVM_MEMORY_ATTRIBUTE_READ |
-		    KVM_MEMORY_ATTRIBUTE_WRITE |
-		    KVM_MEMORY_ATTRIBUTE_EXECUTE |
-		    KVM_MEMORY_ATTRIBUTE_PRIVATE;
+	u64 attrs = KVM_MEMORY_ATTRIBUTE_PRIVATE;
 	kvm_pfn_t pfn;
 
 	if (mutex_lock_killable(&vcpu->mutex))
@@ -5046,7 +5060,7 @@ static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
 
 
 		pfn = kvm_mmu_map_tdp_page(vcpu, gpa, PFERR_WRITE_MASK,
-					   PG_LEVEL_4K);
+					   PG_LEVEL_4K, nonleaf);
 		if (is_error_noslot_pfn(pfn) || kvm->vm_bugged) {
 			pr_err("%s: failed, noslot_pfn=%d, vm_bugged=%d\n",
 				__func__, is_error_noslot_pfn(pfn), kvm->vm_bugged);
@@ -5057,6 +5071,9 @@ static int kvm_slot_prealloc_private_pages(struct kvm_memory_slot *memslot)
 		gpa += PAGE_SIZE;
 		npages--;
 	}
+
+	attrs = 0;
+	KVM_BUG_ON(kvm_vm_set_memory_attributes(kvm, attrs, start, end), kvm);
 
 	srcu_read_unlock(&kvm->srcu, idx);
 	vcpu_put(vcpu);
@@ -5076,7 +5093,7 @@ int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn)
 	if (!tdp_mmu_enabled)
 		return -EOPNOTSUPP;
 
-	pfn = kvm_mmu_map_tdp_page(vcpu, gpa, PFERR_WRITE_MASK, PG_LEVEL_4K);
+	pfn = kvm_mmu_map_tdp_page(vcpu, gpa, PFERR_WRITE_MASK, PG_LEVEL_4K, true);
 	if (is_error_noslot_pfn(pfn) || kvm->vm_bugged) {
 		pr_err("%s: failed, noslot_pfn=%d, vm_bugged=%d\n",
 			__func__, is_error_noslot_pfn(pfn), kvm->vm_bugged);
@@ -5087,7 +5104,7 @@ int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn)
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_map_private_page);
 
-int kvm_prealloc_private_pages(struct kvm *kvm)
+int kvm_prealloc_private_pages(struct kvm *kvm, bool nonleaf)
 {
 	struct kvm_memory_slot *memslot;
 	struct kvm_memslots *slots = kvm_memslots(kvm);
@@ -5097,7 +5114,7 @@ int kvm_prealloc_private_pages(struct kvm *kvm)
 		if (!memslot->restricted_file)
 			continue;
 
-		ret = kvm_slot_prealloc_private_pages(memslot);
+		ret = kvm_slot_prealloc_private_pages(memslot, nonleaf);
 		if (ret) {
 			pr_err("%s: failed\n", __func__);
 			break;
@@ -7508,9 +7525,7 @@ static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
 	if (!kvm_gfn_shared_mask(kvm))
 		return -EOPNOTSUPP;
 
-	attrs = KVM_MEMORY_ATTRIBUTE_READ | KVM_MEMORY_ATTRIBUTE_WRITE |
-		KVM_MEMORY_ATTRIBUTE_EXECUTE;
-	attrs |= map_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
+	attrs = map_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	start = start & ~kvm_gfn_shared_mask(kvm);
 	end = end & ~kvm_gfn_shared_mask(kvm);
 

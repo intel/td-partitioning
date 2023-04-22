@@ -179,12 +179,12 @@ static inline void kvm_mmu_refresh_passthrough_bits(struct kvm_vcpu *vcpu,
 }
 
 kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
-			       u32 error_code, int max_level);
+			       u32 error_code, int max_level, bool nonleaf);
 
 #ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
 int kvm_mmu_map_private_page(struct kvm *kvm, gfn_t gfn);
 
-int kvm_prealloc_private_pages(struct kvm *kvm);
+int kvm_prealloc_private_pages(struct kvm *kvm, bool nonleaf);
 
 int kvm_restore_private_pages(struct kvm *kvm, gfn_t gfn_max);
 #endif
@@ -367,5 +367,12 @@ static inline void kvm_mmu_split_direct_map(struct page *page)
 	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
 		set_direct_map_split_noflush(page);
 }
+
+int kvm_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				 gfn_t *gfns,
+				 uint64_t *sptes,
+				 uint64_t npages,
+				 void *first_time_import_bitmap,
+				 void *opaque);
 
 #endif

@@ -2360,8 +2360,22 @@ static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
 	return xa_to_value(xa_load(&kvm->mem_attr_array, gfn)) &
 	       KVM_MEMORY_ATTRIBUTE_PRIVATE;
 }
+
+static inline int kvm_mem_set_attr(struct kvm *kvm, gfn_t gfn, uint64_t attrs)
+{
+	void *entry = attrs ? xa_mk_value(attrs) : NULL;
+
+	return xa_err(xa_store(&kvm->mem_attr_array, gfn,
+		      entry, GFP_KERNEL_ACCOUNT));
+}
+
 #else
 static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return false;
+}
+
+static inline int kvm_mem_set_attr(struct kvm *kvm, gfn_t gfn, uint64_t attrs)
 {
 	return false;
 }
@@ -2374,8 +2388,15 @@ static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 {
 	int ret;
 	struct page *page;
-	pgoff_t index = gfn - slot->base_gfn +
-			(slot->restricted_offset >> PAGE_SHIFT);
+	pgoff_t index;
+
+	if (!slot) {
+		printk("%s: slot is NULL, gfn=%llx\n", __func__, gfn);
+		return -EINVAL;
+	}
+
+	index = gfn - slot->base_gfn +
+		(slot->restricted_offset >> PAGE_SHIFT);
 
 	ret = restrictedmem_get_page(slot->restricted_file, index,
 				     &page, order);

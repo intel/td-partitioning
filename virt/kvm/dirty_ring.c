@@ -31,7 +31,8 @@ bool kvm_use_dirty_bitmap(struct kvm *kvm)
 #ifndef CONFIG_NEED_KVM_DIRTY_RING_WITH_BITMAP
 bool kvm_arch_allow_write_without_running_vcpu(struct kvm *kvm)
 {
-	return false;
+        /* TODO: let tdx set it */
+	return true;
 }
 #endif
 

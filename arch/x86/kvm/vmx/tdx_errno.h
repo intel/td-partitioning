@@ -6,7 +6,7 @@
 
 #define TDX_SEAMCALL_STATUS_MASK		0xFFFFFFFF00000000ULL
 /* Get the basic status with masking the lower operand ID bits */
-#define tdx_masked_status(x) (x & TDX_SEAMCALL_STATUS_MASK)
+#define seamcall_masked_status(x) (x & TDX_SEAMCALL_STATUS_MASK)
 
 /*
  * TDX SEAMCALL Status Codes (returned in RAX)

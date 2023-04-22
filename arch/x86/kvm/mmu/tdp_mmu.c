@@ -1652,12 +1652,17 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
-	else if (__tdp_mmu_map_handle_target_level(vcpu, fault, iter, new_spte))
-		return RET_PF_RETRY;
-	else if (is_shadow_present_pte(iter->old_spte) &&
-		 !is_last_spte(iter->old_spte, iter->level))
-		kvm_flush_remote_tlbs_with_address(vcpu->kvm, sp->gfn,
-						   KVM_PAGES_PER_HPAGE(iter->level + 1));
+	else {
+		ret = __tdp_mmu_map_handle_target_level(vcpu, fault, iter, new_spte);
+		if (ret == -EBUSY)
+			return RET_PF_RETRY;
+		else if (ret)
+			return RET_PF_INVALID;
+		else if (is_shadow_present_pte(iter->old_spte) &&
+			 !is_last_spte(iter->old_spte, iter->level))
+			 kvm_flush_remote_tlbs_with_address(vcpu->kvm, sp->gfn,
+				          KVM_PAGES_PER_HPAGE(iter->level + 1));
+	}
 
 	/*
 	 * If the page fault was caused by a write but the page is write
@@ -1843,7 +1848,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	goto retry;
 
 map_target_level:
-	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
+	if (!fault->nonleaf)
+		ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
+	else
+		ret = RET_PF_FIXED;
 
 retry:
 	rcu_read_unlock();
@@ -2671,13 +2679,13 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
  *
  * WARNING: This function is only intended to be called during fast_page_fault.
  */
-u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
-					u64 *spte)
+
+static u64 *kvm_tdp_mmu_fast_get_last_sptep(struct kvm_vcpu *vcpu,
+					    bool is_private, gfn_t gfn,
+					    u64 *spte)
 {
 	struct tdp_iter iter;
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
-	bool is_private = kvm_is_private_gpa(vcpu->kvm, addr);
-	gfn_t gfn = gpa_to_gfn(addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
 	tdp_ptep_t sptep = NULL;
 
 	tdp_mmu_for_each_pte(iter, mmu, is_private, gfn, gfn + 1) {
@@ -2696,6 +2704,70 @@ u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
 	 * outside of mmu_lock.
 	 */
 	return rcu_dereference(sptep);
+}
+
+u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
+					u64 *spte)
+{
+	bool is_private = kvm_is_private_gpa(vcpu->kvm, addr);
+	gfn_t gfn = gpa_to_gfn(addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
+
+	return kvm_tdp_mmu_fast_get_last_sptep(vcpu, is_private, gfn, spte);
+}
+
+int kvm_tdp_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				     gfn_t *gfns,
+				     uint64_t *sptes,
+				     uint64_t npages,
+				     void *first_time_import_bitmap,
+				     void *opaque)
+{
+	uint64_t i, old_spte, new_spte;
+	uint64_t *sptep = NULL;
+	gfn_t gfn;
+	int ret;
+
+	bitmap_zero(first_time_import_bitmap, npages);
+
+	kvm_tdp_mmu_walk_lockless_begin();
+	/*
+	 * Check if all the sptes are ready to be updated.If yes, frozen the
+	 * spteps till import is done.
+	 */
+	for (i = 0; i < npages; i++) {
+		if (!gfns[i])
+			continue;
+
+		gfn = gfns[i];
+		if (sptes[i])
+			new_spte = sptes[i] | SPTE_MMU_PRESENT_MASK;
+		else
+			new_spte = 0;
+		sptep = kvm_tdp_mmu_fast_get_last_sptep(vcpu, true, gfn, &old_spte);
+
+		/* The spte has been freezon */
+		if (is_removed_spte(old_spte)) {
+			ret = -EBUSY;
+			pr_err("%s: gfn=%llx is frozen\n", __func__, gfn);
+			goto out;
+		}
+
+		if (!try_cmpxchg64(sptep, &old_spte, new_spte)) {
+			ret = -EBUSY;
+			pr_err("%s: septp of gfn=%llx is changed\n", __func__, gfn);
+			goto out;
+		}
+
+		if (first_time_import_bitmap &&
+		    !is_shadow_present_pte(old_spte))
+			set_bit_le(i, first_time_import_bitmap);
+	}
+
+	ret = static_call(kvm_x86_import_private_pages)(vcpu->kvm,
+							sptes, npages, opaque);
+out:
+	kvm_tdp_mmu_walk_lockless_end();
+	return ret;
 }
 
 #ifdef CONFIG_INTEL_TDX_HOST

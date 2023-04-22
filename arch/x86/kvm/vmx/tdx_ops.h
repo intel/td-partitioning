@@ -499,6 +499,11 @@ static inline u64 tdh_import_end(hpa_t tdr)
 	return kvm_seamcall(TDH_IMPORT_END, tdr, 0, 0, 0, 0, 0, 0, 0, NULL);
 }
 
+static inline u64 tdh_import_commit(hpa_t tdr)
+{
+	return kvm_seamcall(TDH_IMPORT_COMMIT, tdr, 0, 0, 0, 0, 0, 0, 0, NULL);
+}
+
 static inline u64 tdh_export_pasue(hpa_t tdr)
 {
 	return kvm_seamcall(TDH_EXPORT_PAUSE, tdr, 0, 0, 0, 0, 0, 0, 0, NULL);

@@ -1150,7 +1150,8 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 
 		err = tdx->exit_reason.full & TDX_SEAMCALL_STATUS_MASK;
 
-		if (retries++ > TDX_SEAMCALL_RETRY_MAX) {
+		if (retries++ > TDX_SEAMCALL_RETRY_MAX * 10) {
+			pr_err("%s: called, retries=%llx\n", __func__, retries);
 			KVM_BUG_ON(err, vcpu->kvm);
 			pr_tdx_error(TDH_VP_ENTER, err, NULL);
 			break;
@@ -2374,7 +2375,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) ||
 	    !kvm_pfn_to_refcounted_page(pfn)) || !kvm_tdx->td_initialized)
-		return 0;
+		return -EINVAL;
 
 	/*
 	 * Because restricted mem doesn't support page migration with
@@ -3731,6 +3732,12 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		return -EOPNOTSUPP;
 	}
 
+	if ((td_params->attributes & TDX_TD_ATTRIBUTE_MIG) &&
+	    tdx_mig_state_create(to_kvm_tdx(kvm))) {
+		pr_warn("Failed to create mig state\n");
+		return -ENOMEM;
+	}
+
 	td_params->tsc_frequency =
 		TDX_TSC_KHZ_TO_25MHZ(kvm->arch.default_tsc_khz);
 
@@ -4075,7 +4082,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		error_code |= (PG_LEVEL_4K << PFERR_LEVEL_START_BIT) &
 			PFERR_LEVEL_MASK;
 		pfn = kvm_mmu_map_tdp_page(vcpu, region.gpa, error_code,
-					   PG_LEVEL_4K);
+					   PG_LEVEL_4K, false);
 		if (is_error_noslot_pfn(pfn) || kvm->vm_bugged)
 			ret = -EFAULT;
 		else
@@ -5170,6 +5177,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->write_block_private_pages = tdx_write_block_private_pages;
 	x86_ops->write_unblock_private_page = tdx_write_unblock_private_page;
 	x86_ops->restore_private_page = tdx_restore_private_page;
+	x86_ops->import_private_pages = tdx_mig_stream_import_private_pages;
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 	mce_register_decode_chain(&tdx_mce_nb);
 
