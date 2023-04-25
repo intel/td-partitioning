@@ -344,21 +344,29 @@ static long tmgr_ioctl_get_request(struct tdisp_mgr *tmgr, void __user *arg)
 {
 	struct device *dev = tmgr_to_dev(tmgr);
 	struct tdisp_mgr_request *tmreq;
-
-	if (list_empty(&tmgr->pending_reqs))
-		return -ENOENT;
+	struct tmgr_request treq;
 
 	spin_lock(&tmgr->lock);
-
-	tmreq = list_first_entry(&tmgr->pending_reqs, struct tdisp_mgr_request, node);
+	tmreq = list_first_entry_or_null(&tmgr->pending_reqs,
+					 struct tdisp_mgr_request,
+					 node);
+	if (!tmreq) {
+		spin_unlock(&tmgr->lock);
+		return -ENOENT;
+	}
 	if (tmreq->state == TDISP_MGR_REQ_STATE_HANDLING)
 		dev_warn(dev, "%s: Request(%s) picked already picked\n",
 			 __func__, tmreq_to_str(tmreq));
 
 	tmreq->state = TDISP_MGR_REQ_STATE_HANDLING;
+	/*
+	 * tmreq is possible to be freed during calling copy_to_user(),
+	 * using a local treq for copy_to_user().
+	 */
+	treq = tmreq->treq;
 	spin_unlock(&tmgr->lock);
 
-	if (copy_to_user(arg, &tmreq->treq, sizeof(tmreq->treq)))
+	if (copy_to_user(arg, &treq, sizeof(treq)))
 		return -EFAULT;
 
 	dev_dbg(dev, "%s: Request(%s) is picked by agent\n", __func__,
