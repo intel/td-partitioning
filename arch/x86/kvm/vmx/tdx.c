@@ -4234,6 +4234,9 @@ static int tdx_servtd_add_binding_slot(struct kvm_tdx *servtd_tdx,
 
 	spin_lock(&servtd_tdx->binding_slot_lock);
 	for (i = 0; i < SERVTD_SLOTS_MAX; i++) {
+		if (slot == servtd_tdx->usertd_binding_slots[i])
+			goto out_unlock;
+
 		if (!servtd_tdx->usertd_binding_slots[i])
 			break;
 	}
