@@ -60,7 +60,7 @@ static inline char *treq_to_str(struct tmgr_request *treq)
 	}
 }
 
-#define tmreq_to_str(x)	treq_to_str(&(x)->treq)
+#define tmreq_to_str(x)	((x) ? treq_to_str(&(x)->treq) : "NULL")
 
 static inline struct device *tmgr_to_dev(struct tdisp_mgr *tmgr)
 {
@@ -215,8 +215,6 @@ static void tdisp_mgr_request_done(struct tdisp_mgr *tmgr,
 {
 	struct device *dev = tmgr_to_dev(tmgr);
 
-	tdisp_mgr_request_del(tmgr, tmreq);
-
 	tmreq->state = TDISP_MGR_REQ_STATE_COMPLETED;
 	complete_all(&tmreq->complete);
 
@@ -325,14 +323,18 @@ static int tdisp_mgr_request_wait_done(struct tdisp_mgr *tmgr,
 	timeout = wait_for_completion_interruptible_timeout(&tmreq->complete,
 			msecs_to_jiffies(timeout));
 
-	if (timeout == 0)
+	tdisp_mgr_request_del(tmgr, tmreq);
+
+	/*
+	 * Check request state firstly for handling timeout and
+	 * request completed happened at the same time
+	 */
+	if (tmreq->state == TDISP_MGR_REQ_STATE_COMPLETED)
+		ret = 0;
+	else if (timeout == 0)
 		ret = -ETIMEDOUT;
 	else if (timeout < 0)
 		ret = -EINTR;
-
-	/* make sure tmreq has been removed from list even in error case */
-	if (ret)
-		tdisp_mgr_request_del(tmgr, tmreq);
 
 	dev_dbg(dev, "%s: request done, ret %d\n", __func__, ret);
 	return ret;
@@ -369,15 +371,20 @@ static long tmgr_ioctl_complete_request(struct tdisp_mgr *tmgr, void __user *arg
 	struct device *dev = tmgr_to_dev(tmgr);
 	struct tmgr_request treq = { 0 };
 	struct tdisp_mgr_request *tmreq;
+	int ret = 0;
 
 	if (copy_from_user(&treq, arg, sizeof(treq)))
 		return -EFAULT;
 
-	tmreq = list_first_entry(&tmgr->pending_reqs, struct tdisp_mgr_request, node);
-	if (tmreq->treq.request != treq.request) {
+	spin_lock(&tmgr->lock);
+	tmreq = list_first_entry_or_null(&tmgr->pending_reqs,
+					 struct tdisp_mgr_request,
+					 node);
+	if (!tmreq || tmreq->treq.request != treq.request) {
 		dev_err(dev, "Received request(%s) vs Queued request(%s)\n",
 			treq_to_str(&treq), tmreq_to_str(tmreq));
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exit;
 	}
 
 	tmreq->treq = treq;
@@ -386,7 +393,11 @@ static long tmgr_ioctl_complete_request(struct tdisp_mgr *tmgr, void __user *arg
 		tmreq->session_id, tmreq_to_str(tmreq));
 
 	tdisp_mgr_request_done(tmgr, tmreq);
-	return 0;
+
+exit:
+	spin_unlock(&tmgr->lock);
+
+	return ret;
 }
 
 static long tmgr_ioctl_set_device_info(struct tdisp_mgr *tmgr, void __user *arg)
