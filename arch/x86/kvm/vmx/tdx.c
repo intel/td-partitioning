@@ -1023,7 +1023,7 @@ struct tdx_uret_msr {
 };
 
 static struct tdx_uret_msr tdx_uret_msrs[] = {
-	{.msr = MSR_SYSCALL_MASK,},
+	{.msr = MSR_SYSCALL_MASK, .defval = 0x20200},
 	{.msr = MSR_STAR,},
 	{.msr = MSR_LSTAR,},
 	{.msr = MSR_TSC_AUX,},
