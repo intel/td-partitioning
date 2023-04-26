@@ -1032,23 +1032,19 @@ static struct tdx_uret_msr tdx_uret_msrs[] = {
 
 static void tdx_user_return_update_cache(struct kvm_vcpu *vcpu)
 {
-	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
-	/*
-	 * TDX module resets the TSX_CTRL MSR to 0 at TD exit if TSX
-	 * is enabled for TD, otherwise reset it to 0x3, need to update
-	 *  TSX_CTRL's slot curr accordingly.
-	 */
-	u64 tsx_ctrl = kvm_tdx->tsx_enabled ? 0 :
-		       TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(tdx_uret_msrs); i++) {
-		if (tdx_uret_msrs[i].msr == MSR_IA32_TSX_CTRL)
-			kvm_user_return_update_cache(tdx_uret_msrs[i].slot,
-						     tsx_ctrl);
-		else
-			kvm_user_return_update_cache(tdx_uret_msrs[i].slot,
-						     tdx_uret_msrs[i].defval);
+		/*
+		 * TSX_CTRL MSR is preserved after TD exit from a
+		 * TSX-disallowed TD. Skip updating the cache for the MSR.
+		 */
+		if (tdx_uret_msrs[i].msr == MSR_IA32_TSX_CTRL &&
+		    !to_kvm_tdx(vcpu->kvm)->tsx_enabled)
+			continue;
+
+		kvm_user_return_update_cache(tdx_uret_msrs[i].slot,
+					     tdx_uret_msrs[i].defval);
 	}
 }
 
