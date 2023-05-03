@@ -69,8 +69,71 @@ static void intel_nested_domain_free(struct iommu_domain *domain)
 	kfree(to_dmar_domain(domain));
 }
 
+static void intel_nested_invalidate(struct device *dev,
+				    struct dmar_domain *domain,
+				    u64 addr, unsigned long npages)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct intel_iommu *iommu = info->iommu;
+
+	if (addr == 0 && npages == -1)
+		intel_flush_iotlb_all(&domain->domain);
+	else
+		iommu_flush_iotlb_psi(iommu, domain,
+				      addr >> VTD_PAGE_SHIFT,
+				      npages, 1, 0);
+}
+
+static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
+					      void *user_data)
+{
+	struct iommu_hwpt_vtd_s1_invalidate_desc *req = user_data;
+	struct iommu_hwpt_vtd_s1_invalidate *inv_info = user_data;
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
+	unsigned int entry_size = inv_info->entry_size;
+	u64 uptr = inv_info->inv_data_uptr;
+	u64 nr_uptr = inv_info->entry_nr_uptr;
+	struct device_domain_info *info;
+	u32 entry_nr, index;
+	unsigned long flags;
+	int ret = 0;
+
+	if (get_user(entry_nr, (uint32_t __user *)u64_to_user_ptr(nr_uptr)))
+		return -EFAULT;
+
+	for (index = 0; index < entry_nr; index++) {
+		ret = copy_struct_from_user(req, sizeof(*req),
+					    u64_to_user_ptr(uptr + index * entry_size),
+					    entry_size);
+		if (ret) {
+			pr_err_ratelimited("Failed to fetch invalidation request\n");
+			break;
+		}
+
+		if (req->__reserved || (req->flags & ~IOMMU_VTD_QI_FLAGS_LEAF) ||
+		    !IS_ALIGNED(req->addr, VTD_PAGE_SIZE)) {
+			ret = -EINVAL;
+			break;
+		}
+
+		spin_lock_irqsave(&dmar_domain->lock, flags);
+		list_for_each_entry(info, &dmar_domain->devices, link)
+			intel_nested_invalidate(info->dev, dmar_domain,
+						req->addr, req->npages);
+		spin_unlock_irqrestore(&dmar_domain->lock, flags);
+	}
+
+	if (put_user(index, (uint32_t __user *)u64_to_user_ptr(nr_uptr)))
+		return -EFAULT;
+
+	return ret;
+}
+
 static const struct iommu_domain_ops intel_nested_domain_ops = {
 	.attach_dev		= intel_nested_attach_dev,
+	.cache_invalidate_user	= intel_nested_cache_invalidate_user,
+	.cache_invalidate_user_data_len =
+		sizeof(struct iommu_hwpt_vtd_s1_invalidate),
 	.free			= intel_nested_domain_free,
 	.enforce_cache_coherency = intel_iommu_enforce_cache_coherency,
 };
