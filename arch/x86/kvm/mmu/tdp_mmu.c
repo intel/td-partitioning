@@ -550,6 +550,8 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 	bool is_present = is_shadow_present_pte(new_spte);
 	bool was_last = is_last_spte(old_spte, level);
 	bool is_last = is_last_spte(new_spte, level);
+	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool is_leaf = is_present && is_last_spte(new_spte, level);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	int ret = 0;
@@ -557,7 +559,7 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 	/* Temporarily blocked private SPTE can only be leaf. */
 	KVM_BUG_ON(!is_last_spte(old_spte, level), kvm);
 	KVM_BUG_ON(is_private_zapped, kvm);
-	KVM_BUG_ON(was_present, kvm);
+	KVM_BUG_ON(was_present && (was_leaf == is_leaf), kvm);
 	KVM_BUG_ON(!was_private_zapped, kvm);
 
 	/*
