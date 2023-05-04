@@ -2842,7 +2842,11 @@ static void tdx_track(struct kvm *kvm)
 	 * TDH_MEM_TRACK() can be issued concurrently by multiple vcpus.
 	 */
 	atomic_inc(&kvm_tdx->doing_track);
-	atomic_inc(&kvm_tdx->tdh_mem_track);
+
+	while (atomic_cmpxchg(&kvm_tdx->tdh_mem_track, 0, 1)) {
+		cpu_relax();
+	}
+
 	smp_store_release(&kvm_tdx->has_range_blocked, false);
 
 	/*
@@ -2856,9 +2860,11 @@ static void tdx_track(struct kvm *kvm)
 	 * retry.
 	 */
 	err = tdh_mem_track(kvm_tdx->tdr_pa);
+	if (!err)
+		tdx_tdi_iq_inv_iotlb(kvm_tdx);
 
 	/* Release remote vcpu waiting for TDH.MEM.TRACK in tdx_flush_tlb(). */
-	atomic_dec(&kvm_tdx->tdh_mem_track);
+	atomic_set(&kvm_tdx->tdh_mem_track, 0);
 
 	/*
 	 * Avoid TDX_TLB_TRACKING_NOT_DONE on the following Secure-EPT operation
@@ -2883,8 +2889,6 @@ static void tdx_track(struct kvm *kvm)
 
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
-	else
-		tdx_tdi_iq_inv_iotlb(kvm_tdx);
 }
 
 static int tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
