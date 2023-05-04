@@ -723,6 +723,14 @@ static __init int allowed_cmdline_setup(char *buf)
 }
 __setup("authorize_allow_devs=", allowed_cmdline_setup);
 
+static int no_dev_attestation_setup(char *str)
+{
+	no_dev_attest = true;
+
+	return 1;
+}
+__setup("no_dev_attest", no_dev_attestation_setup);
+
 int dev_authorized_init(void)
 {
 	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST) &&
