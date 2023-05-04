@@ -220,6 +220,9 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	if (!ima_policy_flag || !S_ISREG(inode->i_mode))
 		return 0;
 
+	if (ima_tdx_device)
+		pcr = IMA_TDX_RTMR_IDX;
+
 	/* Return an IMA_MEASURE, IMA_APPRAISE, IMA_AUDIT action
 	 * bitmask based on the appraise/audit/measurement policy.
 	 * Included is the appraise submask.
@@ -943,6 +946,9 @@ int process_buffer_measurement(struct user_namespace *mnt_userns,
 
 	if (!pcr)
 		pcr = CONFIG_IMA_MEASURE_PCR_IDX;
+
+	if (ima_tdx_device)
+		pcr = IMA_TDX_RTMR_IDX;
 
 	iint.ima_hash = &hash.hdr;
 	iint.ima_hash->algo = ima_hash_algo;

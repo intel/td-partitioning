@@ -21,6 +21,7 @@
 #include <linux/tpm.h>
 #include <linux/audit.h>
 #include <crypto/hash_info.h>
+#include <asm/tdx-rtmr.h>
 
 #include "../integrity.h"
 
@@ -43,6 +44,8 @@ enum tpm_pcrs { TPM_PCR0 = 0, TPM_PCR8 = 8, TPM_PCR10 = 10 };
 
 #define NR_BANKS(chip) ((chip != NULL) ? chip->nr_allocated_banks : 0)
 
+#define IMA_TDX_RTMR_IDX 2
+
 /* current content of the policy */
 extern int ima_policy_flag;
 
@@ -56,6 +59,7 @@ extern int ima_hash_algo_idx __ro_after_init;
 extern int ima_extra_slots __ro_after_init;
 extern int ima_appraise;
 extern struct tpm_chip *ima_tpm_chip;
+extern struct tpm_chip *ima_tdx_device;
 extern const char boot_aggregate_name[];
 
 /* IMA event related data */
