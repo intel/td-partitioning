@@ -1119,6 +1119,60 @@ void td_part_vm_destroy(struct kvm *kvm)
 	clear_bit(kvm->arch.vm_id, td_part_vm_id_bitmap);
 }
 
+static int td_part_set_vm_ctrl(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdp_vm_ctrl vm_ctrl;
+	u64 vm_id = kvm->arch.vm_id;
+	union tdx_l2_vcpu_ctls *ctls = &l2_ctls[vm_id - 1];
+
+	/* Doesn't allow to change l2 controls if any vCPU has been created */
+	if (kvm->created_vcpus)
+		return -EINVAL;
+
+	if (copy_from_user(&vm_ctrl, (void __user *)cmd->data, sizeof(vm_ctrl)))
+		return -EFAULT;
+
+	/* Unset the features in the mask bits */
+	ctls->full &= ~vm_ctrl.mask;
+	/* Set the features according to the val and mask bits */
+	ctls->full |= (vm_ctrl.val & vm_ctrl.mask);
+
+	on_each_cpu_cond(set_control_cond, set_control, kvm, 1);
+
+	if (kvm->vm_bugged)
+		return -EINVAL;
+
+	return 0;
+}
+
+int td_part_vm_ioctl(struct kvm *kvm, void __user *argp)
+{
+	struct kvm_tdx_cmd cmd;
+	int r;
+
+	if (copy_from_user(&cmd, argp, sizeof(struct kvm_tdx_cmd)))
+		return -EFAULT;
+
+	if (cmd.error || cmd.unused)
+		return -EINVAL;
+
+	mutex_lock(&kvm->lock);
+	switch (cmd.id) {
+	case KVM_TDP_SET_VM_CTRL:
+		r = td_part_set_vm_ctrl(kvm, &cmd);
+		break;
+	default:
+		r = -EINVAL;
+		goto out;
+	}
+
+	if (copy_to_user(argp, &cmd, sizeof(struct kvm_tdx_cmd)))
+		r = -EFAULT;
+out:
+	mutex_unlock(&kvm->lock);
+	return r;
+}
+
 __init int td_part_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	struct tdx_module_output out;

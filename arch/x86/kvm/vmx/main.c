@@ -959,10 +959,13 @@ static void vt_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
 
 static int vt_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
 {
-	if (!is_td(kvm))
-		return -ENOTTY;
+	if (is_td(kvm))
+		return tdx_vm_ioctl(kvm, argp);
 
-	return tdx_vm_ioctl(kvm, argp);
+	if (is_td_part(kvm))
+		return td_part_vm_ioctl(kvm, argp);
+
+	return -ENOTTY;
 }
 
 static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)

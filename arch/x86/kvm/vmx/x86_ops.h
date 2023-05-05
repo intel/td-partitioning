@@ -318,6 +318,7 @@ void td_part_flush_tlb_current(struct kvm_vcpu *vcpu);
 void td_part_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr);
 void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu);
 void td_part_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
+int td_part_vm_ioctl(struct kvm *kvm, void __user *argp);
 #else /* CONFIG_INTEL_TD_PART_GUEST */
 static inline int td_part_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
 static inline bool td_part_is_vm_type_supported(unsigned long type) { return false; }
@@ -332,6 +333,7 @@ static inline void td_part_flush_tlb_current(struct kvm_vcpu *vcpu) {}
 static inline void td_part_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr) {}
 static inline void td_part_flush_tlb_guest(struct kvm_vcpu *vcpu) {}
 static inline void td_part_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
+static inline int td_part_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 #endif /* CONFIG_INTEL_TD_PART_GUEST */
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

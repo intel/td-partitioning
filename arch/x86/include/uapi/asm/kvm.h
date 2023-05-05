@@ -557,6 +557,9 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_MIG_IMPORT_STATE_VP,
 	KVM_TDX_MIG_EXPORT_ABORT,
 
+	/* sub-ioctl commands for TDP guest */
+	KVM_TDP_SET_VM_CTRL,
+
 	KVM_TDX_CMD_NR_MAX,
 };
 
@@ -710,5 +713,13 @@ struct kvm_dev_tdx_mig_attr {
 #define TDX_MIG_STREAM_GPA_LIST_MAP_OFFSET	1
 #define TDX_MIG_STREAM_MAC_LIST_MAP_OFFSET	2
 #define TDX_MIG_STREAM_BUF_LIST_MAP_OFFSET	4
+
+struct kvm_tdp_vm_ctrl {
+	__u64 val;
+#define TDP_ENABLE_SHARED_EPTP		BIT(0)
+#define TDP_ENABLE_TDVMCALL		BIT(1)
+#define TDP_ENABLE_EXTENDED_VE		BIT(2)
+	__u64 mask;
+};
 
 #endif /* _ASM_X86_KVM_H */
