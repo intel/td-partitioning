@@ -1091,10 +1091,13 @@ void vt_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
 
 int vt_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
 {
-	if (!is_td(kvm))
-		return -ENOTTY;
+	if (is_td(kvm))
+		return tdx_vm_ioctl(kvm, argp);
 
-	return tdx_vm_ioctl(kvm, argp);
+	if (is_td_part(kvm))
+		return td_part_vm_ioctl(kvm, argp);
+
+	return -ENOTTY;
 }
 
 int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
