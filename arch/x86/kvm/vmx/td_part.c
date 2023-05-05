@@ -172,6 +172,15 @@ bool td_part_is_rdpmc_required(void)
 	return !(out.r8 & TDX_TD_ATTRIBUTE_PERFMON);
 }
 
+static int td_part_skip_emulated_instruction(struct kvm_vcpu *vcpu)
+{
+	union tdx_l2_vcpu_ctls *ctls;
+	u16 vm_id = vcpu->kvm->arch.vm_id;
+
+	ctls = &l2_ctls[vm_id - 1];
+	return ctls->enable_tdvmcall ? 1 : kvm_skip_emulated_instruction(vcpu);
+}
+
 static int td_part_complete_mmio(struct kvm_vcpu *vcpu)
 {
 	unsigned long val = 0;
@@ -191,7 +200,7 @@ static int td_part_complete_mmio(struct kvm_vcpu *vcpu)
 	}
 
 	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
-	return kvm_skip_emulated_instruction(vcpu);
+	return td_part_skip_emulated_instruction(vcpu);
 }
 
 static inline int td_part_mmio_write(struct kvm_vcpu *vcpu, gpa_t gpa, int size,
@@ -358,7 +367,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	int r;
 
 	if (tdvmcall_exit_type(vcpu))
-		return kvm_skip_emulated_instruction(vcpu);
+		return td_part_skip_emulated_instruction(vcpu);
 
 	trace_kvm_tdx_hypercall(tdvmcall_leaf(vcpu), kvm_rcx_read(vcpu),
 				kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
@@ -380,7 +389,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	}
 
-	return r && kvm_skip_emulated_instruction(vcpu);
+	return r && td_part_skip_emulated_instruction(vcpu);
 }
 
 int td_part_handle_tdcall(struct kvm_vcpu *vcpu)
