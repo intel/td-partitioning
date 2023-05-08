@@ -11946,6 +11946,11 @@ perf_event_alloc(struct perf_event_attr *attr, int cpu,
 		goto err_pmu;
 	}
 
+	if (event->attr.aux_output_cfg && !event->attr.aux_output) {
+		err = -EINVAL;
+		goto err_pmu;
+	}
+
 	if (cgroup_fd != -1) {
 		err = perf_cgroup_connect(cgroup_fd, event, attr, group_leader);
 		if (err)

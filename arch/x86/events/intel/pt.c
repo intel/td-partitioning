@@ -61,15 +61,20 @@ static struct pt_cap_desc {
 	PT_CAP(power_event_trace,	0, CPUID_EBX, BIT(5)),
 	PT_CAP(event_trace,		0, CPUID_EBX, BIT(7)),
 	PT_CAP(tnt_disable,		0, CPUID_EBX, BIT(8)),
+	PT_CAP(trigger_tracing,		0, CPUID_EBX, BIT(9)),
 	PT_CAP(topa_output,		0, CPUID_ECX, BIT(0)),
 	PT_CAP(topa_multiple_entries,	0, CPUID_ECX, BIT(1)),
 	PT_CAP(single_range_output,	0, CPUID_ECX, BIT(2)),
 	PT_CAP(output_subsys,		0, CPUID_ECX, BIT(3)),
 	PT_CAP(payloads_lip,		0, CPUID_ECX, BIT(31)),
 	PT_CAP(num_address_ranges,	1, CPUID_EAX, 0x7),
+	PT_CAP(num_trigger_msrs,	1, CPUID_EAX, 0x700),
 	PT_CAP(mtc_periods,		1, CPUID_EAX, 0xffff0000),
 	PT_CAP(cycle_thresholds,	1, CPUID_EBX, 0xffff),
 	PT_CAP(psb_periods,		1, CPUID_EBX, 0xffff0000),
+	PT_CAP(trigger_attribution,	1, CPUID_ECX, BIT(0)),
+	PT_CAP(pause_resume,		1, CPUID_ECX, BIT(1)),
+	PT_CAP(dr_match,		1, CPUID_ECX, BIT(15)),
 };
 
 u32 intel_pt_validate_cap(u32 *caps, enum pt_capabilities capability)
