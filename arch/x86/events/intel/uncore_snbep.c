@@ -6149,7 +6149,22 @@ static struct intel_uncore_type spr_uncore_mdf = {
 	.name			= "mdf",
 };
 
-#define UNCORE_SPR_NUM_UNCORE_TYPES		12
+static struct intel_uncore_type spr_uncore_cxl_0 = {
+	SPR_UNCORE_COMMON_FORMAT(),
+	.name			= "cxl_0",
+};
+
+static struct intel_uncore_type spr_uncore_cxl_1 = {
+	SPR_UNCORE_COMMON_FORMAT(),
+	.name			= "cxl_1",
+};
+
+static struct intel_uncore_type spr_uncore_hbm = {
+	SPR_UNCORE_COMMON_FORMAT(),
+	.name			= "hbm",
+};
+
+#define UNCORE_SPR_NUM_UNCORE_TYPES		15
 #define UNCORE_SPR_CHA				0
 #define UNCORE_SPR_IIO				1
 #define UNCORE_SPR_IMC				6
@@ -6173,6 +6188,9 @@ static struct intel_uncore_type *spr_uncores[UNCORE_SPR_NUM_UNCORE_TYPES] = {
 	NULL,
 	NULL,
 	&spr_uncore_mdf,
+	&spr_uncore_cxl_0,
+	&spr_uncore_cxl_1,
+	&spr_uncore_hbm,
 };
 
 /*
