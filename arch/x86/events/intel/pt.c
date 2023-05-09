@@ -42,39 +42,40 @@ static struct pt_pmu pt_pmu;
  * width encoded in IP-related packets), and event configuration (bitmasks with
  * permitted values for certain bit fields).
  */
-#define PT_CAP(_n, _l, _r, _m)						\
+#define PT_CAP(_n, _l, _w, _r, _m)						\
 	[PT_CAP_ ## _n] = { .name = __stringify(_n), .leaf = _l,	\
-			    .reg = _r, .mask = _m }
+			    .writable = _w, .reg = _r, .mask = _m }
 
 static struct pt_cap_desc {
 	const char	*name;
 	u32		leaf;
+	u8		writable;
 	u8		reg;
 	u32		mask;
 } pt_caps[] = {
-	PT_CAP(max_subleaf,		0, CPUID_EAX, 0xffffffff),
-	PT_CAP(cr3_filtering,		0, CPUID_EBX, BIT(0)),
-	PT_CAP(psb_cyc,			0, CPUID_EBX, BIT(1)),
-	PT_CAP(ip_filtering,		0, CPUID_EBX, BIT(2)),
-	PT_CAP(mtc,			0, CPUID_EBX, BIT(3)),
-	PT_CAP(ptwrite,			0, CPUID_EBX, BIT(4)),
-	PT_CAP(power_event_trace,	0, CPUID_EBX, BIT(5)),
-	PT_CAP(event_trace,		0, CPUID_EBX, BIT(7)),
-	PT_CAP(tnt_disable,		0, CPUID_EBX, BIT(8)),
-	PT_CAP(trigger_tracing,		0, CPUID_EBX, BIT(9)),
-	PT_CAP(topa_output,		0, CPUID_ECX, BIT(0)),
-	PT_CAP(topa_multiple_entries,	0, CPUID_ECX, BIT(1)),
-	PT_CAP(single_range_output,	0, CPUID_ECX, BIT(2)),
-	PT_CAP(output_subsys,		0, CPUID_ECX, BIT(3)),
-	PT_CAP(payloads_lip,		0, CPUID_ECX, BIT(31)),
-	PT_CAP(num_address_ranges,	1, CPUID_EAX, 0x7),
-	PT_CAP(num_trigger_msrs,	1, CPUID_EAX, 0x700),
-	PT_CAP(mtc_periods,		1, CPUID_EAX, 0xffff0000),
-	PT_CAP(cycle_thresholds,	1, CPUID_EBX, 0xffff),
-	PT_CAP(psb_periods,		1, CPUID_EBX, 0xffff0000),
-	PT_CAP(trigger_attribution,	1, CPUID_ECX, BIT(0)),
-	PT_CAP(pause_resume,		1, CPUID_ECX, BIT(1)),
-	PT_CAP(dr_match,		1, CPUID_ECX, BIT(15)),
+	PT_CAP(max_subleaf,		0, 0, CPUID_EAX, 0xffffffff),
+	PT_CAP(cr3_filtering,		0, 0, CPUID_EBX, BIT(0)),
+	PT_CAP(psb_cyc,			0, 0, CPUID_EBX, BIT(1)),
+	PT_CAP(ip_filtering,		0, 0, CPUID_EBX, BIT(2)),
+	PT_CAP(mtc,			0, 0, CPUID_EBX, BIT(3)),
+	PT_CAP(ptwrite,			0, 0, CPUID_EBX, BIT(4)),
+	PT_CAP(power_event_trace,	0, 0, CPUID_EBX, BIT(5)),
+	PT_CAP(event_trace,		0, 0, CPUID_EBX, BIT(7)),
+	PT_CAP(tnt_disable,		0, 0, CPUID_EBX, BIT(8)),
+	PT_CAP(trigger_tracing,		0, 1, CPUID_EBX, BIT(9)),
+	PT_CAP(topa_output,		0, 0, CPUID_ECX, BIT(0)),
+	PT_CAP(topa_multiple_entries,	0, 0, CPUID_ECX, BIT(1)),
+	PT_CAP(single_range_output,	0, 0, CPUID_ECX, BIT(2)),
+	PT_CAP(output_subsys,		0, 0, CPUID_ECX, BIT(3)),
+	PT_CAP(payloads_lip,		0, 0, CPUID_ECX, BIT(31)),
+	PT_CAP(num_address_ranges,	1, 0, CPUID_EAX, 0x7),
+	PT_CAP(num_trigger_msrs,	1, 1, CPUID_EAX, 0x700),
+	PT_CAP(mtc_periods,		1, 0, CPUID_EAX, 0xffff0000),
+	PT_CAP(cycle_thresholds,	1, 0, CPUID_EBX, 0xffff),
+	PT_CAP(psb_periods,		1, 0, CPUID_EBX, 0xffff0000),
+	PT_CAP(trigger_attribution,	1, 1, CPUID_ECX, BIT(0)),
+	PT_CAP(pause_resume,		1, 1, CPUID_ECX, BIT(1)),
+	PT_CAP(dr_match,		1, 1, CPUID_ECX, BIT(15)),
 };
 
 u32 intel_pt_validate_cap(u32 *caps, enum pt_capabilities capability)
@@ -102,6 +103,32 @@ static ssize_t pt_cap_show(struct device *cdev,
 	enum pt_capabilities cap = (long)ea->var;
 
 	return snprintf(buf, PAGE_SIZE, "%x\n", intel_pt_validate_hw_cap(cap));
+}
+
+static ssize_t pt_cap_store(struct device *dev,
+			    struct device_attribute *attr,
+			    const char *buf, size_t size)
+{
+	struct dev_ext_attribute *ea =
+		container_of(attr, struct dev_ext_attribute, attr);
+	enum pt_capabilities cap = (long)ea->var;
+	struct pt_cap_desc *cd = &pt_caps[cap];
+	u32 *c = &pt_pmu.caps[cd->leaf * PT_CPUID_REGS_NUM + cd->reg];
+	unsigned int shift = __ffs(cd->mask);
+	u32 val;
+	int ret;
+
+	if (!cd->writable)
+		return -EINVAL;
+
+	ret = kstrtou32(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	*c &= ~cd->mask;
+	*c |= (val << shift) & cd->mask;
+
+	return size;
 }
 
 static struct attribute_group pt_cap_group __ro_after_init = {
@@ -267,8 +294,9 @@ static int __init pt_pmu_hw_init(void)
 
 		sysfs_attr_init(&de_attr->attr.attr);
 
-		de_attr->attr.attr.mode		= S_IRUGO;
+		de_attr->attr.attr.mode		= 0664; /* rw-rw-r-- */
 		de_attr->attr.show		= pt_cap_show;
+		de_attr->attr.store		= pt_cap_store;
 		de_attr->var			= (void *)i;
 
 		attrs[i] = &de_attr->attr.attr;
