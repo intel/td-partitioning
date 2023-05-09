@@ -788,35 +788,17 @@ static int td_part_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	return -EOPNOTSUPP;
 }
 
-static int add_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-		     bool is_writable, bool is_executable)
+static int __page_attr_write(struct kvm *kvm, gpa_t gpa, int level,
+			     union tdx_gpa_attr gpa_attr,
+			     union tdx_attr_flags attr_flags)
 {
-	u8 vm_id = kvm->arch.vm_id;
-	gpa_t gpa = gfn_to_gpa(gfn);
-	int tdx_level = pg_level_to_tdx_sept_level(level);
-	union tdx_gpa_attr gpa_attr = { 0 };
-	union tdx_attr_flags attr_flags = { 0 };
 	struct tdx_module_output out;
 	int retry = 0;
 	u64 err;
 
-	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
-		return -EINVAL;
-
-	gpa_attr.fields[vm_id].valid = 1;
-	gpa_attr.fields[vm_id].read = 1;
-
-	if (is_writable)
-		gpa_attr.fields[vm_id].write = 1;
-	if (is_executable) {
-		/* TODO execute_u is not supported yet */
-		gpa_attr.fields[vm_id].execute_s = 1;
-	}
-	attr_flags.flags[vm_id].attr_mask = 0x7;
-
 	do {
 		/* TODO clear bottom gpa bits for large leaves */
-		err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
+		err = tdg_mem_page_attr_write(gpa, level, gpa_attr,
 					      attr_flags, &out);
 
 		switch (err & TDX_TDCALL_STATUS_MASK) {
@@ -835,15 +817,48 @@ static int add_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 		 * successfully set the attribute or not. On success, RDX
 		 * returns the updated guest-visible page attributes.
 		 */
-		if (out.rdx == gpa_attr.bits)
+		if ((out.rdx & (gpa_attr.bits | attr_flags.bits)) ==
+		    gpa_attr.bits)
 			break;
 		retry++;
 	} while (retry < PG_LEVEL_NUM);
 
-	if (KVM_BUG_ON(out.rdx != gpa_attr.bits, kvm))
+	/*
+	 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
+	 * successfully set the attribute or not. On success, RDX
+	 * returns the updated guest-visible page attributes.
+	 */
+	if (KVM_BUG_ON((out.rdx & (gpa_attr.bits | attr_flags.bits)) !=
+		       gpa_attr.bits, kvm))
 		return -EFAULT;
 
 	return 0;
+}
+
+static int add_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+		     bool is_writable, bool is_executable)
+{
+	u8 vm_id = kvm->arch.vm_id;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	union tdx_gpa_attr gpa_attr = { 0 };
+	union tdx_attr_flags attr_flags = { 0 };
+
+	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
+		return -EINVAL;
+
+	gpa_attr.fields[vm_id].valid = 1;
+	gpa_attr.fields[vm_id].read = 1;
+
+	if (is_writable)
+		gpa_attr.fields[vm_id].write = 1;
+	if (is_executable) {
+		/* TODO execute_u is not supported yet */
+		gpa_attr.fields[vm_id].execute_s = 1;
+	}
+	attr_flags.flags[vm_id].attr_mask = 0x7;
+
+	return __page_attr_write(kvm, gpa, tdx_level, gpa_attr, attr_flags);
 }
 
 static int modify_alias_w(struct kvm *kvm, gfn_t gfn, enum pg_level level,
@@ -854,8 +869,6 @@ static int modify_alias_w(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	union tdx_gpa_attr gpa_attr = { 0 };
 	union tdx_attr_flags attr_flags = { 0 };
-	struct tdx_module_output out;
-	u64 err;
 
 	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
 		return -EINVAL;
@@ -866,31 +879,7 @@ static int modify_alias_w(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 		gpa_attr.fields[vm_id].write = 1;
 	attr_flags.flags[vm_id].attr_mask = 0x2;
 
-	/* TODO clear bottom gpa bits for large leaves */
-	err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
-				      attr_flags, &out);
-
-	switch (err & TDX_TDCALL_STATUS_MASK) {
-	case TDX_SUCCESS: break;
-	case TDX_PAGE_SIZE_MISMATCH:
-	case TDX_OPERAND_INVALID:
-	default:
-		kvm_pr_unimpl("TDG.MEM.PAGE.ATTR.WR "
-			      "error: 0x%llx\n", err);
-		KVM_BUG_ON(1, kvm);
-		return -EPERM;
-	}
-
-	/*
-	 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
-	 * successfully set the attribute or not. On success, RDX
-	 * returns the updated guest-visible page attributes.
-	 */
-	if (KVM_BUG_ON((out.rdx & (gpa_attr.bits | attr_flags.bits)) !=
-		       gpa_attr.bits, kvm))
-		return -EFAULT;
-
-	return 0;
+	return __page_attr_write(kvm, gpa, tdx_level, gpa_attr, attr_flags);
 }
 
 static int drop_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level)
@@ -900,8 +889,6 @@ static int drop_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level)
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	union tdx_gpa_attr gpa_attr = { 0 };
 	union tdx_attr_flags attr_flags = { 0 };
-	struct tdx_module_output out;
-	u64 err;
 
 	if (KVM_BUG_ON(!vm_id || vm_id > 3, kvm))
 		return -EINVAL;
@@ -909,31 +896,7 @@ static int drop_alias(struct kvm *kvm, gfn_t gfn, enum pg_level level)
 	gpa_attr.fields[vm_id].valid = 1;
 	attr_flags.flags[vm_id].attr_mask = 0x7;
 
-	/* TODO clear bottom gpa bits for large leaves */
-	err = tdg_mem_page_attr_write(gpa, tdx_level, gpa_attr,
-				      attr_flags, &out);
-
-	switch (err & TDX_TDCALL_STATUS_MASK) {
-	case TDX_SUCCESS: break;
-	case TDX_PAGE_SIZE_MISMATCH:
-	case TDX_OPERAND_INVALID:
-	default:
-		kvm_pr_unimpl("TDG.MEM.PAGE.ATTR.WR "
-			      "error: 0x%llx\n", err);
-		KVM_BUG_ON(1, kvm);
-		return -EPERM;
-	}
-
-	/*
-	 * out.rdx indicates whether the TDG.MEM.PAGE.ATTR.WR call
-	 * successfully set the attribute or not. On success, RDX
-	 * returns the updated guest-visible page attributes.
-	 */
-	if (KVM_BUG_ON((out.rdx & (gpa_attr.bits | attr_flags.bits)) !=
-		       gpa_attr.bits, kvm))
-		return -EFAULT;
-
-	return 0;
+	return __page_attr_write(kvm, gpa, tdx_level, gpa_attr, attr_flags);
 }
 
 static int td_part_set_private_spte(struct kvm *kvm, gfn_t gfn,
