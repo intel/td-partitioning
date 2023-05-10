@@ -134,6 +134,13 @@ static ssize_t pt_cap_store(struct device *dev,
 	return size;
 }
 
+bool intel_pt_bp_aux_output_capable(void);
+bool intel_pt_bp_aux_output_capable(void)
+{
+	return intel_pt_validate_hw_cap(PT_CAP_trigger_tracing) &&
+	       intel_pt_validate_hw_cap(PT_CAP_dr_match);
+}
+
 static struct attribute_group pt_cap_group __ro_after_init = {
 	.name	= "caps",
 };
