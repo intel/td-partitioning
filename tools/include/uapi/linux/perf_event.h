@@ -507,7 +507,7 @@ struct perf_event_attr {
 	__u16	sample_max_stack;
 	__u16	__reserved_2;
 	__u32	aux_sample_size;
-	__u32	__reserved_3;
+	__u32	aux_output_cfg;
 
 	/*
 	 * User provided data if sigtrap=1, passed back to user via
