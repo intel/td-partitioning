@@ -128,6 +128,9 @@ static ssize_t pt_cap_store(struct device *dev,
 	*c &= ~cd->mask;
 	*c |= (val << shift) & cd->mask;
 
+	if (cap == PT_CAP_trigger_tracing)
+		intel_pmu_enable_pt_trigger_tracing(val);
+
 	return size;
 }
 

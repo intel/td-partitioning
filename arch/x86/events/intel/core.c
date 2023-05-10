@@ -3927,10 +3927,14 @@ static int intel_pmu_hw_config(struct perf_event *event)
 	}
 
 	if (event->attr.aux_output) {
-		if (!event->attr.precise_ip)
-			return -EINVAL;
+		if (event->attr.aux_output_cfg) {
+			/* TODO: Trigger tracing validation */
+		} else {
+			if (!event->attr.precise_ip)
+				return -EINVAL;
 
-		event->hw.flags |= PERF_X86_EVENT_PEBS_VIA_PT;
+			event->hw.flags |= PERF_X86_EVENT_PEBS_VIA_PT;
+		}
 	}
 
 	if ((event->attr.type == PERF_TYPE_HARDWARE) ||
@@ -4836,10 +4840,32 @@ static void intel_aux_output_init(void)
 		x86_pmu.assign = intel_pmu_assign_event;
 }
 
+static bool cap_pt_trigger_tracing;
+
+void intel_pmu_enable_pt_trigger_tracing(bool enable)
+{
+	static bool orig_cap_aux_output;
+
+	if (enable == cap_pt_trigger_tracing)
+		return;
+
+	preempt_disable();
+	if (enable) {
+		orig_cap_aux_output = x86_get_pmu(smp_processor_id())->capabilities & PERF_PMU_CAP_AUX_OUTPUT;
+		x86_get_pmu(smp_processor_id())->capabilities |= PERF_PMU_CAP_AUX_OUTPUT;
+	} else {
+		if (!orig_cap_aux_output)
+			x86_get_pmu(smp_processor_id())->capabilities &= ~(u64)PERF_PMU_CAP_AUX_OUTPUT;
+	}
+	cap_pt_trigger_tracing = enable;
+	preempt_enable();
+}
+
 static int intel_pmu_aux_output_match(struct perf_event *event)
 {
 	/* intel_pmu_assign_event() is needed, refer intel_aux_output_init() */
-	if (!x86_pmu.intel_cap.pebs_output_pt_available)
+	if (!x86_pmu.intel_cap.pebs_output_pt_available &&
+	    !cap_pt_trigger_tracing)
 		return 0;
 
 	return is_intel_pt_event(event);
