@@ -43,7 +43,6 @@ struct evsel_config_term {
 		bool	      overwrite;
 		unsigned long max_events;
 		bool	      percore;
-		bool	      aux_output;
 		u32	      aux_sample_size;
 		u64	      cfg_chg;
 		char	      *str;
