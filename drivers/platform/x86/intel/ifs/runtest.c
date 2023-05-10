@@ -433,6 +433,17 @@ static void ifs_array_test_atom(int cpu, struct device *dev)
 		ifsd->status = SCAN_TEST_PASS;
 }
 
+static void update_sbft_last_wp(void *p)
+{
+	struct device *dev = p;
+	struct ifs_data *ifsd;
+	u64 last_wp;
+
+	ifsd = ifs_get_data(dev);
+	rdmsrl(MSR_LAST_SBFT_WP, last_wp);
+	ifsd->last_wp = (u32)last_wp;
+}
+
 enum sbft_status_err_code {
 	IFS_SBFT_NO_ERROR				= 0,
 	IFS_SBFT_OTHER_THREAD_COULD_NOT_JOIN		= 1,
@@ -652,6 +663,9 @@ static void ifs_sbft_test_core(int cpu, struct device *dev)
 	} else {
 		ifsd->status = SCAN_TEST_PASS;
 	}
+
+	if (ifsd->test_gen > 0)
+		smp_call_function_single(cpu, update_sbft_last_wp, dev, 1);
 }
 
 /*
