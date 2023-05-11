@@ -4735,6 +4735,10 @@ static void update_pmu_cap(struct x86_hybrid_pmu *hy_pmu)
 					&hybrid(pmu, num_counters_fixed),
 					hybrid(pmu, cnt_bitmap),
 					&hybrid(pmu, intel_ctrl));
+		/* Build 'unconstrained' base on the updated counter bitmap. */
+		if (hy_pmu)
+			hy_pmu->unconstrained = (struct event_constraint)
+				__EVENT_CONSTRAINT(0, eax, 0, hy_pmu->num_counters, 0, 0);
 	}
 
 	if (sub_bitmaps & ARCH_PERFMON_EVENTS_MAP_LEAF_BIT) {
