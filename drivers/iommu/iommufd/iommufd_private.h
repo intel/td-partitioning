@@ -239,6 +239,7 @@ struct iommufd_hw_pagetable {
 	struct iommu_domain *domain;
 	bool auto_domain : 1;
 	bool enforce_cache_coherency : 1;
+	bool enforce_dirty : 1;
 	bool msi_cookie : 1;
 	/* Head at iommufd_ioas::hwpt_list */
 	struct list_head hwpt_item;
@@ -250,7 +251,8 @@ iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 			   enum iommu_hwpt_type hwpt_type,
 			   struct iommufd_hw_pagetable *parent,
 			   union iommu_domain_user_data *user_data,
-			   bool immediate_attach);
+			   bool immediate_attach,
+			   bool enforce_dirty);
 int iommufd_hw_pagetable_enforce_cc(struct iommufd_hw_pagetable *hwpt);
 int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
 				   phys_addr_t sw_msi_start);

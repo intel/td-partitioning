@@ -354,6 +354,15 @@ struct iommu_vfio_ioas {
 #define IOMMU_VFIO_IOAS _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VFIO_IOAS)
 
 /**
+ * enum iommufd_hwpt_alloc_flags - Flags for alloc hwpt
+ * @IOMMU_HWPT_ALL_ENFORCE_DIRTY: Dirty tracking support for device IOMMU is
+ *                                enforced on device attachment
+ */
+enum iommufd_hwpt_alloc_flags {
+	IOMMU_HWPT_ALLOC_ENFORCE_DIRTY = 1 << 0,
+};
+
+/**
  * enum iommu_hwpt_vtd_s1_flags - Intel VT-d stage-1 page table
  *                                entry attributes
  * @IOMMU_VTD_S1_SRE: Supervisor request

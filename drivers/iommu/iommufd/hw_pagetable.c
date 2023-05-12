@@ -109,6 +109,19 @@ int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
 		 */
 		hwpt->msi_cookie = true;
 	}
+
+	return 0;
+}
+
+int iommufd_hw_pagetable_enforce_dirty(struct iommufd_hw_pagetable *hwpt,
+				       struct iommufd_device *idev)
+{
+	hwpt->enforce_dirty =
+		!iommu_domain_set_flags(hwpt->domain, idev->dev->bus,
+					IOMMU_DOMAIN_F_ENFORCE_DIRTY);
+	if (!hwpt->enforce_dirty)
+		return -EINVAL;
+
 	return 0;
 }
 
@@ -121,6 +134,8 @@ int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
  * @parent: Optional parent HWPT to associate with
  * @user_data: Optional user_data pointer
  * @immediate_attach: True if idev should be attached to the hwpt
+ * @enforce_dirty: True if dirty tracking support should be enforce
+ *                 on device attach
  *
  * Allocate a new iommu_domain and return it as a hw_pagetable. The HWPT
  * will be linked to the given ioas and upon return the underlying iommu_domain
@@ -136,7 +151,7 @@ iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 			   enum iommu_hwpt_type hwpt_type,
 			   struct iommufd_hw_pagetable *parent,
 			   union iommu_domain_user_data *user_data,
-			   bool immediate_attach)
+			   bool immediate_attach, bool enforce_dirty)
 {
 	const struct iommu_ops *ops = dev_iommu_ops(idev->dev);
 	struct iommu_domain *parent_domain = NULL;
@@ -202,6 +217,12 @@ iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 			goto out_abort;
 	}
 
+	if (enforce_dirty) {
+		rc = iommufd_hw_pagetable_enforce_dirty(hwpt, idev);
+		if (rc)
+			goto out_abort;
+	}
+
 	/*
 	 * immediate_attach exists only to accommodate iommu drivers that cannot
 	 * directly allocate a domain. These drivers do not finish creating the
@@ -237,8 +258,10 @@ int iommufd_hwpt_alloc(struct iommufd_ucmd *ucmd)
 	struct iommufd_ioas *ioas;
 	int rc = 0;
 
-	if (cmd->flags || cmd->__reserved)
+	if ((cmd->flags & ~(IOMMU_HWPT_ALLOC_ENFORCE_DIRTY)) ||
+	    cmd->__reserved)
 		return -EOPNOTSUPP;
+
 	if (!cmd->data_len && cmd->hwpt_type != IOMMU_HWPT_TYPE_DEFAULT)
 		return -EINVAL;
 
@@ -295,9 +318,8 @@ int iommufd_hwpt_alloc(struct iommufd_ucmd *ucmd)
 	}
 
 	mutex_lock(&ioas->mutex);
-	hwpt = iommufd_hw_pagetable_alloc(ucmd->ictx, ioas, idev,
-					  cmd->hwpt_type,
-					  parent, data, false);
+	hwpt = iommufd_hw_pagetable_alloc(ucmd->ictx, ioas, idev, cmd->hwpt_type,
+					  parent, data, false, cmd->flags & IOMMU_HWPT_ALLOC_ENFORCE_DIRTY);
 	if (IS_ERR(hwpt)) {
 		rc = PTR_ERR(hwpt);
 		goto out_unlock;
