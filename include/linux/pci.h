@@ -2713,6 +2713,7 @@ struct pci_ide_stream {
 	int stream_id;
 	u32 flags;
 
+	enum pci_ide_stream_key_set_sel keyset;
 	enum pci_ide_stream_type type;
 	enum pci_ide_stream_algorithm algo;
 
@@ -2722,6 +2723,8 @@ struct pci_ide_stream {
 	struct pci_dev *dev;
 	int ide_id;
 
+	u32 keyrefresh_period;
+	struct delayed_work keyrefresh_dwork;
 	struct spdm_session *sess;
 	void *private;
 };

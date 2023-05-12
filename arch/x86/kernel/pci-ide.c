@@ -15,6 +15,9 @@
 
 #include "pci-tdisp.h"
 
+static unsigned int keyrefresh_period;
+module_param(keyrefresh_period, uint, 0644);
+
 #define IOMMU_ID_INVALID		(U64_MAX)
 #define USED_STREAM_IDS_BM_SIZE		(MAX_IDE_STREAM_ID + 1)
 
@@ -904,29 +907,6 @@ static int tdx_ide_stream_delete(struct pci_ide_stream *stm)
 	return 0;
 }
 
-static void ide_stream_stop(struct pci_dev *pdev, struct pci_ide_stream *stm);
-static int __ide_stream_release(struct pci_ide_stream *stm)
-{
-	int ret;
-
-	ret = tdx_ide_stream_block(stm);
-	if (ret)
-		return ret;
-
-	ret = tdx_ide_stream_delete(stm);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
-static int ide_stream_release(struct pci_ide_stream *stm)
-{
-	ide_stream_stop(stm->dev, stm);
-
-	return __ide_stream_release(stm);
-}
-
 static int tdx_ide_stream_idekmreq(struct pci_dev *pdev, struct ide_km_request *req)
 {
 	unsigned int slot_id = 0;
@@ -1102,70 +1082,162 @@ static int ide_km_msg_exchange(struct pci_dev *pdev, struct spdm_session *sess,
 	return 0;
 }
 
-static int ide_stream_setup(struct pci_dev *pdev, struct pci_ide_stream *stm)
+static int __ide_keyset_prog(struct pci_dev *pdev,
+			     struct pci_ide_stream *stm,
+			     struct ide_km_request req)
 {
 	struct intel_ide_stream *istm = pci_ide_stream_get_private(stm);
+
+	req.object_id = PCI_IDE_OBJECT_ID_KEY_PROG;
+	return ide_km_msg_exchange(pdev, stm->sess, istm, &req);
+}
+
+static int __ide_keyset_go(struct pci_dev *pdev,
+			   struct pci_ide_stream *stm,
+			   struct ide_km_request req)
+{
+	struct intel_ide_stream *istm = pci_ide_stream_get_private(stm);
+
+	req.object_id = PCI_IDE_OBJECT_ID_K_SET_GO;
+	return ide_km_msg_exchange(pdev, stm->sess, istm, &req);
+}
+
+static int __ide_keyset_stop(struct pci_dev *pdev,
+			     struct pci_ide_stream *stm,
+			     struct ide_km_request req)
+{
+	struct intel_ide_stream *istm = pci_ide_stream_get_private(stm);
+
+	req.object_id = PCI_IDE_OBJECT_ID_K_SET_STOP;
+	return ide_km_msg_exchange(pdev, stm->sess, istm, &req);
+}
+
+static void ide_keyset_stop(struct pci_dev *pdev, struct pci_ide_stream *stm)
+{
 	struct ide_km_request req = {
 		.stream_id = stm->stream_id,
-		.key_set = PCI_IDE_KEY_SET_0,
+		.key_set = stm->keyset,
 	};
+
+	if (doe_buffer_alloc(&req))
+		return;
+
+	if (!spdm_session_msg_exchange_prepare(stm->sess, 6)) {
+		__ide_keyset_stop(pdev, stm, req);
+		spdm_session_msg_exchange_complete(stm->sess);
+	}
+
+	doe_buffer_free(&req);
+}
+
+static int ide_keyset_prog_go(struct pci_dev *pdev,
+			      struct pci_ide_stream *stm,
+			      enum pci_ide_stream_key_set_sel keyset)
+{
+	struct ide_km_request req = {
+		.stream_id = stm->stream_id,
+		.key_set = keyset,
+	};
+	int ret;
+
+	ret = doe_buffer_alloc(&req);
+	if (ret)
+		return ret;
+
+	/* 6 KEY_PROGs + 6 K_SET_GOs + 6 K_SET_STOPs */
+	ret = spdm_session_msg_exchange_prepare(stm->sess, 18);
+	if (ret)
+		goto exit_doe_buffer_free;
+
+	ret = __ide_keyset_prog(pdev, stm, req);
+	if (ret)
+		goto exit_spdm_sess_xchg_complete;
+
+	ret = __ide_keyset_go(pdev, stm, req);
+	if (ret)
+		goto exit_key_set_stop;
+
+	stm->keyset = keyset;
+	goto exit_spdm_sess_xchg_complete;
+
+exit_key_set_stop:
+	__ide_keyset_stop(pdev, stm, req);
+exit_spdm_sess_xchg_complete:
+	spdm_session_msg_exchange_complete(stm->sess);
+exit_doe_buffer_free:
+	doe_buffer_free(&req);
+
+	return ret;
+}
+
+static bool is_keyrefresh_required(struct pci_ide_stream *stm)
+{
+	return stm->keyrefresh_period;
+}
+
+#define dwork_to_ide_stream(x)	container_of((x), struct pci_ide_stream, \
+					     keyrefresh_dwork)
+#define next_keyset(x)	((x) == PCI_IDE_KEY_SET_0 ? \
+			 PCI_IDE_KEY_SET_1 : \
+			 PCI_IDE_KEY_SET_0)
+static void ide_keyrefresh_process(struct work_struct *work)
+{
+	enum pci_ide_stream_key_set_sel keyset;
+	struct pci_ide_stream *stm;
+	struct delayed_work *dwork;
+	int ret;
+
+	dwork = to_delayed_work(work);
+	stm = dwork_to_ide_stream(dwork);
+	keyset = next_keyset(stm->keyset);
+	ret = ide_keyset_prog_go(stm->dev, stm, keyset);
+	if (ret)
+		dev_warn(&stm->dev->dev, "%s: keyfresh failed(%d)\n",
+			 __func__, ret);
+	else
+		dev_info(&stm->dev->dev, "%s: Stream ID %d, Current key set %d\n",
+			__func__, stm->stream_id, stm->keyset);
+
+	if (is_keyrefresh_required(stm))
+		schedule_delayed_work(&stm->keyrefresh_dwork,
+				      stm->keyrefresh_period * HZ);
+}
+
+static int __ide_stream_release(struct pci_ide_stream *stm)
+{
+	int ret;
+
+	ret = tdx_ide_stream_block(stm);
+	if (ret)
+		return ret;
+
+	ret = tdx_ide_stream_delete(stm);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int ide_stream_release(struct pci_ide_stream *stm)
+{
+	ide_keyset_stop(stm->dev, stm);
+
+	return __ide_stream_release(stm);
+}
+
+static int ide_stream_setup(struct pci_dev *pdev, struct pci_ide_stream *stm)
+{
 	int ret;
 
 	ret = tdx_ide_stream_create(pdev, stm);
 	if (ret)
 		return ret;
 
-	ret = doe_buffer_alloc(&req);
+	ret = ide_keyset_prog_go(pdev, stm, PCI_IDE_KEY_SET_0);
 	if (ret)
-		goto exit_stream_release;
-
-	ret = spdm_session_msg_exchange_prepare(stm->sess, 12);
-	if (ret)
-		goto exit_stream_release;
-	req.object_id = PCI_IDE_OBJECT_ID_KEY_PROG;
-	ret = ide_km_msg_exchange(pdev, stm->sess, istm, &req);
-	if (ret)
-		goto exit_key_set_stop;
-
-	req.object_id = PCI_IDE_OBJECT_ID_K_SET_GO;
-	ret = ide_km_msg_exchange(pdev, stm->sess, istm, &req);
-	if (ret)
-		goto exit_key_set_stop;
-
-	spdm_session_msg_exchange_complete(stm->sess);
-	goto exit;
-
-exit_key_set_stop:
-	req.object_id = PCI_IDE_OBJECT_ID_K_SET_STOP;
-	ide_km_msg_exchange(pdev, stm->sess, istm, &req);
-	spdm_session_msg_exchange_complete(stm->sess);
-exit_stream_release:
-	__ide_stream_release(stm);
-exit:
-	doe_buffer_free(&req);
+		__ide_stream_release(stm);
 
 	return ret;
-}
-
-static void ide_stream_stop(struct pci_dev *pdev, struct pci_ide_stream *stm)
-{
-	struct intel_ide_stream *istm = pci_ide_stream_get_private(stm);
-	struct ide_km_request req = {
-		.stream_id = stm->stream_id,
-		.key_set = PCI_IDE_KEY_SET_0,
-	};
-	int ret;
-
-	ret = doe_buffer_alloc(&req);
-	if (ret)
-		return;
-
-	if (!spdm_session_msg_exchange_prepare(stm->sess, 6)) {
-		req.object_id = PCI_IDE_OBJECT_ID_K_SET_STOP;
-		ide_km_msg_exchange(pdev, stm->sess, istm, &req);
-		spdm_session_msg_exchange_complete(stm->sess);
-	}
-	doe_buffer_free(&req);
 }
 
 int pci_arch_ide_stream_setup(struct pci_ide_stream *stm)
@@ -1188,6 +1260,12 @@ int pci_arch_ide_stream_setup(struct pci_ide_stream *stm)
 		if (ret)
 			goto err_clear_key_config;
 		ide_target_device_stream_ctrl(stm->dev, stm->ide_id, true);
+
+		INIT_DELAYED_WORK(&stm->keyrefresh_dwork, ide_keyrefresh_process);
+		stm->keyrefresh_period = keyrefresh_period;
+		if (is_keyrefresh_required(stm))
+			schedule_delayed_work(&stm->keyrefresh_dwork,
+					      stm->keyrefresh_period * HZ);
 	}
 
 	return 0;
@@ -1199,6 +1277,8 @@ err_clear_key_config:
 
 void pci_arch_ide_stream_remove(struct pci_ide_stream *stm)
 {
+	cancel_delayed_work_sync(&stm->keyrefresh_dwork);
+
 	pr_info("%s: WA - Disable device IDE stream in IDE ECAP first\n", __func__);
 	ide_target_device_stream_ctrl(stm->dev, stm->ide_id, false);
 	if (ide_stream_release(stm)) {
