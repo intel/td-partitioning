@@ -4749,6 +4749,161 @@ static void update_pmu_cap(struct x86_hybrid_pmu *hy_pmu)
 	}
 }
 
+static bool is_lbr_from(unsigned long msr)
+{
+	unsigned long lbr_from_nr = x86_pmu.lbr_from + x86_pmu.lbr_nr;
+
+	return x86_pmu.lbr_from <= msr && msr < lbr_from_nr;
+}
+
+/*
+ * Under certain circumstances, access certain MSR may cause #GP.
+ * The function tests if the input MSR can be safely accessed.
+ */
+static bool check_msr(unsigned long msr, u64 mask)
+{
+	u64 val_old, val_new, val_tmp;
+
+	/*
+	 * Disable the check for real HW, so we don't
+	 * mess with potentially enabled registers:
+	 */
+	if (!boot_cpu_has(X86_FEATURE_HYPERVISOR))
+		return true;
+
+	/*
+	 * Read the current value, change it and read it back to see if it
+	 * matches, this is needed to detect certain hardware emulators
+	 * (qemu/kvm) that don't trap on the MSR access and always return 0s.
+	 */
+	if (rdmsrl_safe(msr, &val_old))
+		return false;
+
+	/*
+	 * Only change the bits which can be updated by wrmsrl.
+	 */
+	val_tmp = val_old ^ mask;
+
+	if (is_lbr_from(msr))
+		val_tmp = lbr_from_signext_quirk_wr(val_tmp);
+
+	if (wrmsrl_safe(msr, val_tmp) ||
+	    rdmsrl_safe(msr, &val_new))
+		return false;
+
+	/*
+	 * Quirk only affects validation in wrmsr(), so wrmsrl()'s value
+	 * should equal rdmsrl()'s even with the quirk.
+	 */
+	if (val_new != val_tmp)
+		return false;
+
+	if (is_lbr_from(msr))
+		val_old = lbr_from_signext_quirk_wr(val_old);
+
+	/* Here it's sure that the MSR can be safely accessed.
+	 * Restore the old value and return.
+	 */
+	wrmsrl(msr, val_old);
+
+	return true;
+}
+
+static void intel_pmu_check_event_constraints(struct event_constraint *event_constraints,
+					      unsigned long *cnt_bitmap, u64 intel_ctrl)
+{
+	struct event_constraint *c;
+	u32 gp_bitmap = PERF_BITMAP2WORD(cnt_bitmap, 0);
+	u64 fixed_bitmap = PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED);
+
+	if (!event_constraints)
+		return;
+
+	/*
+	 * event on fixed counter2 (REF_CYCLES) only works on this
+	 * counter, so do not extend mask to generic counters
+	 */
+	for_each_event_constraint(c, event_constraints) {
+		/*
+		 * Don't extend the topdown slots and metrics
+		 * events to the generic counters.
+		 */
+		if (c->idxmsk64 & INTEL_PMC_MSK_TOPDOWN) {
+			/*
+			 * Disable topdown slots and metrics events,
+			 * if slots event is not in CPUID.
+			 */
+			if (!(INTEL_PMC_MSK_FIXED_SLOTS & intel_ctrl))
+				c->idxmsk64 = 0;
+			c->weight = hweight64(c->idxmsk64);
+			continue;
+		}
+
+		if (c->cmask == FIXED_EVENT_FLAGS) {
+			/* Disabled fixed counters which are not in CPUID */
+			c->idxmsk64 &= intel_ctrl;
+
+			/*
+			 * Don't extend the pseudo-encoding to the
+			 * generic counters
+			 */
+			if (!use_fixed_pseudo_encoding(c->code))
+				c->idxmsk64 |= gp_bitmap;
+		}
+		c->idxmsk64 &= (fixed_bitmap << INTEL_PMC_IDX_FIXED) | gp_bitmap;
+		c->weight = hweight64(c->idxmsk64);
+	}
+}
+
+static void intel_pmu_check_extra_regs(struct extra_reg *extra_regs)
+{
+	struct extra_reg *er;
+
+	/*
+	 * Access extra MSR may cause #GP under certain circumstances.
+	 * E.g. KVM doesn't support offcore event
+	 * Check all extra_regs here.
+	 */
+	if (!extra_regs)
+		return;
+
+	for (er = extra_regs; er->msr; er++) {
+		er->extra_msr_access = check_msr(er->msr, 0x11UL);
+		/* Disable LBR select mapping */
+		if ((er->idx == EXTRA_REG_LBR) && !er->extra_msr_access)
+			x86_pmu.lbr_sel_map = NULL;
+	}
+}
+
+static void intel_pmu_check_hybrid_pmus(void)
+{
+	struct x86_hybrid_pmu *pmu;
+	int i;
+
+	for (i = 0; i < x86_pmu.num_hybrid_pmus; i++) {
+		pmu = &x86_pmu.hybrid_pmu[i];
+
+		intel_pmu_check_num_counters(&pmu->num_counters,
+					     &pmu->num_counters_fixed,
+					     pmu->cnt_bitmap,
+					     &pmu->intel_ctrl);
+
+		if (pmu->intel_cap.perf_metrics) {
+			pmu->intel_ctrl |= 1ULL << GLOBAL_CTRL_EN_PERF_METRICS;
+			pmu->intel_ctrl |= INTEL_PMC_MSK_FIXED_SLOTS;
+		}
+
+		if (pmu->intel_cap.pebs_output_pt_available)
+			pmu->pmu.capabilities |= PERF_PMU_CAP_AUX_OUTPUT;
+
+		intel_pmu_check_event_constraints(pmu->event_constraints,
+						  pmu->cnt_bitmap,
+						  pmu->intel_ctrl);
+
+		intel_pmu_check_extra_regs(pmu->extra_regs);
+	}
+}
+
 static bool init_hybrid_pmu(int cpu)
 {
 	struct cpu_hw_events *cpuc = &per_cpu(cpu_hw_events, cpu);
@@ -4776,6 +4931,9 @@ static bool init_hybrid_pmu(int cpu)
 
 	if (this_cpu_has(X86_FEATURE_ARCH_PERFMON_EXT))
 		update_pmu_cap(pmu);
+
+	/* Must run after update_pmu_cap which could upate counter bitmaps */
+	intel_pmu_check_hybrid_pmus();
 
 	if (!check_hw_exists(&pmu->pmu, pmu->cnt_bitmap, pmu->num_counters_fixed))
 		return false;
@@ -5229,66 +5387,6 @@ static void intel_snb_check_microcode(void)
 		pr_info("PEBS disabled due to CPU errata, please upgrade microcode\n");
 		x86_pmu.pebs_broken = 1;
 	}
-}
-
-static bool is_lbr_from(unsigned long msr)
-{
-	unsigned long lbr_from_nr = x86_pmu.lbr_from + x86_pmu.lbr_nr;
-
-	return x86_pmu.lbr_from <= msr && msr < lbr_from_nr;
-}
-
-/*
- * Under certain circumstances, access certain MSR may cause #GP.
- * The function tests if the input MSR can be safely accessed.
- */
-static bool check_msr(unsigned long msr, u64 mask)
-{
-	u64 val_old, val_new, val_tmp;
-
-	/*
-	 * Disable the check for real HW, so we don't
-	 * mess with potentially enabled registers:
-	 */
-	if (!boot_cpu_has(X86_FEATURE_HYPERVISOR))
-		return true;
-
-	/*
-	 * Read the current value, change it and read it back to see if it
-	 * matches, this is needed to detect certain hardware emulators
-	 * (qemu/kvm) that don't trap on the MSR access and always return 0s.
-	 */
-	if (rdmsrl_safe(msr, &val_old))
-		return false;
-
-	/*
-	 * Only change the bits which can be updated by wrmsrl.
-	 */
-	val_tmp = val_old ^ mask;
-
-	if (is_lbr_from(msr))
-		val_tmp = lbr_from_signext_quirk_wr(val_tmp);
-
-	if (wrmsrl_safe(msr, val_tmp) ||
-	    rdmsrl_safe(msr, &val_new))
-		return false;
-
-	/*
-	 * Quirk only affects validation in wrmsr(), so wrmsrl()'s value
-	 * should equal rdmsrl()'s even with the quirk.
-	 */
-	if (val_new != val_tmp)
-		return false;
-
-	if (is_lbr_from(msr))
-		val_old = lbr_from_signext_quirk_wr(val_old);
-
-	/* Here it's sure that the MSR can be safely accessed.
-	 * Restore the old value and return.
-	 */
-	wrmsrl(msr, val_old);
-
-	return true;
 }
 
 static __init void intel_sandybridge_quirk(void)
@@ -5927,101 +6025,6 @@ static void intel_pmu_check_num_counters(int *num_counters,
 	}
 
 	bitmap_copy((unsigned long*)intel_ctrl, cnt_bitmap, X86_PMC_IDX_MAX);
-}
-
-static void intel_pmu_check_event_constraints(struct event_constraint *event_constraints,
-					      unsigned long *cnt_bitmap, u64 intel_ctrl)
-{
-	struct event_constraint *c;
-	u32 gp_bitmap = PERF_BITMAP2WORD(cnt_bitmap, 0);
-	u64 fixed_bitmap = PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED);
-
-	if (!event_constraints)
-		return;
-
-	/*
-	 * event on fixed counter2 (REF_CYCLES) only works on this
-	 * counter, so do not extend mask to generic counters
-	 */
-	for_each_event_constraint(c, event_constraints) {
-		/*
-		 * Don't extend the topdown slots and metrics
-		 * events to the generic counters.
-		 */
-		if (c->idxmsk64 & INTEL_PMC_MSK_TOPDOWN) {
-			/*
-			 * Disable topdown slots and metrics events,
-			 * if slots event is not in CPUID.
-			 */
-			if (!(INTEL_PMC_MSK_FIXED_SLOTS & intel_ctrl))
-				c->idxmsk64 = 0;
-			c->weight = hweight64(c->idxmsk64);
-			continue;
-		}
-
-		if (c->cmask == FIXED_EVENT_FLAGS) {
-			/* Disabled fixed counters which are not in CPUID */
-			c->idxmsk64 &= intel_ctrl;
-
-			/*
-			 * Don't extend the pseudo-encoding to the
-			 * generic counters
-			 */
-			if (!use_fixed_pseudo_encoding(c->code))
-				c->idxmsk64 |= gp_bitmap;
-		}
-		c->idxmsk64 &= (fixed_bitmap << INTEL_PMC_IDX_FIXED) | gp_bitmap;
-		c->weight = hweight64(c->idxmsk64);
-	}
-}
-
-static void intel_pmu_check_extra_regs(struct extra_reg *extra_regs)
-{
-	struct extra_reg *er;
-
-	/*
-	 * Access extra MSR may cause #GP under certain circumstances.
-	 * E.g. KVM doesn't support offcore event
-	 * Check all extra_regs here.
-	 */
-	if (!extra_regs)
-		return;
-
-	for (er = extra_regs; er->msr; er++) {
-		er->extra_msr_access = check_msr(er->msr, 0x11UL);
-		/* Disable LBR select mapping */
-		if ((er->idx == EXTRA_REG_LBR) && !er->extra_msr_access)
-			x86_pmu.lbr_sel_map = NULL;
-	}
-}
-
-static void intel_pmu_check_hybrid_pmus(void)
-{
-	struct x86_hybrid_pmu *pmu;
-	int i;
-
-	for (i = 0; i < x86_pmu.num_hybrid_pmus; i++) {
-		pmu = &x86_pmu.hybrid_pmu[i];
-
-		intel_pmu_check_num_counters(&pmu->num_counters,
-					     &pmu->num_counters_fixed,
-					     pmu->cnt_bitmap,
-					     &pmu->intel_ctrl);
-
-		if (pmu->intel_cap.perf_metrics) {
-			pmu->intel_ctrl |= 1ULL << GLOBAL_CTRL_EN_PERF_METRICS;
-			pmu->intel_ctrl |= INTEL_PMC_MSK_FIXED_SLOTS;
-		}
-
-		if (pmu->intel_cap.pebs_output_pt_available)
-			pmu->pmu.capabilities |= PERF_PMU_CAP_AUX_OUTPUT;
-
-		intel_pmu_check_event_constraints(pmu->event_constraints,
-						  pmu->cnt_bitmap,
-						  pmu->intel_ctrl);
-
-		intel_pmu_check_extra_regs(pmu->extra_regs);
-	}
 }
 
 static __always_inline bool is_mtl(u8 x86_model)
@@ -7060,9 +7063,6 @@ __init int intel_pmu_init(void)
 
 	if (!is_hybrid() && x86_pmu.intel_cap.perf_metrics)
 		x86_pmu.intel_ctrl |= 1ULL << GLOBAL_CTRL_EN_PERF_METRICS;
-
-	if (is_hybrid())
-		intel_pmu_check_hybrid_pmus();
 
 	if (x86_pmu.intel_cap.pebs_timing_info)
 		x86_pmu.flags |= PMU_FL_RETIRE_LATENCY;
