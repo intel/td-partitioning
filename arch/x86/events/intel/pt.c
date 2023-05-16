@@ -122,6 +122,7 @@ PMU_FORMAT_ATTR(notnt,		"config:55"	);
 PMU_FORMAT_ATTR(mtc_period,	"config:14-17"	);
 PMU_FORMAT_ATTR(cyc_thresh,	"config:19-22"	);
 PMU_FORMAT_ATTR(psb_period,	"config:24-27"	);
+PMU_FORMAT_ATTR(start_paused,	"config1:0"	);
 
 static struct attribute *pt_formats_attr[] = {
 	&format_attr_pt.attr,
@@ -138,6 +139,7 @@ static struct attribute *pt_formats_attr[] = {
 	&format_attr_mtc_period.attr,
 	&format_attr_cyc_thresh.attr,
 	&format_attr_psb_period.attr,
+	&format_attr_start_paused.attr,
 	NULL,
 };
 
@@ -314,6 +316,8 @@ fail:
 			RTIT_CTL_FUP_ON_PTW	| \
 			RTIT_CTL_PTW_EN)
 
+#define PT_START_PAUSED 1
+
 static bool pt_event_valid(struct perf_event *event)
 {
 	u64 config = event->attr.config;
@@ -407,6 +411,16 @@ static bool pt_event_valid(struct perf_event *event)
 		 * Disallow BRANCH_EN without the PASSTHROUGH.
 		 */
 		if (config & RTIT_CTL_BRANCH_EN)
+			return false;
+	}
+
+	config = event->attr.config1;
+	if (!config)
+		return true;
+
+	if (config & PT_START_PAUSED) {
+		if (!intel_pt_validate_hw_cap(PT_CAP_trigger_tracing) ||
+		    !intel_pt_validate_hw_cap(PT_CAP_pause_resume))
 			return false;
 	}
 
