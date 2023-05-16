@@ -25,7 +25,8 @@ struct branch_flags {
 			u64 spec:2;
 			u64 new_type:4;
 			u64 priv:3;
-			u64 reserved:31;
+			u64 ext:1;
+			u64 reserved:30;
 		};
 	};
 };
@@ -48,6 +49,11 @@ struct branch_stack {
 	u64			nr;
 	u64			hw_idx;
 	struct branch_entry	entries[];
+};
+
+struct branch_stack_ext {
+	u64			nr;
+	u64			data[];
 };
 
 /*
