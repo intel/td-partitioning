@@ -6,6 +6,7 @@
 
 #include "tdx-compliance.h"
 #include "tdx-compliance-cpuid.h"
+#include "tdx-compliance-cr.h"
 
 MODULE_AUTHOR("Yi Sun");
 
@@ -37,8 +38,12 @@ static struct dentry *f_tdx_tests, *d_tdx;
 	pr_info("%s: " pr_fmt(fmt),			\
 		module_name(THIS_MODULE), ##__VA_ARGS__)\
 
+#define CR_ERR_INFO					\
+	"Error: CR compliance test failed,"
+
 #define PROCFS_NAME		"tdx-tests"
 #define OPMASK_CPUID		1
+#define OPMASK_CR		2
 #define OPMASK_SINGLE		0x8000
 
 #define CPUID_DUMP_PATTERN	\
@@ -98,6 +103,19 @@ static int check_results_cpuid(struct test_cpuid *t)
 	return -1;
 }
 
+int check_results_cr(struct test_cr *t)
+{
+	t->reg.val &= t->reg.mask;
+	t->reg.mask *= t->reg.expect;
+	if (t->reg.val == t->reg.mask &&
+	    t->excp.expect == t->excp.val)
+		return 1;
+
+	pr_buf(CR_ERR_INFO "output/exception %llx/%d, but expect %llx/%d\n",
+	       t->reg.val, t->excp.val, t->reg.expect, t->excp.expect);
+	return -1;
+}
+
 static int run_all_cpuid(void)
 {
 	struct test_cpuid *t = cpuid_cases;
@@ -117,6 +135,86 @@ static int run_all_cpuid(void)
 			stat_fail++;
 
 		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name, result_str(t->ret));
+	}
+	return 0;
+}
+
+static u64 get_cr0(void)
+{
+	u64 cr0;
+
+	asm volatile("mov %%cr0,%0\n\t" : "=r" (cr0) : __FORCE_ORDER);
+
+	return cr0;
+}
+
+static u64 get_cr4(void)
+{
+	u64 cr4;
+
+	asm volatile("mov %%cr4,%0\n\t" : "=r" (cr4) : __FORCE_ORDER);
+
+	return cr4;
+}
+
+int __no_profile _native_write_cr0(u64 val)
+{
+	int err;
+
+	asm volatile("1: mov %1,%%cr0; xor %[err],%[err]\n"
+		     "2:\n\t"
+		     _ASM_EXTABLE_TYPE_REG(1b, 2b, EX_TYPE_FAULT, %[err])
+		     : [err] "=a" (err)
+		     : "r" (val)
+		     : "memory");
+	return err;
+}
+
+int __no_profile _native_write_cr4(u64 val)
+{
+	int err;
+
+	asm volatile("1: mov %1,%%cr4; xor %[err],%[err]\n"
+		     "2:\n\t"
+		     _ASM_EXTABLE_TYPE_REG(1b, 2b, EX_TYPE_FAULT, %[err])
+		     : [err] "=a" (err)
+		     : "r" (val)
+		     : "memory");
+	return err;
+}
+
+static int run_all_cr(void)
+{
+	struct test_cr *t;
+	int i = 0;
+
+	t = cr_list;
+	pr_tdx_tests("Testing Control Register...\n");
+
+	for (i = 0; i < ARRAY_SIZE(cr_list); i++, t++) {
+		if (operation & 0x8000 && strcmp(str_input, t->name) != 0)
+			continue;
+
+		if (t->run_cr_get)
+			t->reg.val = t->run_cr_get();
+
+		if (t->run_cr_set) {
+			if (t->pre_condition) {
+				if (t->pre_condition(t) != 0) {
+					pr_buf("%d: %s:\t %s\n",
+					       ++stat_total, t->name, "SKIP");
+					continue;
+				}
+			}
+
+			t->excp.val = t->run_cr_set(t->reg.mask);
+		}
+
+		t->ret = check_results_cr(t);
+		t->ret == 1 ? stat_pass++ : stat_fail++;
+
+		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name,
+		       result_str(t->ret));
 	}
 	return 0;
 }
@@ -148,10 +246,12 @@ tdx_tests_proc_write(struct file *file,
 
 	if (strstr(str_input, "cpuid"))
 		operation |= OPMASK_CPUID;
+	else if (strstr(str_input, "cr"))
+		operation |= OPMASK_CR;
 	else if (strstr(str_input, "all"))
-		operation |= OPMASK_CPUID;
+		operation |= OPMASK_CPUID | OPMASK_CR;
 	else if (str_input)
-		operation |= OPMASK_SINGLE | OPMASK_CPUID;
+		operation |= OPMASK_SINGLE | OPMASK_CPUID | OPMASK_CR;
 
 	cnt_log = 0;
 	stat_total = 0;
@@ -162,12 +262,15 @@ tdx_tests_proc_write(struct file *file,
 
 	if (operation & OPMASK_CPUID)
 		run_all_cpuid();
+	if (operation & OPMASK_CR)
+		run_all_cr();
 
 	pr_buf("Total:%d, PASS:%d, FAIL:%d, SKIP:%d\n",
 	       stat_total, stat_pass, stat_fail,
 	       stat_total - stat_pass - stat_fail);
 
 	kfree(str_input);
+	operation = 0;
 	return count;
 }
 
@@ -196,6 +299,10 @@ static int __init tdx_tests_init(void)
 		return -ENOMEM;
 
 	initial_cpuid();
+
+	cur_cr0 = get_cr0();
+	cur_cr4 = get_cr4();
+	pr_buf("cur_cr0: %016llx, cur_cr4: %016llx\n", cur_cr0, cur_cr4);
 
 	return 0;
 }
