@@ -7,6 +7,7 @@
 #include "tdx-compliance.h"
 #include "tdx-compliance-cpuid.h"
 #include "tdx-compliance-cr.h"
+#include "tdx-compliance-msr.h"
 
 MODULE_AUTHOR("Yi Sun");
 
@@ -41,9 +42,16 @@ static struct dentry *f_tdx_tests, *d_tdx;
 #define CR_ERR_INFO					\
 	"Error: CR compliance test failed,"
 
+#define MSR_ERR_INFO			\
+	"Error: MSR compliance test failed,"
+
+#define MSR_MULTIBYTE_ERR_INFO		\
+	"Error: MSR multiple bytes difference,"
+
 #define PROCFS_NAME		"tdx-tests"
 #define OPMASK_CPUID		1
 #define OPMASK_CR		2
+#define OPMASK_MSR		4
 #define OPMASK_SINGLE		0x8000
 
 #define CPUID_DUMP_PATTERN	\
@@ -63,12 +71,117 @@ static char *result_str(int ret)
 	return "UNKNOWN";
 }
 
+static int check_results_msr(struct test_msr *t)
+{
+		if (t->excp.expect == t->excp.val)
+			return 1;
+
+		pr_buf(MSR_ERR_INFO "exception %d, but expect_exception %d\n",
+		       t->excp.val, t->excp.expect);
+		return -1;
+}
+
 static int run_cpuid(struct test_cpuid *t)
 {
 	t->regs.eax.val = t->leaf;
 	t->regs.ecx.val = t->subleaf;
 	__cpuid(&t->regs.eax.val, &t->regs.ebx.val, &t->regs.ecx.val, &t->regs.edx.val);
 
+	return 0;
+}
+
+static int _native_read_msr(unsigned int msr, u64 *val)
+{
+	int err;
+	u32 low = 0, high = 0;
+
+	asm volatile("1: rdmsr ; xor %[err],%[err]\n"
+		     "2:\n\t"
+		     _ASM_EXTABLE_TYPE_REG(1b, 2b, EX_TYPE_FAULT, %[err])
+		     : [err] "=r" (err), "=a" (low), "=d" (high)
+		     : "c" (msr));
+
+	*val = ((low) | (u64)(high) << 32);
+	if (err)
+		err = (int)low;
+	return err;
+}
+
+static int _native_write_msr(unsigned int msr, u64 *val)
+{
+	int err;
+	u32 low = (u32)(*val), high = (u32)((*val) >> 32);
+
+	asm volatile("1: wrmsr ; xor %[err],%[err]\n"
+		     "2:\n\t"
+		     _ASM_EXTABLE_TYPE_REG(1b, 2b, EX_TYPE_FAULT, %[err])
+		     : [err] "=a" (err)
+		     : "c" (msr), "0" (low), "d" (high)
+		     : "memory");
+
+	return err;
+}
+
+static int read_msr_native(struct test_msr *c)
+{
+	int i, err, tmp;
+
+	err = _native_read_msr((u32)(c->msr.msr_num), &c->msr.val.q);
+
+	for (i = 1; i < c->size; i++) {
+		tmp = _native_read_msr((u32)(c->msr.msr_num) + i, &c->msr.val.q);
+
+		if (err != tmp) {
+			pr_buf(MSR_MULTIBYTE_ERR_INFO
+			       "MSR(%x): %d(byte0) and %d(byte%d)\n",
+			       c->msr.msr_num, err, tmp, i);
+			return -1;
+		}
+	}
+	return err;
+}
+
+static int write_msr_native(struct test_msr *c)
+{
+	int i, err, tmp;
+
+	err = _native_write_msr((u32)(c->msr.msr_num), &c->msr.val.q);
+
+	for (i = 1; i < c->size; i++) {
+		tmp = _native_write_msr((u32)(c->msr.msr_num) + i, &c->msr.val.q);
+
+		if (err != tmp) {
+			pr_buf(MSR_MULTIBYTE_ERR_INFO
+			       "MSR(%x): %d(byte0) and %d(byte%d)\n",
+			       c->msr.msr_num, err, tmp, i);
+			return -1;
+		}
+	}
+	return err;
+}
+
+static int run_all_msr(void)
+{
+	struct test_msr *t = msr_cases;
+	int i = 0;
+
+	pr_tdx_tests("Testing MSR...\n");
+
+	for (i = 0; i < ARRAY_SIZE(msr_cases); i++, t++) {
+		if (operation & 0x8000 && strcmp(str_input, t->name) != 0)
+			continue;
+
+		if (t->pre_condition)
+			t->pre_condition(t);
+		if (t->run_msr_rw)
+			t->excp.val = t->run_msr_rw(t);
+
+		t->ret = check_results_msr(t);
+		t->ret == 1 ? stat_pass++ : stat_fail++;
+
+		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name,
+		       result_str(t->ret));
+	}
 	return 0;
 }
 
@@ -248,10 +361,12 @@ tdx_tests_proc_write(struct file *file,
 		operation |= OPMASK_CPUID;
 	else if (strstr(str_input, "cr"))
 		operation |= OPMASK_CR;
+	else if (strstr(str_input, "msr"))
+		operation |= OPMASK_MSR;
 	else if (strstr(str_input, "all"))
-		operation |= OPMASK_CPUID | OPMASK_CR;
+		operation |= OPMASK_CPUID | OPMASK_CR | OPMASK_MSR;
 	else if (str_input)
-		operation |= OPMASK_SINGLE | OPMASK_CPUID | OPMASK_CR;
+		operation |= OPMASK_SINGLE | OPMASK_CPUID | OPMASK_CR | OPMASK_MSR;
 
 	cnt_log = 0;
 	stat_total = 0;
@@ -264,6 +379,8 @@ tdx_tests_proc_write(struct file *file,
 		run_all_cpuid();
 	if (operation & OPMASK_CR)
 		run_all_cr();
+	if (operation & OPMASK_MSR)
+		run_all_msr();
 
 	pr_buf("Total:%d, PASS:%d, FAIL:%d, SKIP:%d\n",
 	       stat_total, stat_pass, stat_fail,
