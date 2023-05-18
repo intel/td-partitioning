@@ -2988,6 +2988,13 @@ config HAVE_ATOMIC_IOMAP
 	def_bool y
 	depends on X86_32
 
+config INTEL_TDX_COMPLIANCE
+    tristate "Intel TDX Compliance module"
+    depends on X86_64
+    default m
+    help
+      This option enables support for the Intel TDX Compliance module.
+
 source "arch/x86/kvm/Kconfig"
 
 source "arch/x86/Kconfig.assembler"
