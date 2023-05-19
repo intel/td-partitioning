@@ -1756,6 +1756,10 @@ static int rpb_mem_test_check(struct rpb_mem_test test)
 	if (test.mem_size == 0 || test.mem_size % 4 ||
 	    test.mem_size >= RPB_MEM_SIZE_MAX)
 		return -EINVAL;
+	if ((test.mem_op == RPB_MEM_OP_P2P_MMIO_READ ||
+	    test.mem_op == RPB_MEM_OP_P2P_MMIO_WRITE) &&
+	    test.mem_size != 4)
+		return -EINVAL;
 
 	return 0;
 }
