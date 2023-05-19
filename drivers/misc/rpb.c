@@ -1772,7 +1772,7 @@ static int rpb_vm_p2p_mmio_ops(struct rpb_device *rdev, phys_addr_t mmio_addr,
 	enum dma_data_direction dir;
 	struct rpb_vector *rvec;
 	dma_addr_t dma_addr;
-	bool force_shared;
+	bool target_addr_shared;
 	void *virt_addr;
 	bool write;
 	int ret;
@@ -1786,9 +1786,9 @@ static int rpb_vm_p2p_mmio_ops(struct rpb_device *rdev, phys_addr_t mmio_addr,
 	}
 
 	if (mem_attr == RPB_MEM_ATTR_SHARED)
-		force_shared = true;
+		target_addr_shared = true;
 	else
-		force_shared = false;
+		target_addr_shared = false;
 
 	rpb_vector_pos_reset(rdev);
 
@@ -1796,9 +1796,9 @@ static int rpb_vm_p2p_mmio_ops(struct rpb_device *rdev, phys_addr_t mmio_addr,
 
 	dev_info(dev, "Auth - Source device is in %s mode, target MMIO address is a %s address\n",
 		 dev->authorized == MODE_SECURE ? "private" : "shared",
-		 force_shared ? "shared" : "private");
+		 target_addr_shared ? "shared" : "private");
 
-	if (force_shared)
+	if (target_addr_shared)
 		virt_addr = ioremap_driver_hardened(mmio_addr, mmio_size);
 	else
 		virt_addr = ioremap_encrypted_flag(mmio_addr, mmio_size,
@@ -1806,7 +1806,7 @@ static int rpb_vm_p2p_mmio_ops(struct rpb_device *rdev, phys_addr_t mmio_addr,
 	if (!virt_addr)
 		return -EFAULT;
 
-	if (force_shared)
+	if (target_addr_shared)
 		dma_addr = dma_map_resource(dev, mmio_addr, mmio_size, dir,
 					    DMA_ATTR_FORCEUNENCRYPTED);
 	else
