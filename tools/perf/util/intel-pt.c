@@ -13,6 +13,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/zalloc.h>
+#include <linux/hashtable.h>
 
 #include "session.h"
 #include "machine.h"
@@ -181,6 +182,11 @@ struct intel_pt_pebs_event {
 	u64 id;
 };
 
+struct intel_pt_trig_event {
+	struct evsel *evsel;
+	u64 id;
+};
+
 struct intel_pt_queue {
 	struct intel_pt *pt;
 	unsigned int queue_nr;
@@ -230,6 +236,7 @@ struct intel_pt_queue {
 	unsigned int cbr_seen;
 	char insn[INTEL_PT_INSN_BUF_SZ];
 	struct intel_pt_pebs_event pebs[INTEL_PT_MAX_PEBS];
+	struct intel_pt_trig_event trigs[INTEL_PT_MAX_TRIGGERS];
 };
 
 static void intel_pt_dump(struct intel_pt *pt __maybe_unused,
@@ -1570,6 +1577,36 @@ static void intel_pt_setup_time_range(struct intel_pt *pt,
 	}
 }
 
+static void intel_pt_set_trigger(struct intel_pt_queue *ptq, int trig_nr, struct evsel *evsel, u64 id)
+{
+	ptq->trigs[trig_nr].evsel = evsel;
+	ptq->trigs[trig_nr].id = id;
+	intel_pt_log("queue %d cpu %d tid %d trigger %u ID %" PRIu64 "\n",
+		     ptq->queue_nr, ptq->cpu, ptq->tid, trig_nr, id);
+}
+
+static void intel_pt_setup_triggers(struct intel_pt *pt,
+				    struct intel_pt_queue *ptq)
+{
+	struct perf_evlist *evlist = &pt->session->evlist->core;
+	union intel_pt_aux_output_cfg cfg;
+	struct perf_sample_id *sid;
+	struct evsel *evsel;
+	size_t h;
+
+	hash_for_each(evlist->heads, h, sid, node) {
+		if (sid->cpu.cpu != ptq->cpu || sid->tid != ptq->tid)
+			continue;
+		cfg.val = sid->evsel->attr.aux_output_cfg;
+		if (!cfg.val)
+			continue;
+		evsel = container_of(sid->evsel, struct evsel, core);
+		intel_pt_set_trigger(ptq, cfg.trig_nr_0, evsel, sid->id);
+		if (cfg.action_1)
+			intel_pt_set_trigger(ptq, cfg.trig_nr_1, evsel, sid->id);
+	}
+}
+
 static bool intel_pt_triger_tracing(struct intel_pt *pt)
 {
 	struct evsel *evsel;
@@ -1610,6 +1647,8 @@ static int intel_pt_setup_queue(struct intel_pt *pt,
 		ptq->sync_switch = pt->sync_switch;
 
 		intel_pt_setup_time_range(pt, ptq);
+
+		intel_pt_setup_triggers(pt, ptq);
 	}
 
 	if (!ptq->on_heap &&
@@ -2415,6 +2454,75 @@ static int intel_pt_synth_pebs_sample(struct intel_pt_queue *ptq)
 	return err;
 }
 
+static int intel_pt_do_synth_trig_sample(struct intel_pt_queue *ptq,
+					 struct evsel *evsel, u64 id, u16 cfg_val)
+{
+	u64 sample_type = evsel->core.attr.sample_type;
+	struct perf_sample sample = { .ip = 0, };
+	union perf_event *event = ptq->event_buf;
+	struct intel_pt *pt = ptq->pt;
+
+	if (intel_pt_skip_event(pt))
+		return 0;
+
+	intel_pt_prep_sample(pt, ptq, event, &sample);
+
+	sample.id = id;
+	sample.stream_id = id;
+	sample.flags = 0;
+
+	/* Do not report IP if no IP attribution */
+	if (!(ptq->state->trig_flags & INTEL_PT_TRIG_ICNTV))
+		sample.ip = 0;
+
+	if (evsel->core.attr.type == PERF_TYPE_BREAKPOINT ||
+	    cfg_val & INTEL_PT_TT_EVENT ||
+	    evsel->core.attr.freq) {
+		sample.period = 1;
+	} else {
+		sample.period = evsel->core.attr.sample_period;
+	}
+
+	return intel_pt_deliver_synth_event(pt, event, &sample, sample_type);
+}
+
+static int intel_pt_synth_single_trig_sample(struct intel_pt_queue *ptq, int trig_nr)
+{
+	struct intel_pt_trig_event *te = &ptq->trigs[trig_nr];
+	union intel_pt_aux_output_cfg cfg;
+	u16 cfg_val = 0;
+
+	if (!te->evsel) {
+		pr_err("Intel PT Trigger with no matching selected event\n");
+		return 0;
+	}
+
+	cfg.val = te->evsel->core.attr.aux_output_cfg;
+	if (cfg.trig_nr_0 == trig_nr)
+		cfg_val = cfg.val_0;
+	else if (cfg.trig_nr_1 == trig_nr)
+		cfg_val = cfg.val_1;
+	else
+		pr_err("Intel PT Trigger with no matching aux_output_cfg\n");
+
+	return intel_pt_do_synth_trig_sample(ptq, te->evsel, te->id, cfg_val);
+}
+
+static int intel_pt_synth_trig_sample(struct intel_pt_queue *ptq)
+{
+	unsigned long trbv = ptq->state->trbv;
+	int trig_nr;
+	int err;
+
+	for_each_set_bit(trig_nr, &trbv, INTEL_PT_MAX_TRIGGERS) {
+		err = intel_pt_synth_single_trig_sample(ptq, trig_nr);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static int intel_pt_synth_events_sample(struct intel_pt_queue *ptq)
 {
 	struct intel_pt *pt = ptq->pt;
@@ -2723,6 +2831,12 @@ static int intel_pt_sample(struct intel_pt_queue *ptq)
 
 	if (pt->sample_ptwrites && (state->type & INTEL_PT_PTW)) {
 		err = intel_pt_synth_ptwrite_sample(ptq);
+		if (err)
+			return err;
+	}
+
+	if (state->type & INTEL_PT_TRIG_EVENT && pt->synth_opts.other_events) {
+		err = intel_pt_synth_trig_sample(ptq);
 		if (err)
 			return err;
 	}
