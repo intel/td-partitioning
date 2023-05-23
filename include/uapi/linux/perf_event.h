@@ -1411,6 +1411,7 @@ union perf_mem_data_src {
  *    cycles: cycles from last branch (or 0 if not supported)
  *      type: branch type
  *      spec: branch speculation info (or 0 if not supported)
+ *       ext: has extension space for extra info (or 0 if not supported)
  */
 struct perf_branch_entry {
 	__u64	from;
@@ -1424,7 +1425,8 @@ struct perf_branch_entry {
 		spec:2,     /* branch speculation info */
 		new_type:4, /* additional branch type */
 		priv:3,     /* privilege level */
-		reserved:31;
+		ext:1,      /* has extension */
+		reserved:30;
 };
 
 union perf_sample_weight {

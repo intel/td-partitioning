@@ -7324,6 +7324,11 @@ void perf_output_sample(struct perf_output_handle *handle,
 			if (branch_sample_hw_index(event))
 				perf_output_put(handle, data->br_stack->hw_idx);
 			perf_output_copy(handle, data->br_stack->entries, size);
+			if (data->br_stack_ext) {
+				size = data->br_stack_ext->nr * sizeof(u64);
+				perf_output_put(handle, data->br_stack_ext->nr);
+				perf_output_copy(handle, data->br_stack_ext->data, size);
+			}
 		} else {
 			/*
 			 * we always store at least the value of nr
