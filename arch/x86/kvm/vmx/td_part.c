@@ -1086,9 +1086,56 @@ int td_part_vm_init(struct kvm *kvm)
 	return vmx_vm_init(kvm);
 }
 
+static void td_part_encrypt_gpa(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	XA_STATE(xas, &kvm->mem_attr_array, start);
+	unsigned long vaddr, npages = 0;
+	gfn_t gfn = start, enc_gfn = start;
+	void *entry = xas_load(&xas);
+
+	while (gfn < end) {
+		if (xas_retry(&xas, entry))
+			continue;
+
+		KVM_BUG_ON(gfn != xas.xa_index, kvm);
+
+		if (xa_to_value(entry) & KVM_MEMORY_ATTRIBUTE_PRIVATE) {
+			if (npages) {
+				vaddr = (unsigned long)__va(gfn_to_gpa(enc_gfn));
+				set_memory_encrypted(vaddr, npages);
+				enc_gfn = gfn;
+				npages = 0;
+			}
+		} else {
+			if (npages == 0)
+				enc_gfn = gfn;
+			npages++;
+		}
+
+		entry = xas_next(&xas);
+		gfn++;
+	}
+
+	if (npages) {
+		vaddr = (unsigned long)__va(gfn_to_gpa(enc_gfn));
+		set_memory_encrypted(vaddr, npages);
+	}
+}
+
 void td_part_vm_destroy(struct kvm *kvm)
 {
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	int bkt;
+	gfn_t start, end;
+
 	clear_bit(kvm->arch.vm_id, td_part_vm_id_bitmap);
+
+	kvm_for_each_memslot(memslot, bkt, slots) {
+		start = memslot->base_gfn;
+		end = start + memslot->npages;
+		td_part_encrypt_gpa(kvm, start, end);
+	}
 }
 
 static int td_part_set_vm_ctrl(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
