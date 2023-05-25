@@ -334,12 +334,16 @@ static int tdxio_devif_parse_report(struct pci_tdi *tdi)
 	}
 
 	for (i = 0; i < tdi->mmio_range_num; i++) {
+		u32 attr;
+
 		mmio = &tdi->mmio[i];
+
+		attr = devif_rp_read_mmio_attr(data, i);
 
 		mmio->haddr = devif_rp_read_mmio_addr(data, i);
 		mmio->pages = devif_rp_read_mmio_pages(data, i);
-		mmio->attr = devif_rp_read_mmio_attr(data, i);
-		mmio->id = (u16)(mmio->attr >> 16);
+		mmio->attr = (u16)attr;
+		mmio->id = (u16)(attr >> 16);
 		size = (u64)mmio->pages << PAGE_SHIFT;
 
 		dev_info(dev, "%s: range[%u]: haddr 0x%016llx pages 0x%x, attr 0x%x\n",
