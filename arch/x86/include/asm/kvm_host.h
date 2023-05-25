@@ -1754,6 +1754,9 @@ struct kvm_x86_ops {
 	unsigned long (*vcpu_get_apicv_inhibit_reasons)(struct kvm_vcpu *vcpu);
 
 	gva_t (*get_untagged_addr)(struct kvm_vcpu *vcpu, gva_t gva, unsigned int flags);
+
+	bool (*is_lass_violation)(struct kvm_vcpu *vcpu, unsigned long addr,
+				  unsigned int size, unsigned int flags);
 };
 
 struct kvm_x86_nested_ops {

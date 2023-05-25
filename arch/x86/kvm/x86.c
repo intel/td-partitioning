@@ -8317,6 +8317,15 @@ static gva_t emulator_get_untagged_addr(struct x86_emulate_ctxt *ctxt,
 	return static_call(kvm_x86_get_untagged_addr)(emul_to_vcpu(ctxt), addr, flags);
 }
 
+static bool emulator_is_lass_violation(struct x86_emulate_ctxt *ctxt,
+				       unsigned long addr,
+				       unsigned int size,
+				       unsigned int flags)
+{
+	return static_call(kvm_x86_is_lass_violation)(emul_to_vcpu(ctxt),
+						      addr, size, flags);
+}
+
 static const struct x86_emulate_ops emulate_ops = {
 	.vm_bugged           = emulator_vm_bugged,
 	.read_gpr            = emulator_read_gpr,
@@ -8362,6 +8371,7 @@ static const struct x86_emulate_ops emulate_ops = {
 	.triple_fault        = emulator_triple_fault,
 	.set_xcr             = emulator_set_xcr,
 	.get_untagged_addr   = emulator_get_untagged_addr,
+	.is_lass_violation   = emulator_is_lass_violation,
 };
 
 static void toggle_interruptibility(struct kvm_vcpu *vcpu, u32 mask)

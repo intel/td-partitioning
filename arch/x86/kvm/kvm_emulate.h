@@ -234,6 +234,9 @@ struct x86_emulate_ops {
 
 	gva_t (*get_untagged_addr)(struct x86_emulate_ctxt *ctxt, gva_t addr,
 				   unsigned int flags);
+
+	bool (*is_lass_violation)(struct x86_emulate_ctxt *ctxt, unsigned long addr,
+				  unsigned int size, unsigned int flags);
 };
 
 /* Type, address-of, and value of an instruction's operand. */
