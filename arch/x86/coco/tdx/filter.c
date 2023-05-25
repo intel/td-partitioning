@@ -261,25 +261,30 @@ done:
 	return ret;
 }
 
-static u32 devif_rp_read(void *data, u32 offset)
+static u16 devif_rp_readw(void *data, u32 offset)
+{
+	return *(u16 *)(data + offset);
+}
+
+static u32 devif_rp_readl(void *data, u32 offset)
 {
 	return *(u32 *)(data + offset);
 }
 
 static u64 devif_rp_read_mmio_addr(void *data, u32 index)
 {
-	return devif_rp_read(data, DEVIF_RP_MMIO_ADDR_LO(index)) |
-	 ((u64)devif_rp_read(data, DEVIF_RP_MMIO_ADDR_HI(index)) << 32);
+	return devif_rp_readl(data, DEVIF_RP_MMIO_ADDR_LO(index)) |
+	 ((u64)devif_rp_readl(data, DEVIF_RP_MMIO_ADDR_HI(index)) << 32);
 }
 
 static u32 devif_rp_read_mmio_pages(void *data, u32 index)
 {
-	return devif_rp_read(data, DEVIF_RP_MMIO_PAGES(index));
+	return devif_rp_readl(data, DEVIF_RP_MMIO_PAGES(index));
 }
 
 static u32 devif_rp_read_mmio_attr(void *data, u32 index)
 {
-	return devif_rp_read(data, DEVIF_RP_MMIO_ATTR(index));
+	return devif_rp_readl(data, DEVIF_RP_MMIO_ATTR(index));
 }
 
 static int tdxio_devif_parse_report(struct pci_tdi *tdi)
@@ -294,7 +299,12 @@ static int tdxio_devif_parse_report(struct pci_tdi *tdi)
 	void *data = tdi->report;
 	bool ismsix;
 
-	tdi->mmio_range_num = devif_rp_read(data, DEVIF_RP_MMIO_NUM);
+	tdi->interface_info = devif_rp_readw(data, DEVIF_RP_INTF_INFO);
+	tdi->msix_ctrl = devif_rp_readw(data, DEVIF_RP_MSIX_CTRL);
+	tdi->lnr_ctrl = devif_rp_readw(data, DEVIF_RP_LNR_CTRL);
+	tdi->tph_ctrl = devif_rp_readl(data, DEVIF_RP_TPH_CTRL);
+
+	tdi->mmio_range_num = devif_rp_readl(data, DEVIF_RP_MMIO_NUM);
 	dev_info(dev, "%s: mmio_range_num %d\n", __func__, tdi->mmio_range_num);
 
 	if (tdi->mmio_range_num > MAX_TDI_MMIO_RANGE)

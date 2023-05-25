@@ -46,8 +46,15 @@
  * The Device Interface Report header is taken into account, but the TDISP
  * header is not.
  */
-#define DEVIF_RP_INTF_INFO		0x4
-#define DEVIF_RP_MSIX_CTRL(v)		(((v) >> 16) & 0xffff)
+#define DEVIF_RP_INTF_INFO		0
+#define   TDI_INTF_INFO_NO_FW_UPDATE	0x1
+#define   TDI_INTF_INFO_DMA_NO_PASID	0x2
+#define   TDI_INTF_INFO_DMA_PASID	0x4
+#define   TDI_INTF_INFO_ATS		0x8
+#define   TDI_INTF_INFO_PRS		0x10
+#define DEVIF_RP_MSIX_CTRL		4
+#define DEVIF_RP_LNR_CTRL		6
+#define DEVIF_RP_TPH_CTRL		8
 #define DEVIF_RP_MMIO_NUM		12
 #define DEVIF_RP_MMIO_ADDR_LO(n)	(16 + (n) * 16)
 #define DEVIF_RP_MMIO_ADDR_HI(n)	(20 + (n) * 16)

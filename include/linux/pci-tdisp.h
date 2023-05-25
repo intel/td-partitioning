@@ -95,7 +95,11 @@ struct pci_tdi {
 	size_t report_len;
 	size_t report_offset;
 	void *report;
-	unsigned int mmio_range_num;
+	u16 interface_info;
+	u16 msix_ctrl;
+	u16 lnr_ctrl;
+	u32 tph_ctrl;
+	u32 mmio_range_num;
 	struct pci_tdi_mmio mmio[MAX_TDI_MMIO_RANGE];
 
 	size_t identities_len;
