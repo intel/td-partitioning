@@ -413,6 +413,65 @@ static bool is_tdxio_devif_report_valid(struct pci_tdi *tdi)
 	return true;
 }
 
+static bool is_tdi_devif_report_valid(struct pci_tdi *tdi)
+{
+	struct pci_dev *pdev = tdi->pdev;
+	struct device *dev = &pdev->dev;
+	int i, j;
+
+	/*
+	 * Generic checking of device interface report
+	 *
+	 * 1.MMIO ranges match with pci_device (bar id and size)
+	 */
+
+	for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+		u64 haddr_start = 0, haddr_end = 0;
+		size_t size, mmio_size;
+		unsigned long flags;
+
+		flags = pci_resource_flags(pdev, i);
+		if (flags & IORESOURCE_IO)
+			continue;
+
+		size = pci_resource_len(pdev, i);
+		if (!size)
+			continue;
+
+		for (j = 0; j < tdi->mmio_range_num; j++) {
+			if (tdi->mmio[j].id != i)
+				continue;
+
+			mmio_size = tdi->mmio[j].pages << PAGE_SHIFT;
+
+			if (!haddr_start) {
+				haddr_start = tdi->mmio[j].haddr;
+				haddr_end = haddr_start + mmio_size;
+			} else {
+				/* mmio ranges should not have holes */
+				if (tdi->mmio[j].haddr != haddr_end) {
+					dev_err(dev, "holes found in tdi mmio ranges\n");
+					return false;
+				}
+
+				haddr_end += mmio_size;
+			}
+		}
+
+		if (!haddr_start) {
+			dev_err(dev, "bar %d not found in tdi mmio ranges\n", i);
+			return false;
+		}
+
+		if (size != (haddr_end - haddr_start)) {
+			dev_err(dev, "bar %d size not match\n", i);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int tdxio_devif_verify(struct pci_tdi *tdi)
 {
 	struct pci_dev *pdev = tdi->pdev;
@@ -426,6 +485,11 @@ static int tdxio_devif_verify(struct pci_tdi *tdi)
 	if (!is_tdxio_devif_report_valid(tdi)) {
 		dev_err(&pdev->dev, "invalid devif report for tdxio\n");
 		return -EINVAL;
+	}
+
+	if (!is_tdi_devif_report_valid(tdi)) {
+		dev_err(&pdev->dev, "invalid devif report, not matching pci_dev\n");
+		return -EFAULT;
 	}
 
 	/* TODO: adding checking for pci_dev per device interface report */
