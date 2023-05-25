@@ -378,6 +378,41 @@ static int tdxio_devif_parse_report(struct pci_tdi *tdi)
 	return 0;
 }
 
+static bool is_tdxio_devif_report_valid(struct pci_tdi *tdi)
+{
+	struct device *dev = &tdi->pdev->dev;
+
+	dev_dbg(dev, "intf_info 0x%x\n", tdi->interface_info);
+	dev_dbg(dev, "msix_ctrl 0x%x\n", tdi->msix_ctrl);
+	dev_dbg(dev, "lnr_ctrl 0x%x\n",  tdi->lnr_ctrl);
+	dev_dbg(dev, "tph_ctrl 0x%x\n",  tdi->tph_ctrl);
+
+	if ((tdi->interface_info & TDI_INTF_INFO_DMA_NO_PASID) == 0 ||
+	    (tdi->interface_info & TDI_INTF_INFO_DMA_PASID) != 0 ||
+	    (tdi->interface_info & TDI_INTF_INFO_ATS) != 0 ||
+	    (tdi->interface_info & TDI_INTF_INFO_PRS) != 0) {
+		dev_err(dev, "bad intf info - 0x%x\n", tdi->interface_info);
+		return false;
+	}
+
+	if (tdi->msix_ctrl != 0) {
+		dev_err(dev, "bad msix_ctrl - 0x%x\n", tdi->msix_ctrl);
+		return false;
+	}
+
+	if (tdi->lnr_ctrl != 0) {
+		dev_err(dev, "bad lnr_ctrl - 0x%x\n", tdi->lnr_ctrl);
+		return false;
+	}
+
+	if (tdi->tph_ctrl != 0) {
+		dev_err(dev, "bad tph_ctrl - 0x%x\n", tdi->tph_ctrl);
+		return false;
+	}
+
+	return true;
+}
+
 static int tdxio_devif_verify(struct pci_tdi *tdi)
 {
 	struct pci_dev *pdev = tdi->pdev;
@@ -386,6 +421,11 @@ static int tdxio_devif_verify(struct pci_tdi *tdi)
 	if (no_dev_attest) {
 		dev_info(&pdev->dev, "Skip device attestation\n");
 		return 0;
+	}
+
+	if (!is_tdxio_devif_report_valid(tdi)) {
+		dev_err(&pdev->dev, "invalid devif report for tdxio\n");
+		return -EINVAL;
 	}
 
 	/* TODO: adding checking for pci_dev per device interface report */
