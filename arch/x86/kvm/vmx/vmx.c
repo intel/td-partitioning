@@ -7680,6 +7680,7 @@ static void nested_vmx_cr_fixed1_bits_update(struct kvm_vcpu *vcpu)
 
 	entry = kvm_find_cpuid_entry_index(vcpu, 0x7, 1);
 	cr4_fixed1_update(X86_CR4_LAM_SUP,    eax, feature_bit(LAM));
+	cr4_fixed1_update(X86_CR4_LASS,       eax, feature_bit(LASS));
 
 #undef cr4_fixed1_update
 }
@@ -8259,6 +8260,53 @@ gva_t vmx_get_untagged_addr(struct kvm_vcpu *vcpu, gva_t gva, unsigned int flags
 	return (sign_extend64(gva, lam_bit) & ~BIT_ULL(63)) | (gva & BIT_ULL(63));
 }
 
+bool vmx_is_lass_violation(struct kvm_vcpu *vcpu, unsigned long addr,
+			   unsigned int size, unsigned int flags)
+{
+	const bool is_supervisor_address = !!(addr & BIT_ULL(63));
+	const bool implicit_supervisor = !!(flags & X86EMUL_F_IMPLICIT);
+	const bool fetch = !!(flags & X86EMUL_F_FETCH);
+
+	if (!kvm_is_cr4_bit_set(vcpu, X86_CR4_LASS) || !is_long_mode(vcpu))
+		return false;
+
+	/*
+	 * INVLPG isn't subject to LASS, e.g. to allow invalidating userspace
+	 * addresses without toggling RFLAGS.AC.  Branch targets aren't subject
+	 * to LASS in order to simplify far control transfers (the subsequent
+	 * fetch will enforce LASS as appropriate).
+	 */
+	if (flags & (X86EMUL_F_BRANCH | X86EMUL_F_INVLPG))
+		return false;
+
+	if (!implicit_supervisor && vmx_get_cpl(vcpu) == 3)
+		return is_supervisor_address;
+
+	/*
+	 * LASS enforcement for supervisor-mode data accesses depends on SMAP
+	 * being enabled, and like SMAP ignores explicit accesses if RFLAGS.AC=1.
+	 */
+	if (!fetch) {
+		if (!kvm_is_cr4_bit_set(vcpu, X86_CR4_SMAP))
+			return false;
+
+		if (!implicit_supervisor && (kvm_get_rflags(vcpu) & X86_EFLAGS_AC))
+			return false;
+	}
+
+	/*
+	 * The entire access must be in the appropriate address space.  Note,
+	 * if LAM is supported, @addr has already been untagged, so barring a
+	 * massive architecture change to expand the canonical address range,
+	 * it's impossible for a user access to straddle user and supervisor
+	 * address spaces.
+	 */
+	if (size && !((addr + size - 1) & BIT_ULL(63)))
+		return true;
+
+	return !is_supervisor_address;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.name = KBUILD_MODNAME,
 
@@ -8401,6 +8449,8 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.vcpu_deliver_sipi_vector = kvm_vcpu_deliver_sipi_vector,
 
 	.get_untagged_addr = vmx_get_untagged_addr,
+
+	.is_lass_violation = vmx_is_lass_violation,
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)
