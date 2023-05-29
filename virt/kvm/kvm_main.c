@@ -1877,6 +1877,7 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 		memcpy(&new->notifier,
 		       &old->notifier, sizeof(struct restrictedmem_notifier));
 		kvm_restrictedmem_unregister((struct kvm_memory_slot *)old);
+		fput(old->restricted_file);
 		kvm_restrictedmem_register(new);
 	}
 
