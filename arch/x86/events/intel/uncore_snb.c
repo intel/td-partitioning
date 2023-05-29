@@ -1707,3 +1707,13 @@ void adl_uncore_mmio_init(void)
 }
 
 /* end of Alder Lake MMIO uncore support */
+
+static struct intel_uncore_type *lnl_mmio_uncores[] = {
+	&adl_uncore_imc_free_running, /* same as ADL */
+	NULL
+};
+
+void lnl_uncore_mmio_init(void)
+{
+	uncore_mmio_uncores = lnl_mmio_uncores;
+}
