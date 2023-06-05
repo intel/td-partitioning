@@ -37,6 +37,11 @@ struct vfio_pci_ims_ctx {
 	union msi_instance_cookie	icookie;
 };
 
+static inline struct vfio_device *ims_to_vdev(struct vfio_pci_ims *ims)
+{
+	return container_of(ims, struct vfio_device, ims);
+}
+
 /*
  * Return IMS index of IMS interrupt backing MSI-X interrupt @vector
  */
@@ -100,6 +105,7 @@ static irqreturn_t vfio_pci_ims_irq_handler(int irq, void *arg)
 static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 				  struct vfio_pci_ims_ctx *ctx)
 {
+	struct vfio_device *vdev = ims_to_vdev(ims);
 	struct msi_map irq_map = {};
 
 	lockdep_assert_held(&ims->ctx_mutex);
@@ -109,6 +115,8 @@ static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 
 	irq_map.index = ctx->ims_id;
 	irq_map.virq = ctx->virq;
+	dev_dbg(&vdev->device, "Freeing IMS interrupt %d virq %d\n",
+		irq_map.index, irq_map.virq);
 	pci_ims_free_irq(ims->pdev, irq_map);
 	ctx->ims_id = -EINVAL;
 	ctx->virq = 0;
@@ -123,6 +131,7 @@ static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 static int vfio_pci_ims_irq_alloc(struct vfio_pci_ims *ims,
 				  struct vfio_pci_ims_ctx *ctx)
 {
+	struct vfio_device *vdev = ims_to_vdev(ims);
 	struct msi_map irq_map = {};
 
 	lockdep_assert_held(&ims->ctx_mutex);
@@ -136,6 +145,8 @@ static int vfio_pci_ims_irq_alloc(struct vfio_pci_ims *ims,
 
 	ctx->ims_id = irq_map.index;
 	ctx->virq = irq_map.virq;
+	dev_dbg(&vdev->device, "Allocated IMS interrupt %d virq %d\n",
+		irq_map.index, irq_map.virq);
 
 	return 0;
 }
@@ -157,14 +168,17 @@ vfio_pci_ims_ctx_get(struct vfio_pci_ims *ims, unsigned int vector)
 
 	lockdep_assert_held(&ims->ctx_mutex);
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx = xa_load(&ims->ctx, vector);
 	if (ctx)
 		return ctx;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL_ACCOUNT);
 	if (!ctx)
 		return NULL;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx->icookie = ims->default_cookie;
 	ret = xa_insert(&ims->ctx, vector, ctx, GFP_KERNEL_ACCOUNT);
 	if (ret) {
@@ -172,6 +186,7 @@ vfio_pci_ims_ctx_get(struct vfio_pci_ims *ims, unsigned int vector)
 		return NULL;
 	}
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	return ctx;
 }
 
@@ -186,10 +201,13 @@ static int vfio_pci_ims_set_vector_signal(struct vfio_device *vdev,
 
 	lockdep_assert_held(&ims->ctx_mutex);
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx = xa_load(&ims->ctx, vector);
 
 	if (ctx && ctx->trigger) {
+		pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 		if (!ctx->emulated) {
+			pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 			irq_bypass_unregister_producer(&ctx->producer);
 			free_irq(ctx->virq, ctx->trigger);
 			vfio_pci_ims_irq_free(ims, ctx);
@@ -200,19 +218,23 @@ static int vfio_pci_ims_set_vector_signal(struct vfio_device *vdev,
 		ctx->trigger = NULL;
 	}
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	if (fd < 0)
 		return 0;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	/* Interrupt contexts remain allocated until shutdown. */
 	ctx = vfio_pci_ims_ctx_get(ims, vector);
 	if (!ctx)
 		return -EINVAL;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx->name = kasprintf(GFP_KERNEL, "vfio-ims[%d](%s)", vector,
 			      dev_name(dev));
 	if (!ctx->name)
 		return -ENOMEM;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	trigger = eventfd_ctx_fdget(fd);
 	if (IS_ERR(trigger)) {
 		ret = PTR_ERR(trigger);
@@ -221,18 +243,22 @@ static int vfio_pci_ims_set_vector_signal(struct vfio_device *vdev,
 
 	ctx->trigger = trigger;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	if (ctx->emulated)
 		return 0;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ret = vfio_pci_ims_irq_alloc(ims, ctx);
 	if (ret < 0)
 		goto out_put_eventfd_ctx;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ret = request_irq(ctx->virq, vfio_pci_ims_irq_handler, 0, ctx->name,
 			  ctx->trigger);
 	if (ret < 0)
 		goto out_free_irq;
 
+	pr_debug("%s:%d vector = %u\n", __func__, __LINE__, vector);
 	ctx->producer.token = ctx->trigger;
 	ctx->producer.irq = ctx->virq;
 	ret = irq_bypass_register_producer(&ctx->producer);
@@ -312,8 +338,12 @@ int vfio_pci_set_ims_trigger(struct vfio_device *vdev, unsigned int index,
 	if (index != VFIO_PCI_MSIX_IRQ_INDEX)
 		return -EINVAL;
 
+	pr_debug("%s:%d index=%u, start=%u, count=%u, flags=0x%X\n",
+			__func__, __LINE__, index, start, count, flags);
 	mutex_lock(&ims->ctx_mutex);
 	if (!count && (flags & VFIO_IRQ_SET_DATA_NONE)) {
+		pr_debug("%s:%d\n", __func__, __LINE__);
+		dev_dbg(&vdev->device, "Disabling IMS ...\n");
 		xa_for_each(&ims->ctx, i, ctx)
 			vfio_pci_ims_set_vector_signal(vdev, i, -1);
 		ret = 0;
@@ -321,11 +351,13 @@ int vfio_pci_set_ims_trigger(struct vfio_device *vdev, unsigned int index,
 	}
 
 	if (flags & VFIO_IRQ_SET_DATA_EVENTFD) {
+		pr_debug("%s:%d\n", __func__, __LINE__);
 		ret = vfio_pci_ims_set_block(vdev, start, count, (int *)data);
 		goto out_unlock;
 	}
 
 	for (i = start; i < start + count; i++) {
+		pr_debug("%s:%d\n", __func__, __LINE__);
 		ctx = xa_load(&ims->ctx, i);
 		if (!ctx || !ctx->trigger)
 			continue;
@@ -363,6 +395,7 @@ void vfio_pci_ims_init(struct vfio_device *vdev, struct pci_dev *pdev,
 {
 	struct vfio_pci_ims *ims = &vdev->ims;
 
+	pr_debug("%s:%d \n", __func__, __LINE__);
 	xa_init(&ims->ctx);
 	mutex_init(&ims->ctx_mutex);
 	ims->pdev = pdev;
@@ -389,6 +422,7 @@ void vfio_pci_ims_free(struct vfio_device *vdev)
 	struct vfio_pci_ims_ctx *ctx;
 	unsigned long i;
 
+	pr_debug("%s:%d \n", __func__, __LINE__);
 	/*
 	 * All interrupts should be freed (including free of name and
 	 * trigger) before context cleanup.
@@ -418,6 +452,7 @@ int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
 	struct vfio_pci_ims_ctx *ctx;
 	int ret = 0;
 
+	pr_debug("%s:%d\n", __func__, __LINE__);
 	mutex_lock(&ims->ctx_mutex);
 	ctx = xa_load(&ims->ctx, vector);
 	if (ctx) {
@@ -494,6 +529,24 @@ out_err:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(vfio_pci_ims_set_emulated);
+
+void vfio_dump_ims_entries(struct vfio_device *vdev)
+{
+	struct vfio_pci_ims *ims = &vdev->ims;
+	struct vfio_pci_ims_ctx *ctx;
+	unsigned long i;
+
+	dev_dbg(&vdev->device, "IMS entries:\n");
+	mutex_lock(&ims->ctx_mutex);
+	xa_for_each(&ims->ctx, i, ctx) {
+		dev_dbg(&vdev->device, "EventFD %lu: trigger=%px, name=%s, type=%s, ims_id=%d, virq=%d\n",
+			i, ctx->trigger, ctx->name,
+			ctx->emulated ? "emulated" : "ims", ctx->ims_id,
+			ctx->virq);
+	}
+	mutex_unlock(&ims->ctx_mutex);
+}
+EXPORT_SYMBOL_GPL(vfio_dump_ims_entries);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel Corporation");

@@ -411,6 +411,7 @@ void vfio_pci_ims_send_signal(struct vfio_device *vdev, unsigned int vector);
 int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
 			    union msi_instance_cookie *icookie);
 int vfio_pci_ims_hwirq(struct vfio_device *vdev, unsigned int vector);
+void vfio_dump_ims_entries(struct vfio_device *vdev);
 #else
 static inline int vfio_pci_set_ims_trigger(struct vfio_device *vdev,
 					   unsigned int index,
@@ -452,6 +453,7 @@ static inline int vfio_pci_ims_hwirq(struct vfio_device *vdev,
 	return -EOPNOTSUPP;
 }
 
+static inline void vfio_dump_ims_entries(struct vfio_device *vdev) {}
 #endif /* CONFIG_VFIO_PCI_IMS */
 
 #endif /* VFIO_H */
