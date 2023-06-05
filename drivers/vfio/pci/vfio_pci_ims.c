@@ -17,16 +17,18 @@
 #include <linux/xarray.h>
 
 /*
- * IMS interrupt context.
- * @name:	Name of device associated with interrupt.
+ * Interrupt context. Used for emulated as well as IMS interrupts.
+ * @emulated:	(IMS and emulated) true if context belongs to emulated interrupt.
+ * @name:	(IMS and emulated) Name of device associated with interrupt.
  *		Provided to request_irq().
- * @trigger:	eventfd associated with interrupt.
- * @producer:	Interrupt's registered IRQ bypass producer.
- * @ims_id:	Interrupt index associated with IMS interrupt.
- * @virq:	Linux IRQ number associated with IMS interrupt.
- * @icookie:	Cookie used by irqchip driver.
+ * @trigger:	(IMS and emulated) eventfd associated with interrupt.
+ * @producer:	(IMS only) Interrupt's registered IRQ bypass producer.
+ * @ims_id:	(IMS only) Interrupt index associated with IMS interrupt.
+ * @virq:	(IMS only) Linux IRQ number associated with IMS interrupt.
+ * @icookie:	(IMS only) Cookie used by irqchip driver.
  */
 struct vfio_pci_ims_ctx {
+	bool				emulated;
 	char				*name;
 	struct eventfd_ctx		*trigger;
 	struct irq_bypass_producer	producer;
@@ -34,6 +36,31 @@ struct vfio_pci_ims_ctx {
 	int				virq;
 	union msi_instance_cookie	icookie;
 };
+
+/*
+ * Send signal to the eventfd.
+ * @vdev:	VFIO device
+ * @vector:	MSI-X vector of @vdev for which interrupt will be signaled
+ *
+ * Intended for use to send signal for emulated interrupts.
+ */
+void vfio_pci_ims_send_signal(struct vfio_device *vdev, unsigned int vector)
+{
+	struct vfio_pci_ims *ims = &vdev->ims;
+	struct vfio_pci_ims_ctx *ctx;
+
+	mutex_lock(&ims->ctx_mutex);
+	ctx = xa_load(&ims->ctx, vector);
+
+	if (WARN_ON_ONCE(!ctx || !ctx->emulated || !ctx->trigger)) {
+		mutex_unlock(&ims->ctx_mutex);
+		return;
+	}
+
+	eventfd_signal(ctx->trigger, 1);
+	mutex_unlock(&ims->ctx_mutex);
+}
+EXPORT_SYMBOL_GPL(vfio_pci_ims_send_signal);
 
 static irqreturn_t vfio_pci_ims_irq_handler(int irq, void *arg)
 {
@@ -46,7 +73,8 @@ static irqreturn_t vfio_pci_ims_irq_handler(int irq, void *arg)
 /*
  * Free the interrupt associated with @ctx.
  *
- * Free interrupt from the underlying PCI device's IMS domain.
+ * For an emulated interrupt there is nothing to do. For an IMS interrupt
+ * the interrupt is freed from the underlying PCI device's IMS domain.
  */
 static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 				  struct vfio_pci_ims_ctx *ctx)
@@ -54,6 +82,9 @@ static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 	struct msi_map irq_map = {};
 
 	lockdep_assert_held(&ims->ctx_mutex);
+
+	if (ctx->emulated)
+		return;
 
 	irq_map.index = ctx->ims_id;
 	irq_map.virq = ctx->virq;
@@ -65,7 +96,8 @@ static void vfio_pci_ims_irq_free(struct vfio_pci_ims *ims,
 /*
  * Allocate an interrupt for @ctx.
  *
- * Allocate interrupt from the underlying PCI device's IMS domain.
+ * For an emulated interrupt there is nothing to do. For an IMS interrupt
+ * the interrupt is allocated from the underlying PCI device's IMS domain.
  */
 static int vfio_pci_ims_irq_alloc(struct vfio_pci_ims *ims,
 				  struct vfio_pci_ims_ctx *ctx)
@@ -73,6 +105,9 @@ static int vfio_pci_ims_irq_alloc(struct vfio_pci_ims *ims,
 	struct msi_map irq_map = {};
 
 	lockdep_assert_held(&ims->ctx_mutex);
+
+	if (ctx->emulated)
+		return -EINVAL;
 
 	irq_map = pci_ims_alloc_irq(ims->pdev, &ctx->icookie, NULL);
 	if (irq_map.index < 0)
@@ -133,9 +168,11 @@ static int vfio_pci_ims_set_vector_signal(struct vfio_device *vdev,
 	ctx = xa_load(&ims->ctx, vector);
 
 	if (ctx && ctx->trigger) {
-		irq_bypass_unregister_producer(&ctx->producer);
-		free_irq(ctx->virq, ctx->trigger);
-		vfio_pci_ims_irq_free(ims, ctx);
+		if (!ctx->emulated) {
+			irq_bypass_unregister_producer(&ctx->producer);
+			free_irq(ctx->virq, ctx->trigger);
+			vfio_pci_ims_irq_free(ims, ctx);
+		}
 		kfree(ctx->name);
 		ctx->name = NULL;
 		eventfd_ctx_put(ctx->trigger);
@@ -162,6 +199,9 @@ static int vfio_pci_ims_set_vector_signal(struct vfio_device *vdev,
 	}
 
 	ctx->trigger = trigger;
+
+	if (ctx->emulated)
+		return 0;
 
 	ret = vfio_pci_ims_irq_alloc(ims, ctx);
 	if (ret < 0)
@@ -219,8 +259,8 @@ static int vfio_pci_ims_set_block(struct vfio_device *vdev, unsigned int start,
 }
 
 /*
- * Manage Interrupt Message Store (IMS) interrupts on the host that are
- * backing guest MSI-X vectors.
+ * Manage Interrupt Message Store (IMS) or emulated interrupts on the
+ * host that are backing guest MSI-X vectors.
  *
  * @vdev:	 VFIO device
  * @index:	 Type of guest vectors to set up.  Must be
@@ -360,6 +400,10 @@ int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
 	mutex_lock(&ims->ctx_mutex);
 	ctx = xa_load(&ims->ctx, vector);
 	if (ctx) {
+		if (WARN_ON_ONCE(ctx->emulated)) {
+			ret = -EINVAL;
+			goto out_unlock;
+		}
 		ctx->icookie = *icookie;
 		goto out_unlock;
 	}
@@ -384,6 +428,51 @@ out_unlock:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(vfio_pci_ims_set_cookie);
+
+/*
+ * Set range of interrupts that will be emulated instead of backed by IMS.
+ *
+ * Return: error code on failure (-EBUSY if the vector is not available,
+ * -ENOMEM on allocation failure), 0 on success
+ */
+int vfio_pci_ims_set_emulated(struct vfio_device *vdev, unsigned int start,
+			      unsigned int count)
+{
+	struct vfio_pci_ims *ims = &vdev->ims;
+	struct vfio_pci_ims_ctx *ctx;
+	unsigned long i, j;
+	int ret = 0;
+
+	mutex_lock(&ims->ctx_mutex);
+
+	for (i = start; i < start + count; i++) {
+		ctx = kzalloc(sizeof(*ctx), GFP_KERNEL_ACCOUNT);
+		if (!ctx) {
+			ret = -ENOMEM;
+			goto out_err;
+		}
+		ctx->emulated = true;
+		ret = xa_insert(&ims->ctx, i, ctx, GFP_KERNEL_ACCOUNT);
+		if (ret) {
+			kfree(ctx);
+			goto out_err;
+		}
+	}
+
+	mutex_unlock(&ims->ctx_mutex);
+	return 0;
+
+out_err:
+	for (j = start; j < i; j++) {
+		ctx = xa_load(&ims->ctx, j);
+		xa_erase(&ims->ctx, j);
+		kfree(ctx);
+	}
+	mutex_unlock(&ims->ctx_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(vfio_pci_ims_set_emulated);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel Corporation");

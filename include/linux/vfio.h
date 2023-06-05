@@ -405,6 +405,9 @@ int vfio_pci_set_ims_trigger(struct vfio_device *vdev, unsigned int index,
 void vfio_pci_ims_init(struct vfio_device *vdev, struct pci_dev *pdev,
 		       union msi_instance_cookie *default_cookie);
 void vfio_pci_ims_free(struct vfio_device *vdev);
+int vfio_pci_ims_set_emulated(struct vfio_device *vdev, unsigned int start,
+			      unsigned int count);
+void vfio_pci_ims_send_signal(struct vfio_device *vdev, unsigned int vector);
 int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
 			    union msi_instance_cookie *icookie);
 #else
@@ -423,6 +426,17 @@ static inline void vfio_pci_ims_init(struct vfio_device *vdev,
 {}
 
 static inline void vfio_pci_ims_free(struct vfio_device *vdev) {}
+
+static inline int vfio_pci_ims_set_emulated(struct vfio_device *vdev,
+					    unsigned int start,
+					    unsigned int count)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void vfio_pci_ims_send_signal(struct vfio_device *vdev,
+					    unsigned int vector)
+{}
 
 static inline int vfio_pci_ims_set_cookie(struct vfio_device *vdev,
 					  unsigned int vector,
