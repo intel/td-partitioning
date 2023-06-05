@@ -38,6 +38,27 @@ struct vfio_pci_ims_ctx {
 };
 
 /*
+ * Return IMS index of IMS interrupt backing MSI-X interrupt @vector
+ */
+int vfio_pci_ims_hwirq(struct vfio_device *vdev, unsigned int vector)
+{
+	struct vfio_pci_ims *ims = &vdev->ims;
+	struct vfio_pci_ims_ctx *ctx;
+	int id;
+
+	mutex_lock(&ims->ctx_mutex);
+	ctx = xa_load(&ims->ctx, vector);
+	if (!ctx || ctx->emulated)
+		id = -EINVAL;
+	else
+		id = ctx->ims_id;
+	mutex_unlock(&ims->ctx_mutex);
+
+	return id;
+}
+EXPORT_SYMBOL_GPL(vfio_pci_ims_hwirq);
+
+/*
  * Send signal to the eventfd.
  * @vdev:	VFIO device
  * @vector:	MSI-X vector of @vdev for which interrupt will be signaled
