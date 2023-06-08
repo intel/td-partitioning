@@ -453,6 +453,12 @@ union ucmd_buffer {
 #ifdef CONFIG_IOMMUFD_TEST
 	struct iommu_test_cmd test;
 #endif
+	/*
+	 * hwpt_type specific structure used in the cache invalidation
+	 * path.
+	 */
+	struct iommu_hwpt_vtd_s1_invalidate vtd;
+	struct iommu_hwpt_vtd_s1_invalidate_desc req_vtd;
 };
 
 struct iommufd_ioctl_op {

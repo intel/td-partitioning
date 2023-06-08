@@ -551,6 +551,64 @@ struct iommu_resv_iova_ranges {
 #define IOMMU_RESV_IOVA_RANGES _IO(IOMMUFD_TYPE, IOMMUFD_CMD_RESV_IOVA_RANGES)
 
 /**
+ * enum iommu_hwpt_vtd_s1_invalidate_flags - Flags for Intel VT-d
+ *                                           stage-1 cache invalidation
+ * @IOMMU_VTD_QI_FLAGS_LEAF: The LEAF flag indicates whether only the
+ *                           leaf PTE caching needs to be invalidated
+ *                           and other paging structure caches can be
+ *                           preserved.
+ */
+enum iommu_hwpt_vtd_s1_invalidate_flags {
+	IOMMU_VTD_QI_FLAGS_LEAF = 1 << 0,
+};
+
+/**
+ * struct iommu_hwpt_vtd_s1_invalidate_desc - Intel VT-d stage-1 cache
+ *                                            invalidation descriptor
+ * @addr: The start address of the addresses to be invalidated.
+ * @npages: Number of contiguous 4K pages to be invalidated.
+ * @flags: Combination of enum iommu_hwpt_vtd_s1_invalidate_flags
+ * @__reserved: Must be 0
+ *
+ * The Intel VT-d specific invalidation data for user-managed stage-1 cache
+ * invalidation under nested translation. Userspace uses this structure to
+ * tell host about the impacted caches after modifying the stage-1 page table.
+ *
+ * Invalidating all the caches related to the hw_pagetable by setting @addr
+ * to be 0 and @npages to be __aligned_u64(-1).
+ */
+struct iommu_hwpt_vtd_s1_invalidate_desc {
+	__aligned_u64 addr;
+	__aligned_u64 npages;
+	__u32 flags;
+	__u32 __reserved;
+};
+
+/**
+ * struct iommu_hwpt_vtd_s1_invalidate - Intel VT-d cache invalidation
+ *                                       (IOMMU_HWPT_TYPE_VTD_S1)
+ * @flags: Must be 0
+ * @entry_size: Size in bytes of each cache invalidation request
+ * @entry_nr_uptr: User pointer to the number of invalidation requests.
+ *                 Kernel reads it to get the number of requests and
+ *                 updates the buffer with the number of requests that
+ *                 have been processed successfully. This pointer must
+ *                 point to a __u32 type of memory location.
+ * @inv_data_uptr: Pointer to the cache invalidation requests
+ *
+ * The Intel VT-d specific invalidation data for a set of cache invalidation
+ * requests. Kernel loops the requests one-by-one and stops when failure
+ * is encountered. The number of handled requests is reported to user by
+ * writing the buffer pointed by @entry_nr_uptr.
+ */
+struct iommu_hwpt_vtd_s1_invalidate {
+	__u32 flags;
+	__u32 entry_size;
+	__aligned_u64 entry_nr_uptr;
+	__aligned_u64 inv_data_uptr;
+};
+
+/**
  * struct iommu_hwpt_invalidate - ioctl(IOMMU_HWPT_INVALIDATE)
  * @size: sizeof(struct iommu_hwpt_invalidate)
  * @hwpt_id: HWPT ID of target hardware page table for the invalidation
