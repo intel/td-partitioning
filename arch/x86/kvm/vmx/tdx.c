@@ -2561,7 +2561,7 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 
 	/* See comment in tdx_sept_set_private_spte() */
 	err = tdh_mem_page_promote(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
-	if (err == TDX_EPT_INVALID_PROMOTE_CONDITIONS)
+	if (seamcall_masked_status(err) == TDX_EPT_INVALID_PROMOTE_CONDITIONS)
 		/*
 		 * Some pages are accepted, some pending.  Need to wait for TD
 		 * to accept all pages.  Tell it the caller.
