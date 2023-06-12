@@ -7983,20 +7983,28 @@ int tdx_bind_tdi(struct kvm *kvm, struct pci_tdi *tdi)
 	 */
 
 	ret = tdx_tdi_devifmt_init(ttdi);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "fail to init devifmt\n");
 		goto devif_free;
+	}
 
 	ret = tdx_tdi_devif_create(ttdi);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "fail to init devif\n");
 		goto devifmt_uinit;
+	}
 
 	ret = tdx_tdi_mmiomt_init(ttdi);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "fail to init mmiomt\n");
 		goto devif_remove;
+	}
 
 	ret = tdx_tdi_dmar_init(ttdi);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "fail to init dmar\n");
 		goto mmiomt_uinit;
+	}
 
 	/* Move TDISP Device Interface state from UNLOCKED to LOCKED */
 	parm.message = TDISP_LOCK_INTF_REQ;
