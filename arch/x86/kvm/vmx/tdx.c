@@ -6220,12 +6220,20 @@ static void tdx_tdi_devif_remove(struct tdx_tdi *ttdi)
 	dev_info(dev, "%s ret %llx func_id %x td_buf %llx vmm_buf %llx\n",
 		 __func__, retval, ttdi->id.func_id, out.rcx, out.rdx);
 
-	if (retval)
+	if (retval) {
 		dev_err(dev, "failed to remove DEVIF %llx\n", retval);
-	if ((u64)ttdi->td_buff_pa != out.rcx)
+		return;
+	}
+
+	if ((u64)ttdi->td_buff_pa != out.rcx) {
 		dev_err(dev, "td buffer address doesn't match\n");
-	if ((u64)ttdi->vmm_buff_pa != out.rdx)
+		return;
+	}
+
+	if ((u64)ttdi->vmm_buff_pa != out.rdx) {
 		dev_err(dev, "vmm buffer address doesn't match\n");
+		return;
+	}
 
 	free_page((unsigned long)__va(ttdi->vmm_buff_pa));
 	free_page((unsigned long)__va(ttdi->td_buff_pa));
