@@ -59,7 +59,7 @@ int ima_extend_rtmr(struct tpm_chip *chip, u32 rtmr_idx,
         return -EINVAL;
 
     for (i = 0; i < chip->nr_allocated_banks; i++) {
-        if (digests[i].alg_id != NULL &&
+        if (digests[i].alg_id != 0 &&
                 digests[i].alg_id != chip->allocated_banks[i].alg_id) {
             return -EINVAL;
         }
@@ -88,7 +88,6 @@ EXPORT_SYMBOL_GPL(ima_extend_rtmr);
 int tdx_get_boot_measurements(struct tdx_boot_digests *boot_digests)
 {
     int rc, i, j, k = 0;
-    u64 rs = 0;
     u8 *reportdata, *tdreport;
     struct tdreport *report;
 

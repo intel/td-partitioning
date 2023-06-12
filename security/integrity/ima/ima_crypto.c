@@ -812,7 +812,7 @@ static int ima_calc_boot_aggregate_tfm(char *digest, u16 alg_id,
 				       struct crypto_shash *tfm)
 {
 	struct tpm_digest d = { .alg_id = alg_id, .digest = {0} };
-	int rc;
+	int rc, num;
 	u32 i;
 	SHASH_DESC_ON_STACK(shash, tfm);
 
@@ -835,7 +835,7 @@ static int ima_calc_boot_aggregate_tfm(char *digest, u16 alg_id,
 	    		return rc;
 
 		/* update num of boot digest into shash*/
-		int num = sizeof(boot_digests.boot_digest)/sizeof(boot_digests.boot_digest[0]);
+		num = sizeof(boot_digests.boot_digest)/sizeof(boot_digests.boot_digest[0]);
 		for (i = 0; i < num; i++) {
 	    		/* check if rtmr register is all zero, if yes, skip update*/
 	    		u8 cmp_array[48] = {0};
