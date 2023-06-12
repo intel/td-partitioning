@@ -7221,7 +7221,7 @@ static void tdx_iommu_dmar_block(union dmar_index index)
 	}
 }
 
-static void tdx_iommu_dmar_remove(union dmar_index index)
+static u64 tdx_iommu_dmar_remove(union dmar_index index)
 {
 	u64 ret;
 
@@ -7236,6 +7236,8 @@ static void tdx_iommu_dmar_remove(union dmar_index index)
 
 		tdx_iommu_dmar_read(index, &p);
 	}
+
+	return ret;
 }
 
 static DEFINE_MUTEX(global_tiommu_lock);
@@ -7352,6 +7354,8 @@ static void tdx_tdi_dmar_uinit(struct tdx_tdi *ttdi)
 	struct pci_dev *pdev = ttdi->tdi->pdev;
 	struct kvm_tdx *kvm_tdx = ttdi->kvm_tdx;
 	union dmar_index index;
+	bool skip_page_reclaim;
+	u64 ret;
 
 	dev_info(&pdev->dev, "%s: dmar uinit\n", __func__);
 
@@ -7365,24 +7369,33 @@ static void tdx_tdi_dmar_uinit(struct tdx_tdi *ttdi)
 	index.level = TD_DMAR_LEVEL_PASID_TBL;
 	tdx_iommu_dmar_block(index);
 	tdx_tdi_iq_inv_pte(ttdi);
-	tdx_iommu_dmar_remove(index);
+	ret = tdx_iommu_dmar_remove(index);
+	if (ret)
+		skip_page_reclaim = true;
 
 	index.level = TD_DMAR_LEVEL_PASID_DIR;
 	tdx_iommu_dmar_block(index);
 	tdx_tdi_iq_inv_pde(ttdi);
-	tdx_iommu_dmar_remove(index);
+	ret = tdx_iommu_dmar_remove(index);
+	if (ret)
+		skip_page_reclaim = true;
 
 	index.level = TD_DMAR_LEVEL_CTX_TBL;
 	tdx_iommu_dmar_block(index);
 	tdx_tdi_iq_inv_cte(ttdi);
-	tdx_iommu_dmar_remove(index);
+	ret = tdx_iommu_dmar_remove(index);
+	if (ret)
+		skip_page_reclaim = true;
 
 	index.level = TD_DMAR_LEVEL_ROOT_TBL;
 	tdx_iommu_dmar_block(index);
 	tdx_tdi_iq_inv_rte(ttdi);
-	tdx_iommu_dmar_remove(index);
+	ret = tdx_iommu_dmar_remove(index);
+	if (ret)
+		skip_page_reclaim = true;
 
-	free_pages(ttdi->dmar_pages_va, 5);
+	if (!skip_page_reclaim)
+		free_pages(ttdi->dmar_pages_va, 5);
 
 	tdx_iommu_put(ttdi->tiommu);
 }
