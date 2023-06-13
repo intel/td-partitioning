@@ -694,6 +694,8 @@ struct x86_hybrid_pmu {
 	};
 	int				events_ext_mask_len;
 
+	struct attribute                **format_attrs;
+
 	u64				pebs_data_source[PERF_PEBS_DATA_SOURCE_MAX];
 };
 

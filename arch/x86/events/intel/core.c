@@ -4531,13 +4531,15 @@ static void spr_limit_period(struct perf_event *event, s64 *left)
 
 PMU_FORMAT_ATTR(event,	"config:0-7"	);
 PMU_FORMAT_ATTR(umask,	"config:8-15"	);
+PMU_FORMAT_ATTR(umask2, "config:40-47"	); /* v6 + */
 PMU_FORMAT_ATTR(edge,	"config:18"	);
 PMU_FORMAT_ATTR(pc,	"config:19"	);
 PMU_FORMAT_ATTR(any,	"config:21"	); /* v3 + */
 PMU_FORMAT_ATTR(inv,	"config:23"	);
 PMU_FORMAT_ATTR(cmask,	"config:24-31"	);
-PMU_FORMAT_ATTR(in_tx,  "config:32");
-PMU_FORMAT_ATTR(in_tx_cp, "config:33");
+PMU_FORMAT_ATTR(in_tx,  "config:32"	);
+PMU_FORMAT_ATTR(in_tx_cp, "config:33"	);
+PMU_FORMAT_ATTR(z,	"config:36"	); /* v6 + */
 
 static struct attribute *intel_arch_formats_attr[] = {
 	&format_attr_event.attr,
@@ -4548,6 +4550,59 @@ static struct attribute *intel_arch_formats_attr[] = {
 	&format_attr_cmask.attr,
 	NULL,
 };
+
+static struct attribute *intel_umask2_formats_attr[] = {
+	&format_attr_event.attr,
+	&format_attr_umask.attr,
+	&format_attr_umask2.attr,
+	&format_attr_edge.attr,
+	&format_attr_pc.attr,
+	&format_attr_inv.attr,
+	&format_attr_cmask.attr,
+	NULL,
+};
+
+static struct attribute *intel_zbit_formats_attr[] = {
+	&format_attr_event.attr,
+	&format_attr_umask.attr,
+	&format_attr_edge.attr,
+	&format_attr_pc.attr,
+	&format_attr_inv.attr,
+	&format_attr_cmask.attr,
+	&format_attr_z.attr,
+	NULL,
+};
+
+static struct attribute *intel_arch6_formats_attr[] = {
+	&format_attr_event.attr,
+	&format_attr_umask.attr,
+	&format_attr_umask2.attr,
+	&format_attr_edge.attr,
+	&format_attr_pc.attr,
+	&format_attr_inv.attr,
+	&format_attr_cmask.attr,
+	&format_attr_z.attr,
+	NULL,
+};
+
+static struct attribute **intel_get_arch_formats_attr(struct pmu *pmu)
+{
+	struct attribute **format_attrs = hybrid(pmu, format_attrs);
+	unsigned int has_umask2 = hybrid(pmu, umask2);
+	unsigned int has_zbit = hybrid(pmu, z_bit);
+	union perf_capabilities intel_cap = hybrid(pmu, intel_cap);
+
+	if (has_umask2 && has_zbit)
+		format_attrs = intel_arch6_formats_attr;
+	else if (has_umask2)
+		format_attrs = intel_umask2_formats_attr;
+	else if (has_zbit)
+		format_attrs = intel_zbit_formats_attr;
+	else if (!format_attrs || intel_cap.anythread_deprecated)
+		format_attrs = intel_arch_formats_attr;
+
+	return format_attrs;
+}
 
 ssize_t intel_event_sysfs_show(char *page, u64 config)
 {
@@ -4660,6 +4715,7 @@ static void update_pmu_cap(struct x86_hybrid_pmu *hy_pmu)
 	cpuid(ARCH_PERFMON_EXT_LEAF, &eax, &ebx, &ecx, &edx);
 	hybrid(pmu, umask2) = !!(ebx & ARCH_PERFMON_BIT_UMASK2);
 	hybrid(pmu, z_bit) = !!(ebx & ARCH_PERFMON_BIT_Z);
+	hybrid(pmu, format_attrs) = intel_get_arch_formats_attr(pmu);
 
 	sub_bitmaps = eax;
 	if (sub_bitmaps & ARCH_PERFMON_CNT_BITMAP_LEAF_BIT) {
@@ -6952,10 +7008,6 @@ __init int intel_pmu_init(void)
 				     &x86_pmu.num_counters_fixed,
 				     &x86_pmu.intel_ctrl,
 				     (u64)fixed_mask);
-
-	/* AnyThread may be deprecated on arch perfmon v5 or later */
-	if (x86_pmu.intel_cap.anythread_deprecated)
-		x86_pmu.format_attrs = intel_arch_formats_attr;
 
 	intel_pmu_check_event_constraints(x86_pmu.event_constraints,
 					  x86_pmu.num_counters,
