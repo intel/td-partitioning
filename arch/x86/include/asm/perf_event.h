@@ -179,8 +179,17 @@ union cpuid10_edx {
  * detection/enumeration details:
  */
 #define ARCH_PERFMON_EXT_LEAF			0x00000023
-#define ARCH_PERFMON_NUM_COUNTER_LEAF_BIT	0x1
-#define ARCH_PERFMON_NUM_COUNTER_LEAF		0x1
+
+#define ARCH_PERFMON_CNT_BITMAP_LEAF_BIT	BIT(1)
+#define ARCH_PERFMON_AUTO_RELOAD_LEAF_BIT	BIT(2)
+#define ARCH_PERFMON_EVENTS_MAP_LEAF_BIT	BIT(3)
+
+#define ARCH_PERFMON_CNT_BITMAP_LEAF		0x1
+#define ARCH_PERFMON_AUTO_RELOAD_LEAF		0x2
+#define ARCH_PERFMON_EVENTS_MAP_LEAF		0x3
+
+#define ARCH_PERFMON_BIT_UMASK2			BIT(0)
+#define ARCH_PERFMON_BIT_Z			BIT(1)
 
 /*
  * Intel Architectural LBR CPUID detection/enumeration details:

@@ -4651,18 +4651,35 @@ static void intel_pmu_check_num_counters(int *num_counters,
 					 int *num_counters_fixed,
 					 u64 *intel_ctrl, u64 fixed_mask);
 
-static void update_pmu_cap(struct x86_hybrid_pmu *pmu)
+static void update_pmu_cap(struct x86_hybrid_pmu *hy_pmu)
 {
-	unsigned int sub_bitmaps = cpuid_eax(ARCH_PERFMON_EXT_LEAF);
-	unsigned int eax, ebx, ecx, edx;
+	struct pmu *pmu = hy_pmu ? &hy_pmu->pmu : NULL;
+	unsigned int eax, ebx, ecx, edx, sub_bitmaps;
+	u64 bitmap = 0;
 
-	if (sub_bitmaps & ARCH_PERFMON_NUM_COUNTER_LEAF_BIT) {
-		cpuid_count(ARCH_PERFMON_EXT_LEAF, ARCH_PERFMON_NUM_COUNTER_LEAF,
-			    &eax, &ebx, &ecx, &edx);
-		pmu->num_counters = fls(eax);
-		pmu->num_counters_fixed = fls(ebx);
-		intel_pmu_check_num_counters(&pmu->num_counters, &pmu->num_counters_fixed,
-					     &pmu->intel_ctrl, ebx);
+	cpuid(ARCH_PERFMON_EXT_LEAF, &eax, &ebx, &ecx, &edx);
+	hybrid(pmu, umask2) = !!(ebx & ARCH_PERFMON_BIT_UMASK2);
+	hybrid(pmu, z_bit) = !!(ebx & ARCH_PERFMON_BIT_Z);
+
+	sub_bitmaps = eax;
+	if (sub_bitmaps & ARCH_PERFMON_CNT_BITMAP_LEAF_BIT) {
+		cpuid_count(ARCH_PERFMON_EXT_LEAF, ARCH_PERFMON_CNT_BITMAP_LEAF,
+				&eax, &ebx, &ecx, &edx);
+		bitmap = eax | ((u64)ebx << INTEL_PMC_IDX_FIXED);
+		hybrid(pmu, num_counters) = hweight32(eax);
+		hybrid(pmu, num_counters_fixed) = hweight32(ebx);
+		bitmap_copy(hybrid(pmu, cnt_bitmap), (unsigned long *)&bitmap,
+					X86_PMC_IDX_MAX);
+		intel_pmu_check_num_counters(&hybrid(pmu, num_counters),
+					&hybrid(pmu, num_counters_fixed),
+					&hybrid(pmu, intel_ctrl), ebx);
+	}
+
+	if (sub_bitmaps & ARCH_PERFMON_EVENTS_MAP_LEAF_BIT) {
+		cpuid_count(ARCH_PERFMON_EXT_LEAF, ARCH_PERFMON_EVENTS_MAP_LEAF,
+				&eax, &ebx, &ecx, &edx);
+		hybrid(pmu, events_ext_maskl) = eax;
+		hybrid(pmu, events_ext_mask_len) = hweight32(eax);
 	}
 }
 
@@ -6016,6 +6033,9 @@ __init int intel_pmu_init(void)
 	} else if (version >= 5)
 		x86_pmu.num_counters_fixed = fls(fixed_mask);
 
+	bitmap_set(x86_pmu.cnt_bitmap, 0, x86_pmu.num_counters);
+	bitmap_set(x86_pmu.cnt_bitmap, INTEL_PMC_IDX_FIXED, x86_pmu.num_counters_fixed);
+
 	if (boot_cpu_has(X86_FEATURE_PDCM)) {
 		u64 capabilities;
 
@@ -6040,6 +6060,9 @@ __init int intel_pmu_init(void)
 		if (x86_pmu.intel_cap.anythread_deprecated)
 			pr_cont(" AnyThread deprecated, ");
 	}
+
+	if (this_cpu_has(X86_FEATURE_ARCH_PERFMON_EXT))
+		update_pmu_cap(NULL);
 
 	/*
 	 * Install the hw-cache-events table:
@@ -6715,6 +6738,8 @@ __init int intel_pmu_init(void)
 			pmu->num_counters = x86_pmu.num_counters;
 			pmu->num_counters_fixed = x86_pmu.num_counters_fixed;
 		}
+		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
+		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 
 		pmu->max_pebs_events = min_t(unsigned, MAX_PEBS_EVENTS, pmu->num_counters);
 		pmu->unconstrained = (struct event_constraint)
@@ -6737,6 +6762,8 @@ __init int intel_pmu_init(void)
 		pmu->mid_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed;
+		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
+		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = x86_pmu.max_pebs_events;
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, (1ULL << pmu->num_counters) - 1,
@@ -6824,6 +6851,8 @@ __init int intel_pmu_init(void)
 		pmu->late_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed + 1;
+		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
+		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = min_t(unsigned, MAX_PEBS_EVENTS, pmu->num_counters);
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, (1ULL << pmu->num_counters) - 1,
@@ -6845,6 +6874,8 @@ __init int intel_pmu_init(void)
 		pmu->mid_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed;
+		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
+		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = x86_pmu.max_pebs_events;
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, (1ULL << pmu->num_counters) - 1,
