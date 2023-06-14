@@ -447,23 +447,6 @@ static long tdx_get_quote(struct tdx_quote_req __user *ureq)
 		return -EFAULT;
 	}
 
-
-	if (registered_cpu == -1) {
-		pr_err("no setup notify intr hypercall \n");
-		free_quote_entry(entry);
-		return -EIO;
-	}
-
-	cpus_read_lock();
-	ret = smp_call_on_cpu(registered_cpu, tdx_hcall_setup_notify_intr, NULL, 1);
-	if (ret) {
-		cpus_read_unlock();
-		pr_err("setup notify intr hypercall failed, status:%lx\n", ret);
-		free_quote_entry(entry);
-		return -EIO;
-	}
-	cpus_read_unlock();
-
 	mutex_lock(&quote_lock);
 
 	/* Submit GetQuote Request */
