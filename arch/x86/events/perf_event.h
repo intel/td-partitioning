@@ -682,6 +682,18 @@ struct x86_hybrid_pmu {
 					mid_ack		:1,
 					enabled_ack	:1;
 
+	/*
+	 * Intel Arch Perfmon v6
+	 */
+	unsigned int                    umask2;
+	unsigned int			z_bit;
+	DECLARE_BITMAP(cnt_bitmap, 	X86_PMC_IDX_MAX);
+	union {
+		unsigned long 		events_ext_maskl;
+		unsigned long 		events_ext_mask[BITS_TO_LONGS(ARCH_PERFMON_EXT_EVENTS_COUNT)];
+	};
+	int				events_ext_mask_len;
+
 	u64				pebs_data_source[PERF_PEBS_DATA_SOURCE_MAX];
 };
 
@@ -825,6 +837,24 @@ struct x86_pmu {
 	 */
 	u64			intel_ctrl;
 	union perf_capabilities intel_cap;
+
+	/*
+	 * Intel Arch Perfmon v6
+	 */
+	unsigned int    umask2;
+	unsigned int	z_bit;
+	DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);
+	/*
+	 * The events bitmap in ArchPerfmonExt leaf (0x23) is defined
+	 * with positive polarity. This is different with the legacy
+	 * ArchPerfmon leaf (0xa) which defines the events bitmap with
+	 * negative polarity.
+	 */
+	union {
+			unsigned long events_ext_maskl;
+			unsigned long events_ext_mask[BITS_TO_LONGS(ARCH_PERFMON_EXT_EVENTS_COUNT)];
+	};
+	int		events_ext_mask_len;
 
 	/*
 	 * Intel DebugStore bits
