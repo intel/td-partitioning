@@ -188,30 +188,37 @@ static atomic_t pmc_refcount;
 static DEFINE_MUTEX(pmc_reserve_mutex);
 
 #ifdef CONFIG_X86_LOCAL_APIC
-
-static inline int get_possible_num_counters(void)
+static DECLARE_BITMAP(merged_bitmap, X86_PMC_IDX_MAX);
+static inline unsigned long *get_possible_counter_bitmap(void)
 {
-	int i, num_counters = x86_pmu.num_counters;
+	int i;
 
-	if (!is_hybrid())
-		return num_counters;
+	bitmap_clear(merged_bitmap, 0, X86_PMC_IDX_MAX);
+	if (!is_hybrid()) {
+		bitmap_copy(merged_bitmap, x86_pmu.cnt_bitmap,
+				X86_PMC_IDX_MAX);
+		return merged_bitmap;
+	}
 
 	for (i = 0; i < x86_pmu.num_hybrid_pmus; i++)
-		num_counters = max_t(int, num_counters, x86_pmu.hybrid_pmu[i].num_counters);
+		bitmap_or(merged_bitmap, merged_bitmap,
+				x86_pmu.hybrid_pmu[i].cnt_bitmap,
+				X86_PMC_IDX_MAX);
 
-	return num_counters;
+	return merged_bitmap;
 }
 
 static bool reserve_pmc_hardware(void)
 {
-	int i, num_counters = get_possible_num_counters();
+	unsigned long *cnt_bitmap = get_possible_counter_bitmap();
+	int i;
 
-	for (i = 0; i < num_counters; i++) {
+	for_each_set_bit(i, cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		if (!reserve_perfctr_nmi(x86_pmu_event_addr(i)))
 			goto perfctr_fail;
 	}
 
-	for (i = 0; i < num_counters; i++) {
+	for_each_set_bit(i, cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		if (!reserve_evntsel_nmi(x86_pmu_config_addr(i)))
 			goto eventsel_fail;
 	}
@@ -219,23 +226,28 @@ static bool reserve_pmc_hardware(void)
 	return true;
 
 eventsel_fail:
-	for (i--; i >= 0; i--)
-		release_evntsel_nmi(x86_pmu_config_addr(i));
+	for (i--; i >= 0; i--) {
+		if (test_bit(i, cnt_bitmap))
+			release_evntsel_nmi(x86_pmu_config_addr(i));
+	}
 
-	i = num_counters;
+	i = INTEL_PMC_MAX_GENERIC;
 
 perfctr_fail:
-	for (i--; i >= 0; i--)
-		release_perfctr_nmi(x86_pmu_event_addr(i));
+	for (i--; i >= 0; i--) {
+		if (test_bit(i, cnt_bitmap))
+			release_perfctr_nmi(x86_pmu_event_addr(i));
+	}
 
 	return false;
 }
 
 static void release_pmc_hardware(void)
 {
-	int i, num_counters = get_possible_num_counters();
+	unsigned long *cnt_bitmap = get_possible_counter_bitmap();
+	int i;
 
-	for (i = 0; i < num_counters; i++) {
+	for_each_set_bit(i, cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		release_perfctr_nmi(x86_pmu_event_addr(i));
 		release_evntsel_nmi(x86_pmu_config_addr(i));
 	}
@@ -248,18 +260,19 @@ static void release_pmc_hardware(void) {}
 
 #endif
 
-bool check_hw_exists(struct pmu *pmu, int num_counters, int num_counters_fixed)
+bool check_hw_exists(struct pmu *pmu, unsigned long *cnt_bitmap, int num_counters_fixed)
 {
 	u64 val, val_fail = -1, val_new= ~0;
 	int i, reg, reg_fail = -1, ret = 0;
 	int bios_fail = 0;
 	int reg_safe = -1;
+	int fixed_idx;
 
 	/*
 	 * Check to see if the BIOS enabled any of the counters, if so
 	 * complain and bail.
 	 */
-	for (i = 0; i < num_counters; i++) {
+	for_each_set_bit(i, cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		reg = x86_pmu_config_addr(i);
 		ret = rdmsrl_safe(reg, &val);
 		if (ret)
@@ -278,10 +291,13 @@ bool check_hw_exists(struct pmu *pmu, int num_counters, int num_counters_fixed)
 		ret = rdmsrl_safe(reg, &val);
 		if (ret)
 			goto msr_fail;
-		for (i = 0; i < num_counters_fixed; i++) {
-			if (fixed_counter_disabled(i, pmu))
+
+		i = INTEL_PMC_IDX_FIXED;
+		for_each_set_bit_from(i, cnt_bitmap, X86_PMC_IDX_MAX) {
+			fixed_idx = i - INTEL_PMC_IDX_FIXED;
+			if (fixed_counter_disabled(fixed_idx, pmu))
 				continue;
-			if (val & (0x03ULL << i*4)) {
+			if (val & (0x03ULL << fixed_idx*4)) {
 				bios_fail = 1;
 				val_fail = val;
 				reg_fail = reg;
@@ -679,7 +695,7 @@ void x86_pmu_disable_all(void)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	int idx;
 
-	for (idx = 0; idx < x86_pmu.num_counters; idx++) {
+	for_each_set_bit(idx, x86_pmu.cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		struct hw_perf_event *hwc = &cpuc->events[idx]->hw;
 		u64 val;
 
@@ -736,7 +752,7 @@ void x86_pmu_enable_all(int added)
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	int idx;
 
-	for (idx = 0; idx < x86_pmu.num_counters; idx++) {
+	for_each_set_bit(idx, x86_pmu.cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		struct hw_perf_event *hwc = &cpuc->events[idx]->hw;
 
 		if (!test_bit(idx, cpuc->active_mask))
@@ -1523,10 +1539,10 @@ void perf_event_print_debug(void)
 	int cpu = smp_processor_id();
 	struct cpu_hw_events *cpuc = &per_cpu(cpu_hw_events, cpu);
 	int num_counters = hybrid(cpuc->pmu, num_counters);
-	int num_counters_fixed = hybrid(cpuc->pmu, num_counters_fixed);
+	unsigned long *cnt_bitmap = hybrid(cpuc->pmu, cnt_bitmap);
 	struct event_constraint *pebs_constraints = hybrid(cpuc->pmu, pebs_constraints);
 	unsigned long flags;
-	int idx;
+	int idx, fixed_idx;
 
 	if (!num_counters)
 		return;
@@ -1555,7 +1571,7 @@ void perf_event_print_debug(void)
 	}
 	pr_info("CPU#%d: active:     %016llx\n", cpu, *(u64 *)cpuc->active_mask);
 
-	for (idx = 0; idx < num_counters; idx++) {
+	for_each_set_bit(idx, cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		rdmsrl(x86_pmu_config_addr(idx), pmc_ctrl);
 		rdmsrl(x86_pmu_event_addr(idx), pmc_count);
 
@@ -1568,13 +1584,15 @@ void perf_event_print_debug(void)
 		pr_info("CPU#%d:   gen-PMC%d left:  %016llx\n",
 			cpu, idx, prev_left);
 	}
-	for (idx = 0; idx < num_counters_fixed; idx++) {
-		if (fixed_counter_disabled(idx, cpuc->pmu))
+	idx = INTEL_PMC_IDX_FIXED;
+	for_each_set_bit_from(idx, cnt_bitmap, X86_PMC_IDX_MAX) {
+		fixed_idx = idx - INTEL_PMC_IDX_FIXED;
+		if (fixed_counter_disabled(fixed_idx, cpuc->pmu))
 			continue;
-		rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0 + idx, pmc_count);
+		rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0 + fixed_idx, pmc_count);
 
 		pr_info("CPU#%d: fixed-PMC%d count: %016llx\n",
-			cpu, idx, pmc_count);
+			cpu, fixed_idx, pmc_count);
 	}
 	local_irq_restore(flags);
 }
@@ -1681,7 +1699,7 @@ int x86_pmu_handle_irq(struct pt_regs *regs)
 	 */
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 
-	for (idx = 0; idx < x86_pmu.num_counters; idx++) {
+	for_each_set_bit(idx, x86_pmu.cnt_bitmap, INTEL_PMC_MAX_GENERIC) {
 		if (!test_bit(idx, cpuc->active_mask))
 			continue;
 
@@ -2038,22 +2056,26 @@ static void _x86_pmu_read(struct perf_event *event)
 }
 
 void x86_pmu_show_pmu_cap(int num_counters, int num_counters_fixed,
-			  u64 intel_ctrl)
+		unsigned long *cnt_bitmap, u64 intel_ctrl)
 {
-	pr_info("... version:                %d\n",     x86_pmu.version);
-	pr_info("... bit width:              %d\n",     x86_pmu.cntval_bits);
-	pr_info("... generic registers:      %d\n",     num_counters);
-	pr_info("... value mask:             %016Lx\n", x86_pmu.cntval_mask);
-	pr_info("... max period:             %016Lx\n", x86_pmu.max_period);
-	pr_info("... fixed-purpose events:   %lu\n",
-			hweight64((((1ULL << num_counters_fixed) - 1)
-					<< INTEL_PMC_IDX_FIXED) & intel_ctrl));
-	pr_info("... event mask:             %016Lx\n", intel_ctrl);
+	u32 gp_bitmap = PERF_BITMAP2WORD(cnt_bitmap, 0);
+	u32 fixed_bitmap = PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED);
+
+	pr_info("... version:                	%d\n", x86_pmu.version);
+	pr_info("... bit width:              	%d\n", x86_pmu.cntval_bits);
+	pr_info("... generic registers:      	%d\n", num_counters);
+	pr_info("... generic bitmap:		%016x\n", gp_bitmap);
+	pr_info("... value mask:             	%016Lx\n", x86_pmu.cntval_mask);
+	pr_info("... max period:             	%016Lx\n", x86_pmu.max_period);
+	pr_info("... fixed-purpose events:   	%u\n", num_counters_fixed);
+	pr_info("... fixed-purpose bitmap:	%016x\n", fixed_bitmap);
+	pr_info("... event mask:             	%016Lx\n", intel_ctrl);
 }
 
 static int __init init_hw_perf_events(void)
 {
 	struct x86_pmu_quirk *quirk;
+	u64 idxmask = 0;
 	int err;
 
 	pr_info("Performance Events: ");
@@ -2085,7 +2107,7 @@ static int __init init_hw_perf_events(void)
 	pmu_check_apic();
 
 	/* sanity check that the hardware exists or is emulated */
-	if (!check_hw_exists(&pmu, x86_pmu.num_counters, x86_pmu.num_counters_fixed))
+	if (!check_hw_exists(&pmu, x86_pmu.cnt_bitmap, x86_pmu.num_counters_fixed))
 		goto out_bad_pmu;
 
 	pr_cont("%s PMU driver.\n", x86_pmu.name);
@@ -2096,14 +2118,15 @@ static int __init init_hw_perf_events(void)
 		quirk->func();
 
 	if (!x86_pmu.intel_ctrl)
-		x86_pmu.intel_ctrl = (1 << x86_pmu.num_counters) - 1;
+		bitmap_copy((unsigned long*)&x86_pmu.intel_ctrl,
+				x86_pmu.cnt_bitmap, X86_PMC_IDX_MAX);
 
 	perf_events_lapic_init();
 	register_nmi_handler(NMI_LOCAL, perf_event_nmi_handler, 0, "PMI");
 
+	idxmask = PERF_BITMAP2WORD(x86_pmu.cnt_bitmap, 0);
 	unconstrained = (struct event_constraint)
-		__EVENT_CONSTRAINT(0, (1ULL << x86_pmu.num_counters) - 1,
-				   0, x86_pmu.num_counters, 0, 0);
+		__EVENT_CONSTRAINT(0, idxmask, 0, x86_pmu.num_counters, 0, 0);
 
 	x86_pmu_format_group.attrs = x86_pmu.format_attrs;
 
@@ -2115,6 +2138,7 @@ static int __init init_hw_perf_events(void)
 	if (!is_hybrid()) {
 		x86_pmu_show_pmu_cap(x86_pmu.num_counters,
 				     x86_pmu.num_counters_fixed,
+				     x86_pmu.cnt_bitmap,
 				     x86_pmu.intel_ctrl);
 	}
 
@@ -2475,6 +2499,7 @@ static int x86_pmu_event_init(struct perf_event *event)
 void perf_clear_dirty_counters(void)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	unsigned long *cnt_bitmap = hybrid(cpuc->pmu, cnt_bitmap);
 	int i;
 
 	 /* Don't need to clear the assigned counter. */
@@ -2485,15 +2510,12 @@ void perf_clear_dirty_counters(void)
 		return;
 
 	for_each_set_bit(i, cpuc->dirty, X86_PMC_IDX_MAX) {
-		if (i >= INTEL_PMC_IDX_FIXED) {
-			/* Metrics and fake events don't have corresponding HW counters. */
-			if ((i - INTEL_PMC_IDX_FIXED) >= hybrid(cpuc->pmu, num_counters_fixed))
-				continue;
-
+		if (!test_bit(i, cnt_bitmap))
+			continue;
+		if (i >= INTEL_PMC_IDX_FIXED)
 			wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR0 + (i - INTEL_PMC_IDX_FIXED), 0);
-		} else {
+		else
 			wrmsrl(x86_pmu_event_addr(i), 0);
-		}
 	}
 
 	bitmap_zero(cpuc->dirty, X86_PMC_IDX_MAX);
