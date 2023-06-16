@@ -1912,7 +1912,7 @@ static void tdx_trace_tdvmcall_done(struct kvm_vcpu *vcpu)
 static struct tdvmcall_service *tdvmcall_servbuf_alloc(struct kvm_vcpu *vcpu,
 						       gpa_t gpa)
 {
-	uint32_t length;
+	uint32_t length, nr_pages;
 	gfn_t gfn = gpa_to_gfn(gpa);
 	struct tdvmcall_service __user *g_buf, *h_buf;
 
@@ -1933,7 +1933,8 @@ static struct tdvmcall_service *tdvmcall_servbuf_alloc(struct kvm_vcpu *vcpu,
 	}
 
 	/* The status field by default is TDX_VMCALL_SERVICE_S_RETURNED */
-	h_buf = kzalloc(PAGE_SIZE, GFP_KERNEL_ACCOUNT);
+	nr_pages = (length >> PAGE_SHIFT) + 1;
+	h_buf = kzalloc((nr_pages << PAGE_SHIFT), GFP_KERNEL_ACCOUNT);
 	if (!h_buf)
 		return NULL;
 
