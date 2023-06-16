@@ -1565,7 +1565,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 			goto out;
 	}
 	if (ret_pf_retry) {
-		ret = -EBUSY;
+		ret = RET_PF_RETRY;
 		goto out;
 	}
 
@@ -1583,7 +1583,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	 * pending.  Since the child page was mapped above, let vcpu run.
 	 */
 	if (ret == -EAGAIN)
-		ret = -EBUSY;
+		ret = RET_PF_RETRY;
 	if (ret)
 		goto unzap;
 
@@ -1596,7 +1596,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	 */
 	tdp_unaccount_mmu_page(kvm, child_sp);
 	tdp_mmu_free_sp(child_sp);
-	return -EBUSY;
+	return RET_PF_RETRY;
 
 unzap:
 	if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
@@ -1662,7 +1662,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 		ret = RET_PF_SPURIOUS;
 	else {
 		ret = __tdp_mmu_map_handle_target_level(vcpu, fault, iter, new_spte);
-		if (ret == -EBUSY || ret == -EAGAIN)
+		if (ret == -EBUSY)
 			return RET_PF_RETRY;
 		else if (ret)
 			return RET_PF_INVALID;
