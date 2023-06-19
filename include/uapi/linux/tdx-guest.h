@@ -129,6 +129,6 @@ struct tdx_quote_req {
  *
  * Returns 0 on success or standard errno on other failures.
  */
-#define TDX_CMD_GET_QUOTE		_IOWR('T', 2, struct tdx_quote_req)
+#define TDX_CMD_GET_QUOTE		_IOR('T', 4, struct tdx_quote_req)
 
 #endif /* _UAPI_LINUX_TDX_GUEST_H_ */
