@@ -4821,11 +4821,10 @@ static bool check_msr(unsigned long msr, u64 mask)
 }
 
 static void intel_pmu_check_event_constraints(struct event_constraint *event_constraints,
-					      unsigned long *cnt_bitmap, u64 intel_ctrl)
+					      u64 cnt_bitmapl, u64 intel_ctrl)
 {
 	struct event_constraint *c;
-	u32 gp_bitmap = PERF_BITMAP2WORD(cnt_bitmap, 0);
-	u64 fixed_bitmap = PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED);
+	u64 gp_bitmap = x86_get_gp_cnt_bitmap(cnt_bitmapl);
 
 	if (!event_constraints)
 		return;
@@ -4861,7 +4860,7 @@ static void intel_pmu_check_event_constraints(struct event_constraint *event_con
 			if (!use_fixed_pseudo_encoding(c->code))
 				c->idxmsk64 |= gp_bitmap;
 		}
-		c->idxmsk64 &= (fixed_bitmap << INTEL_PMC_IDX_FIXED) | gp_bitmap;
+		c->idxmsk64 &= cnt_bitmapl;
 		c->weight = hweight64(c->idxmsk64);
 	}
 }
@@ -4908,7 +4907,7 @@ static void intel_pmu_check_hybrid_pmus(void)
 			pmu->pmu.capabilities |= PERF_PMU_CAP_AUX_OUTPUT;
 
 		intel_pmu_check_event_constraints(pmu->event_constraints,
-						  pmu->cnt_bitmap,
+						  pmu->cnt_bitmapl,
 						  pmu->intel_ctrl);
 
 		intel_pmu_check_extra_regs(pmu->extra_regs);
@@ -4957,7 +4956,7 @@ static bool init_hybrid_pmu(int cpu)
 	pr_cont("\n");
 
 	x86_pmu_show_pmu_cap(pmu->num_counters, pmu->num_counters_fixed,
-			     pmu->cnt_bitmap, pmu->intel_ctrl);
+			     pmu->cnt_bitmapl, pmu->intel_ctrl);
 
 end:
 	cpumask_set_cpu(cpu, &pmu->supported_cpus);
@@ -6836,7 +6835,7 @@ __init int intel_pmu_init(void)
 		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 
 		pmu->max_pebs_events = min_t(unsigned, MAX_PEBS_EVENTS, pmu->num_counters);
-		idxmask = PERF_BITMAP2WORD(pmu->cnt_bitmap, 0);
+		idxmask = x86_get_gp_cnt_bitmap(pmu->cnt_bitmapl);
 		pmu->unconstrained = (struct event_constraint)
 				__EVENT_CONSTRAINT(0, idxmask, 0, pmu->num_counters, 0, 0);
 		pmu->intel_cap.capabilities = x86_pmu.intel_cap.capabilities;
@@ -6859,7 +6858,7 @@ __init int intel_pmu_init(void)
 		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
 		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = x86_pmu.max_pebs_events;
-		idxmask = PERF_BITMAP2WORD(pmu->cnt_bitmap, 0);
+		idxmask = x86_get_gp_cnt_bitmap(pmu->cnt_bitmapl);
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, idxmask, 0, pmu->num_counters, 0, 0);
 		pmu->intel_cap.capabilities = x86_pmu.intel_cap.capabilities;
@@ -6948,7 +6947,7 @@ __init int intel_pmu_init(void)
 		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
 		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = min_t(unsigned, MAX_PEBS_EVENTS, pmu->num_counters);
-		idxmask = PERF_BITMAP2WORD(pmu->cnt_bitmap, 0);
+		idxmask = x86_get_gp_cnt_bitmap(pmu->cnt_bitmapl);
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, idxmask, 0, pmu->num_counters, 0, 0);
 		pmu->intel_cap.capabilities = x86_pmu.intel_cap.capabilities;
@@ -6971,7 +6970,7 @@ __init int intel_pmu_init(void)
 		bitmap_set(pmu->cnt_bitmap, 0, pmu->num_counters);
 		bitmap_set(pmu->cnt_bitmap, INTEL_PMC_IDX_FIXED, pmu->num_counters_fixed);
 		pmu->max_pebs_events = x86_pmu.max_pebs_events;
-		idxmask = PERF_BITMAP2WORD(pmu->cnt_bitmap, 0);
+		idxmask = x86_get_gp_cnt_bitmap(pmu->cnt_bitmapl);
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, idxmask, 0, pmu->num_counters, 0, 0);
 		pmu->intel_cap.capabilities = x86_pmu.intel_cap.capabilities;
@@ -7048,7 +7047,7 @@ __init int intel_pmu_init(void)
 				     &x86_pmu.intel_ctrl);
 
 	intel_pmu_check_event_constraints(x86_pmu.event_constraints,
-					  x86_pmu.cnt_bitmap,
+					  x86_pmu.cnt_bitmapl,
 					  x86_pmu.intel_ctrl);
 	/*
 	 * Access LBR MSR may cause #GP under certain circumstances.

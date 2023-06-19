@@ -654,16 +654,6 @@ enum {
 #define PERF_PEBS_DATA_SOURCE_MAX	0x10
 #define PERF_PEBS_DATA_SOURCE_MASK	(PERF_PEBS_DATA_SOURCE_MAX - 1)
 
-#define PERF_BITMAP2SHORT(_bm, _i) 			\
-	bitmap_get_value8((_bm), (_i)) | 		\
-	bitmap_get_value8((_bm), (_i + 8)) << 8
-
-#define PERF_BITMAP2WORD(_bm, _i) 			\
-	bitmap_get_value8((_bm), (_i)) | 		\
-	bitmap_get_value8((_bm), (_i + 8)) << 8 | 	\
-	bitmap_get_value8((_bm), (_i + 16)) << 16 | 	\
-	bitmap_get_value8((_bm), (_i + 24)) << 24
-
 struct x86_hybrid_pmu {
 	struct pmu			pmu;
 	const char			*name;
@@ -697,7 +687,10 @@ struct x86_hybrid_pmu {
 	 */
 	unsigned int                    umask2;
 	unsigned int			z_bit;
-	DECLARE_BITMAP(cnt_bitmap, 	X86_PMC_IDX_MAX);
+	union {
+		u64 cnt_bitmapl;
+		DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);
+	};
 	union {
 		unsigned long 		events_ext_maskl;
 		unsigned long 		events_ext_mask[BITS_TO_LONGS(ARCH_PERFMON_EXT_EVENTS_COUNT)];
@@ -855,7 +848,10 @@ struct x86_pmu {
 	 */
 	unsigned int    umask2;
 	unsigned int	z_bit;
-	DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);
+	union {
+		u64 cnt_bitmapl;
+		DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);
+	};
 	/*
 	 * The events bitmap in ArchPerfmonExt leaf (0x23) is defined
 	 * with positive polarity. This is different with the legacy
@@ -1006,6 +1002,17 @@ struct x86_perf_task_context_arch_lbr {
 	struct x86_perf_task_context_opt opt;
 	struct lbr_entry entries[];
 };
+
+
+static inline u64 x86_get_gp_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl & INTEL_PMC_GP_BITMASK;
+}
+
+static inline u64 x86_get_fixed_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl >> INTEL_PMC_IDX_FIXED;
+}
 
 /*
  * Add padding to guarantee the 64-byte alignment of the state buffer.
@@ -1229,7 +1236,7 @@ void x86_pmu_enable_event(struct perf_event *event);
 int x86_pmu_handle_irq(struct pt_regs *regs);
 
 void x86_pmu_show_pmu_cap(int num_counters, int num_counters_fixed,
-		unsigned long *cnt_bitmap, u64 intel_ctrl);
+		u64 cnt_bitmap, u64 intel_ctrl);
 
 extern struct event_constraint emptyconstraint;
 

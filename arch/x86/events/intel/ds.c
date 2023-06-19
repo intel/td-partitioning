@@ -2170,11 +2170,10 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 
 	ds->pebs_index = ds->pebs_buffer_base;
 
-	mask = PERF_BITMAP2WORD(x86_pmu.cnt_bitmap, 0);
+	mask = x86_get_gp_cnt_bitmap(x86_pmu.cnt_bitmapl);
 	size = INTEL_PMC_MAX_GENERIC;
 	if (x86_pmu.flags & PMU_FL_PEBS_ALL) {
-		mask |= (u64)PERF_BITMAP2WORD(x86_pmu.cnt_bitmap, INTEL_PMC_IDX_FIXED)
-				 << INTEL_PMC_IDX_FIXED;
+		mask |= x86_pmu.cnt_bitmapl;
 		size = INTEL_PMC_MAX_GENERIC + INTEL_PMC_MAX_FIXED;
 	}
 
@@ -2269,7 +2268,7 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 {
 	short counts[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS] = {};
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
-	unsigned long *cnt_bitmap  = hybrid(cpuc->pmu, cnt_bitmap);
+	u64 cnt_bitmapl = hybrid(cpuc->pmu, cnt_bitmapl);
 	struct debug_store *ds = cpuc->ds;
 	struct perf_event *event;
 	void *base, *at, *top;
@@ -2284,8 +2283,7 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 
 	ds->pebs_index = ds->pebs_buffer_base;
 
-	mask = PERF_BITMAP2WORD(cnt_bitmap, 0) |
-	       PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED) << INTEL_PMC_IDX_FIXED;
+	mask = cnt_bitmapl;
 	size = X86_PMC_IDX_MAX;
 
 	if (unlikely(base >= top)) {

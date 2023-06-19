@@ -2056,10 +2056,10 @@ static void _x86_pmu_read(struct perf_event *event)
 }
 
 void x86_pmu_show_pmu_cap(int num_counters, int num_counters_fixed,
-		unsigned long *cnt_bitmap, u64 intel_ctrl)
+		u64 cnt_bitmapl, u64 intel_ctrl)
 {
-	u32 gp_bitmap = PERF_BITMAP2WORD(cnt_bitmap, 0);
-	u32 fixed_bitmap = PERF_BITMAP2WORD(cnt_bitmap, INTEL_PMC_IDX_FIXED);
+	u32 gp_bitmap = x86_get_gp_cnt_bitmap(cnt_bitmapl);
+	u32 fixed_bitmap = x86_get_fixed_cnt_bitmap(cnt_bitmapl);
 
 	pr_info("... version:                	%d\n", x86_pmu.version);
 	pr_info("... bit width:              	%d\n", x86_pmu.cntval_bits);
@@ -2124,7 +2124,7 @@ static int __init init_hw_perf_events(void)
 	perf_events_lapic_init();
 	register_nmi_handler(NMI_LOCAL, perf_event_nmi_handler, 0, "PMI");
 
-	idxmask = PERF_BITMAP2WORD(x86_pmu.cnt_bitmap, 0);
+	idxmask = x86_get_gp_cnt_bitmap(x86_pmu.cnt_bitmapl);
 	unconstrained = (struct event_constraint)
 		__EVENT_CONSTRAINT(0, idxmask, 0, x86_pmu.num_counters, 0, 0);
 
@@ -2138,7 +2138,7 @@ static int __init init_hw_perf_events(void)
 	if (!is_hybrid()) {
 		x86_pmu_show_pmu_cap(x86_pmu.num_counters,
 				     x86_pmu.num_counters_fixed,
-				     x86_pmu.cnt_bitmap,
+				     x86_pmu.cnt_bitmapl,
 				     x86_pmu.intel_ctrl);
 	}
 
