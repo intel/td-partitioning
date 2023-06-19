@@ -710,22 +710,34 @@ int pci_arch_ide_dev_tee_exit(struct pci_dev *dev)
 	return 0;
 }
 
-static void ide_target_device_stream_ctrl(struct pci_dev *dev,
-					  int ide_id,
-					  bool enable)
+static int get_reg_block_pos(struct pci_dev *pdev, int ide_id)
 {
-	int pos = dev->ide_pos;
-	u32 reg;
-	u32 i;
+	u32 i, reg;
+	int pos;
 
-	pos += PCI_IDE_CTRL + 4 + dev->ide_lnk_num * PCI_IDE_LNK_REG_BLOCK_SIZE;
-	for (i = dev->ide_lnk_num; i < ide_id; i++) {
-		pci_read_config_dword(dev, pos, &reg);
+	pos = pdev->ide_pos + PCI_IDE_CTRL + 4;
+	for (i = 0; i < ide_id; i++) {
+		if (i < pdev->ide_lnk_num) {
+			pos += PCI_IDE_LNK_REG_BLOCK_SIZE;
+			continue;
+		}
+		pci_read_config_dword(pdev, pos, &reg);
 		pos += PCI_IDE_ADDR_ASSOC_REG_BLOCK_OFFSET;
 		pos += PCI_IDE_ADDR_ASSOC_REG_BLOCK_SIZE *
 		       FIELD_GET(PCI_IDE_SEL_CAP_NUM_ASSOC_BLK, reg);
 	}
 
+	return pos;
+}
+
+static void ide_target_device_stream_ctrl(struct pci_dev *dev,
+					  int ide_id,
+					  bool enable)
+{
+	int pos;
+	u32 reg;
+
+	pos = get_reg_block_pos(dev, ide_id);
 	pci_read_config_dword(dev, pos + PCI_IDE_SEL_CTRL, &reg);
 	if (enable)
 		reg |= FIELD_PREP(PCI_IDE_SEL_CTRL_ENABLE, 1);
@@ -734,23 +746,42 @@ static void ide_target_device_stream_ctrl(struct pci_dev *dev,
 	pci_write_config_dword(dev, pos + PCI_IDE_SEL_CTRL, reg);
 }
 
+static char *to_stream_state_str(u8 state)
+{
+	switch(state) {
+	case PCI_IDE_STREAM_STATE_SECURE:
+		return "Secure";
+	case PCI_IDE_STREAM_STATE_INSECURE:
+		return "Insecure";
+	default:
+		return "Unknown";
+	}
+}
+
+static bool ide_stream_is_secure(struct pci_dev *pdev, int ide_id)
+{
+	u32 reg, state;
+	int pos;
+
+	pos = get_reg_block_pos(pdev, ide_id);
+	pci_read_config_dword(pdev, pos + PCI_IDE_SEL_STATUS, &reg);
+	state = FIELD_GET(PCI_IDE_SEL_STREAM_STATE, reg);
+	dev_info(&pdev->dev, "Stream state: %s\n", to_stream_state_str(state));
+	if (state == PCI_IDE_STREAM_STATE_SECURE)
+		return true;
+
+	return false;
+}
+
 static int ide_set_target_device(struct pci_dev *dev, struct pci_ide_stream *stm)
 {
 	int pos = dev->ide_pos;
 	int addr_assoc_pos;
 	u32 reg;
-	u32 i;
 
 	dev_info(&dev->dev, "configure IDE Extend Capability\n");
 
-	pos += PCI_IDE_CTRL + 4 + dev->ide_lnk_num * PCI_IDE_LNK_REG_BLOCK_SIZE;
-	for (i = dev->ide_lnk_num; i < stm->ide_id; i++) {
-		pci_read_config_dword(dev, pos, &reg);
-		pos += PCI_IDE_ADDR_ASSOC_REG_BLOCK_OFFSET;
-		pos += PCI_IDE_ADDR_ASSOC_REG_BLOCK_SIZE *
-		       FIELD_GET(PCI_IDE_SEL_CAP_NUM_ASSOC_BLK, reg);
-	}
-
+	pos = get_reg_block_pos(dev, stm->ide_id);
 	reg = FIELD_PREP(PCI_IDE_RID_ASSOC1_LIMIT, 0xFFFF);
 	pci_write_config_dword(dev, pos + PCI_IDE_RID_ASSOC1, reg);
 	dev_info(&dev->dev, "RID1 %x\n", reg);
@@ -1261,6 +1292,9 @@ int pci_arch_ide_stream_setup(struct pci_ide_stream *stm)
 			goto err_clear_key_config;
 		ide_target_device_stream_ctrl(stm->dev, stm->ide_id, true);
 
+		if (!ide_stream_is_secure(stm->dev, stm->ide_id) ||
+		    !ide_stream_is_secure(stm->rp_dev, stm->rp_ide_id))
+			goto err_ide_disable;
 		INIT_DELAYED_WORK(&stm->keyrefresh_dwork, ide_keyrefresh_process);
 		stm->keyrefresh_period = keyrefresh_period;
 		if (is_keyrefresh_required(stm))
@@ -1270,6 +1304,9 @@ int pci_arch_ide_stream_setup(struct pci_ide_stream *stm)
 
 	return 0;
 
+err_ide_disable:
+	ide_target_device_stream_ctrl(stm->dev, stm->ide_id, false);
+	ide_stream_release(stm);
 err_clear_key_config:
 	ide_key_config_cleanup(stm);
 	return ret;

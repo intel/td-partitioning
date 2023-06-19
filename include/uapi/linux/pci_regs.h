@@ -1172,6 +1172,8 @@
 #define  PCI_IDE_SEL_CTRL_DEFAULT	0x00400000	/* Default Stream */
 #define  PCI_IDE_SEL_CTRL_STREAM_ID	0xFF000000	/* Stream ID */
 #define PCI_IDE_SEL_STATUS	0x08
+#define  PCI_IDE_SEL_CHECK_FAIL_MSG	0x80000000	/* Received Integrity Check Fail Message */
+#define  PCI_IDE_SEL_STREAM_STATE	0x0000000F	/* Selective IDE Stream State */
 #define PCI_IDE_RID_ASSOC1	0x0c
 #define  PCI_IDE_RID_ASSOC1_LIMIT	0x00FFFF00	/* RID Limit */
 #define PCI_IDE_RID_ASSOC2	0x10

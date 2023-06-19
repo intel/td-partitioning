@@ -2688,6 +2688,11 @@ enum pci_ide_sub_stream_direction {
 	PCI_IDE_SUB_STREAM_DIRECTION_NUM,
 };
 
+enum pci_ide_stream_state {
+	PCI_IDE_STREAM_STATE_INSECURE = 0,
+	PCI_IDE_STREAM_STATE_SECURE = 2,
+};
+
 enum pci_ide_key_prog_status {
 	PCI_IDE_KEY_PROG_SUCCESS = 0,
 	PCI_IDE_KEY_PROG_INCORRECT_LENGTH = 1,
