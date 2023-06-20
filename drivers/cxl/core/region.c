@@ -569,22 +569,134 @@ static int alloc_hpa(struct cxl_region *cxlr, resource_size_t size)
 	return 0;
 }
 
+static int add_soft_reserved(struct resource *parent, resource_size_t start,
+			     resource_size_t len, unsigned long flags)
+{
+	struct resource *res __free(kfree) = kmalloc(sizeof(*res), GFP_KERNEL);
+	int rc;
+
+	if (!res)
+		return -ENOMEM;
+
+	*res = DEFINE_RES_MEM_NAMED(start, len, "Soft Reserved");
+
+	res->desc = IORES_DESC_SOFT_RESERVED;
+	res->flags = res->flags | flags;
+	rc = insert_resource(parent, res);
+	if (rc)
+		return rc;
+
+	no_free_ptr(res);
+	return 0;
+}
+
+static void remove_soft_reserved(struct cxl_region *cxlr, struct resource *soft,
+				 resource_size_t start, resource_size_t end)
+{
+	struct cxl_root_decoder *cxlrd = to_cxl_root_decoder(cxlr->dev.parent);
+	resource_size_t new_start, new_end;
+	struct resource *parent;
+	unsigned long flags;
+	int rc;
+
+	/* Prevent new usage while removing or adjusting the resource */
+	guard(mutex)(&cxlrd->range_lock);
+
+	/* Aligns at both resource start and end */
+	if (soft->start == start && soft->end == end) {
+		rc = remove_resource(soft);
+		if (rc)
+			dev_dbg(&cxlr->dev,
+				"cannot remove soft reserved resource %pr\n",
+				soft);
+		else
+			kfree(soft);
+
+		return;
+	}
+
+	/* Aligns at either resource start or end */
+	if (soft->start == start || soft->end == end) {
+		if (soft->start == start) {
+			new_start = end + 1;
+			new_end = soft->end;
+		} else {
+			new_start = soft->start;
+			new_end = start + 1;
+		}
+		rc =  adjust_resource(soft, new_start, new_end - new_start + 1);
+		if (rc)
+			dev_dbg(&cxlr->dev,
+				"cannot adjust soft reserved resource %pr\n",
+				soft);
+		return;
+	}
+
+	/*
+	 * No alignment. Attempt a 3-way split that removes the part of
+	 * the resource the region occupied, and then creates new soft
+	 * reserved resources for the leading and trailing addr space.
+	 * adjust_resource() will stop the attempt if there are any
+	 * child resources.
+	 */
+
+	/* Save the original soft reserved resource params before adjusting */
+	new_start = soft->start;
+	new_end = soft->end;
+	parent = soft->parent;
+	flags = soft->flags;
+
+	rc = adjust_resource(soft, start, end - start);
+	if (rc) {
+		dev_dbg(&cxlr->dev,
+			"cannot adjust soft reserved resource %pr\n", soft);
+		return;
+	}
+	rc = remove_resource(soft);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot remove soft reserved resource %pr\n", soft);
+
+	rc = add_soft_reserved(parent, new_start, start - new_start, flags);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot add new soft reserved resource at %pa\n",
+			 &new_start);
+
+	rc = add_soft_reserved(parent, end + 1, new_end - end, flags);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot add new soft reserved resource at %pa + 1\n",
+			 &end);
+}
+
 static void cxl_region_iomem_release(struct cxl_region *cxlr)
 {
 	struct cxl_region_params *p = &cxlr->params;
+	struct resource *parent, *res = p->res;
+	resource_size_t start, end;
 
 	if (device_is_registered(&cxlr->dev))
 		lockdep_assert_held_write(&cxl_region_rwsem);
-	if (p->res) {
-		/*
-		 * Autodiscovered regions may not have been able to insert their
-		 * resource.
-		 */
-		if (p->res->parent)
-			remove_resource(p->res);
-		kfree(p->res);
-		p->res = NULL;
+	if (!res)
+		return;
+	/*
+	 * Autodiscovered regions may not have been able to insert their
+	 * resource. If a Soft Reserved parent resource exists, try to
+	 * remove that also.
+	 */
+	if (p->res->parent) {
+		parent = p->res->parent;
+		start = p->res->start;
+		end = p->res->end;
+		remove_resource(p->res);
+		if (test_bit(CXL_REGION_F_AUTO, &cxlr->flags) &&
+		    parent->desc == IORES_DESC_SOFT_RESERVED)
+			remove_soft_reserved(cxlr, parent, start, end);
 	}
+
+	kfree(p->res);
+	p->res = NULL;
 }
 
 static int free_hpa(struct cxl_region *cxlr)
