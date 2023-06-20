@@ -2737,6 +2737,31 @@ static int match_region_by_range(struct device *dev, void *data)
 	return rc;
 }
 
+static int insert_resource_soft_reserved(struct resource *soft_res, void *arg)
+{
+	struct resource *parent, *new, *res = arg;
+	bool found = false;
+	int rc = 0;
+
+	parent = soft_res->parent;
+	if (!parent)
+		return 0;
+
+	/* Caller provides a copy of soft_res. Find the actual resource. */
+	for (new = parent->child; new; new = new->sibling) {
+		if (resource_contains(new, soft_res)) {
+			rc = insert_resource(new, res);
+			found = true;
+			break;
+		}
+	}
+	/* Caller handles failure to find or insert resource */
+	if (!found || rc)
+		return rc;
+
+	return 1;
+}
+
 /* Establish an empty region covering the given HPA range */
 static struct cxl_region *construct_region(struct cxl_root_decoder *cxlrd,
 					   struct cxl_endpoint_decoder *cxled)
@@ -2783,16 +2808,28 @@ static struct cxl_region *construct_region(struct cxl_root_decoder *cxlrd,
 
 	*res = DEFINE_RES_MEM_NAMED(hpa->start, range_len(hpa),
 				    dev_name(&cxlr->dev));
-	rc = insert_resource(cxlrd->res, res);
-	if (rc) {
-		/*
-		 * Platform-firmware may not have split resources like "System
-		 * RAM" on CXL window boundaries see cxl_region_iomem_release()
-		 */
-		dev_warn(cxlmd->dev.parent,
-			 "%s:%s: %s %s cannot insert resource\n",
-			 dev_name(&cxlmd->dev), dev_name(&cxled->cxld.dev),
-			 __func__, dev_name(&cxlr->dev));
+
+	/* Try inserting to a Soft Reserved parent. Fallback to root decoder */
+	rc = walk_iomem_res_desc(IORES_DESC_SOFT_RESERVED, 0, res->start,
+				 res->end, res, insert_resource_soft_reserved);
+	if (!rc || rc == -EBUSY)
+		dev_dbg(&cxlmd->dev,
+			"insert %pr to soft reserved parent failed rc:%d\n",
+			res, rc);
+	if (rc != 1) {
+		rc = insert_resource(cxlrd->res, res);
+		if (rc) {
+			/*
+			 * Platform-firmware may not have split resources
+			 * like "System RAM" on CXL window boundaries see
+			 * cxl_region_iomem_release()
+			 */
+			dev_warn(cxlmd->dev.parent,
+				 "%s:%s: %s %s cannot insert resource\n",
+				 dev_name(&cxlmd->dev),
+				 dev_name(&cxled->cxld.dev), __func__,
+				 dev_name(&cxlr->dev));
+		}
 	}
 
 	p->res = res;
