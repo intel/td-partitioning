@@ -1524,18 +1524,20 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu,
 	prev = per_cpu(current_vmcs, cpu);
 	if (prev != vmx->loaded_vmcs->vmcs) {
 		per_cpu(current_vmcs, cpu) = vmx->loaded_vmcs->vmcs;
-		if (!is_td_part_vmcs(vmx->loaded_vmcs))
+		/* For td partitioned guest, IBPB is issued during VM entry/exit so skip here. */
+		if (!is_td_part_vmcs(vmx->loaded_vmcs)) {
 			vmcs_load(vmx->loaded_vmcs->vmcs);
 
-		/*
-		 * No indirect branch prediction barrier needed when switching
-		 * the active VMCS within a vCPU, unless IBRS is advertised to
-		 * the vCPU.  To minimize the number of IBPBs executed, KVM
-		 * performs IBPB on nested VM-Exit (a single nested transition
-		 * may switch the active VMCS multiple times).
-		 */
-		if (!buddy || WARN_ON_ONCE(buddy->vmcs != prev))
-			indirect_branch_prediction_barrier();
+			/*
+			* No indirect branch prediction barrier needed when switching
+			* the active VMCS within a vCPU, unless IBRS is advertised to
+			* the vCPU.  To minimize the number of IBPBs executed, KVM
+			* performs IBPB on nested VM-Exit (a single nested transition
+			* may switch the active VMCS multiple times).
+			*/
+			if (!buddy || WARN_ON_ONCE(buddy->vmcs != prev))
+				indirect_branch_prediction_barrier();
+		}
 	}
 
 	if (!already_loaded) {

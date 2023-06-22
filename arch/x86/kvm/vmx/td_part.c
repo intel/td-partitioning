@@ -218,10 +218,16 @@ static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 	struct tdx_module_output out;
 	u64 vm_flags, ret;
 
+	/* Prevent L1 VMM from using the predicted branch targets before switching to L2 VM. */
+	indirect_branch_prediction_barrier();
+
 	td_part_load_l2_gprs(vcpu);
 
 	vm_flags = ((u64)vcpu->kvm->arch.vm_id << 52);
 	ret = tdg_vp_enter(vm_flags, virt_to_phys(&vcpu->arch.l2_guest_state), &out);
+
+	/* Prevent L2 VM from using the predicted branch targets before switching to L1 VMM. */
+	indirect_branch_prediction_barrier();
 
 	/* Only logs tdg_vp_enter specific stuff here: ret/rflags/qualification/rip for now
 	 * Use trace_kvm_td_part_guest_tdcall() to trace tdg_vp_enter's out!
