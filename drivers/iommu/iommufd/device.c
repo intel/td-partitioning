@@ -345,7 +345,8 @@ int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
 	}
 
 	rc = iopt_table_enforce_dev_resv_regions(&hwpt->ioas->iopt, idev->dev,
-						 &idev->igroup->sw_msi_start);
+						 &idev->igroup->sw_msi_start,
+						 !!hwpt->parent);
 	if (rc)
 		goto err_unlock;
 
@@ -443,7 +444,8 @@ iommufd_device_do_replace(struct iommufd_device *idev,
 	if (hwpt->ioas != old_hwpt->ioas) {
 		list_for_each_entry(cur, &igroup->device_list, group_item) {
 			rc = iopt_table_enforce_dev_resv_regions(
-				&hwpt->ioas->iopt, cur->dev, NULL);
+				&hwpt->ioas->iopt, cur->dev, NULL,
+				!!hwpt->parent);
 			if (rc)
 				goto err_unresv;
 		}
