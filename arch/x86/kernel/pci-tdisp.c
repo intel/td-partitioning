@@ -13,6 +13,10 @@
 
 #include "pci-tdisp.h"
 
+/* by default request_timeout is 20s */
+static unsigned int request_timeout = 20000;
+module_param(request_timeout, uint, 0644);
+
 static int pci_arch_tdisp_dev_tee_enter(struct pci_tdisp_dev *tdev)
 {
 	struct pci_dev *rp;
@@ -614,8 +618,7 @@ static struct tdisp_mgr *tdisp_mgr_create(struct pci_tdisp_dev *tdev)
 	INIT_LIST_HEAD(&tmgr->pending_reqs);
 	tmgr->tdev = tdev;
 	spin_lock_init(&tmgr->lock);
-	/* by default req_timeout is 60s */
-	tmgr->req_timeout = 60000;
+	tmgr->req_timeout = request_timeout;
 	tdev->priv = tmgr;
 	return tmgr;
 };
