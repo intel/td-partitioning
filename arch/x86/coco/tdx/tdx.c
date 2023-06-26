@@ -1373,9 +1373,25 @@ struct tdcm_resp_get_dev_info {
 
 #pragma pack(pop)
 
+static int tdx_serv_resp_status(unsigned long resp_va)
+{
+	struct tdx_serv_resp *resp = (struct tdx_serv_resp *)resp_va;
+
+	if (!resp->status)
+		return 0;
+
+	pr_err("%s: resp status 0x%x\n", __func__, resp->status);
+	return -EFAULT;
+}
+
 static int tdx_tdcm_resp_status(unsigned long resp_va)
 {
 	struct tdcm_resp_hdr *hdr = (struct tdcm_resp_hdr *)resp_va;
+	int ret;
+
+	ret = tdx_serv_resp_status(resp_va);
+	if (ret)
+		return ret;
 
 	return hdr->status ? -EFAULT : 0;
 }
