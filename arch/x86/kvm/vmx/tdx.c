@@ -2000,6 +2000,7 @@ static void tdx_handle_service_query(struct tdvmcall_service *cmd_hdr,
 	import_guid(&resp_query->guid, cmd_query->guid.b);
 
 	resp_hdr->length += sizeof(struct tdvmcall_service_query);
+	resp_hdr->status = TDVMCALL_SERVICE_S_RETURNED;
 }
 
 static int migtd_basic_info_setup(struct migtd_basic_info *basic,
