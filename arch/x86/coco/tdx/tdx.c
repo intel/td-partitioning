@@ -1509,10 +1509,13 @@ static int tdx_service(struct tdx_serv *serv)
 	struct tdx_serv_resp *resp = (struct tdx_serv_resp *)serv->resp_va;
 	struct tdx_serv_cmd *cmd = (struct tdx_serv_cmd *)serv->cmd_va;
 	struct completion *cmplt;
+	u64 cmd_gpa, resp_gpa;
 	int ret;
 
-	ret = __tdx_service(__pa(serv->cmd_va), __pa(serv->resp_va),
-			    serv->vector, serv->timeout);
+	cmd_gpa = __pa(serv->cmd_va) | cc_mkdec(0);
+	resp_gpa = __pa(serv->resp_va) | cc_mkdec(0);
+
+	ret = __tdx_service(cmd_gpa, resp_gpa, serv->vector, serv->timeout);
 	if (ret)
 		return ret;
 
