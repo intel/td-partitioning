@@ -576,6 +576,8 @@ int x86_pmu_max_precise(void)
 
 int x86_pmu_hw_config(struct perf_event *event)
 {
+	u64 raw_config_mask = X86_RAW_EVENT_MASK;
+
 	if (event->attr.precise_ip) {
 		int precise = x86_pmu_max_precise();
 
@@ -634,8 +636,13 @@ int x86_pmu_hw_config(struct perf_event *event)
 	if (!event->attr.exclude_kernel)
 		event->hw.config |= ARCH_PERFMON_EVENTSEL_OS;
 
-	if (event->attr.type == event->pmu->type)
-		event->hw.config |= event->attr.config & X86_RAW_EVENT_MASK;
+	if (event->attr.type == event->pmu->type) {
+		if (hybrid(event->pmu, z_bit))
+			raw_config_mask |= ARCH_PERFMON_EVENTSEL_Z;
+		if (hybrid(event->pmu, umask2))
+			raw_config_mask |= ARCH_PERFMON_EVENTSEL_UMASK2;
+		event->hw.config |= event->attr.config & raw_config_mask;
+	}
 
 	if (event->attr.sample_period && x86_pmu.limit_period) {
 		s64 left = event->attr.sample_period;
