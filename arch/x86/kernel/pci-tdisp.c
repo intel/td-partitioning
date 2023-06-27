@@ -324,7 +324,7 @@ static int tdisp_mgr_request_wait_done(struct tdisp_mgr *tmgr,
 	dev_dbg(dev, "%s: session %u tmgr req %s wait\n", __func__,
 		tmreq->session_id, tmreq_to_str(tmreq));
 
-	timeout = wait_for_completion_interruptible_timeout(&tmreq->complete,
+	timeout = wait_for_completion_timeout(&tmreq->complete,
 			msecs_to_jiffies(timeout));
 
 	tdisp_mgr_request_del(tmgr, tmreq);
