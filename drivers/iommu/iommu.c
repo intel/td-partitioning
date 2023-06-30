@@ -347,7 +347,15 @@ static int dev_iommu_get(struct device *dev)
 		return -ENOMEM;
 
 	mutex_init(&param->lock);
+	param->fault_param = kzalloc(sizeof(*param->fault_param), GFP_KERNEL);
+	if (!param->fault_param) {
+		kfree(param);
+		return -ENOMEM;
+	}
+	mutex_init(&param->fault_param->lock);
+	INIT_LIST_HEAD(&param->fault_param->faults);
 	dev->iommu = param;
+
 	return 0;
 }
 
@@ -360,6 +368,12 @@ static void dev_iommu_free(struct device *dev)
 		fwnode_handle_put(param->fwspec->iommu_fwnode);
 		kfree(param->fwspec);
 	}
+	/*
+	 * All pending faults should have been drained before
+	 * device release.
+	 */
+	WARN_ON_ONCE(!list_empty(&param->fault_param->faults));
+	kfree(param->fault_param);
 	kfree(param);
 }
 
