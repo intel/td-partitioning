@@ -1801,4 +1801,102 @@ TEST_F(vfio_compat_mock_domain, huge_map)
 	}
 }
 
+FIXTURE(iommufd_device_resv_iova)
+{
+	int fd;
+	uint32_t ioas_id;
+	uint32_t stdev_id;
+	uint32_t device_id;
+};
+
+FIXTURE_SETUP(iommufd_device_resv_iova)
+{
+	self->fd = open("/dev/iommu", O_RDWR);
+	ASSERT_NE(-1, self->fd);
+	test_ioctl_ioas_alloc(&self->ioas_id);
+
+	test_cmd_mock_domain(self->ioas_id, &self->stdev_id,
+			     NULL, &self->device_id);
+}
+
+FIXTURE_TEARDOWN(iommufd_device_resv_iova)
+{
+	teardown_iommufd(self->fd, _metadata);
+}
+
+TEST_F(iommufd_device_resv_iova, dev_resv_iova_ranges)
+{
+	struct iommu_test_cmd test_cmd = {
+		.size = sizeof(test_cmd),
+		.op = IOMMU_TEST_OP_DEV_ADD_RESERVED,
+		.id = self->stdev_id,
+		.add_dev_reserved = { .start = PAGE_SIZE, .length = PAGE_SIZE },
+	};
+	struct iommu_test_cmd test_cmd_del = {
+		.size = sizeof(test_cmd_del),
+		.op = IOMMU_TEST_OP_DEV_DEL_RESERVED,
+		.id = self->stdev_id,
+	};
+	struct iommu_resv_iova_range *ranges = buffer;
+	struct iommu_resv_iova_ranges ranges_cmd = {
+		.size = sizeof(ranges_cmd),
+		.dev_id = self->device_id,
+		.num_iovas = BUFFER_SIZE / sizeof(*ranges),
+		.resv_iovas = (uintptr_t)ranges,
+	};
+
+	/* Range can be read */
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(0, ranges_cmd.num_iovas);
+
+	/* 1 range */
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_ADD_RESERVED),
+			&test_cmd));
+	ranges_cmd.num_iovas = BUFFER_SIZE / sizeof(*ranges);
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(1, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+
+	/* Buffer too small */
+	memset(ranges, 0, BUFFER_SIZE);
+	ranges_cmd.num_iovas = 0;
+	EXPECT_ERRNO(EMSGSIZE,
+		     ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(1, ranges_cmd.num_iovas);
+	EXPECT_EQ(0, ranges[0].start);
+	EXPECT_EQ(0, ranges[0].last);
+
+	/* 2 ranges */
+	test_cmd.add_dev_reserved.start = PAGE_SIZE * 4;
+	test_cmd.add_dev_reserved.length = PAGE_SIZE;
+
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_ADD_RESERVED),
+			&test_cmd));
+	ranges_cmd.num_iovas = BUFFER_SIZE / sizeof(*ranges);
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(2, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+	EXPECT_EQ(PAGE_SIZE * 4, ranges[1].start);
+	EXPECT_EQ(PAGE_SIZE * 5 - 1, ranges[1].last);
+
+	/* Buffer too small */
+	memset(ranges, 0, BUFFER_SIZE);
+	ranges_cmd.num_iovas = 1;
+	EXPECT_ERRNO(EMSGSIZE, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES,
+				     &ranges_cmd));
+	EXPECT_EQ(2, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+	EXPECT_EQ(0, ranges[1].start);
+	EXPECT_EQ(0, ranges[1].last);
+
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_DEL_RESERVED),
+			&test_cmd_del));
+}
+
 TEST_HARNESS_MAIN
