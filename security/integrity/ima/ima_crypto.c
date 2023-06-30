@@ -837,12 +837,6 @@ static int ima_calc_boot_aggregate_tfm(char *digest, u16 alg_id,
 		/* update num of boot digest into shash*/
 		num = sizeof(boot_digests.boot_digest)/sizeof(boot_digests.boot_digest[0]);
 		for (i = 0; i < num; i++) {
-	    		/* check if rtmr register is all zero, if yes, skip update*/
-	    		u8 cmp_array[48] = {0};
-	    		if (!memcmp(boot_digests.boot_digest[i], cmp_array, sizeof(cmp_array))) {
-				continue;
-	    		}
-
 	    		rc = crypto_shash_update(shash, boot_digests.boot_digest[i],
 		    			crypto_shash_digestsize(tfm));
 	    		if (rc != 0)
