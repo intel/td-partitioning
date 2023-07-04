@@ -93,6 +93,7 @@ struct x86_instruction_info {
 #define X86EMUL_F_FETCH			BIT(1)
 #define X86EMUL_F_BRANCH		BIT(2)
 #define X86EMUL_F_IMPLICIT		BIT(3)
+#define X86EMUL_F_INVLPG		BIT(4)
 
 struct x86_emulate_ops {
 	void (*vm_bugged)(struct x86_emulate_ctxt *ctxt);
