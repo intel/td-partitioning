@@ -106,7 +106,7 @@ enum tdx_tdcs_execution_control {
 union tdx_tdcs_exec_vm_ctls {
 	struct {
 		u64 ept_violation_on_l2sept	: 1;
-		u64 reserved2_63		: 61;
+		u64 reserved1_63		: 63;
 	};
 	u64 full;
 };
