@@ -2239,7 +2239,12 @@ void vfio_pci_core_unregister_device(struct vfio_pci_core_device *vdev)
 	if (!disable_idle_d3)
 		pm_runtime_get_noresume(&vdev->pdev->dev);
 
-	pm_runtime_forbid(&vdev->pdev->dev);
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED)) {
+		pm_runtime_disable(&vdev->pdev->dev);
+		pm_runtime_allow(&vdev->pdev->dev);
+	} else {
+		pm_runtime_forbid(&vdev->pdev->dev);
+	}
 }
 EXPORT_SYMBOL_GPL(vfio_pci_core_unregister_device);
 
