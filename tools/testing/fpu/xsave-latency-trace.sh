@@ -99,11 +99,14 @@ function insert_line() {
 
 # Show the results of the trace statistics
 function get_latency_stat() {
+	cnt=`get_combs_cnt`
+
 	SQL_CMD "create table $table_results (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		event_name TEXT,
 		RFBM INT,
 		XINUSE INT,
+		CNT INT,
 		lat_min INT,
 		lat_max INT,
 		lat_avg INT,
@@ -121,14 +124,18 @@ function get_latency_stat() {
 		lat_avg=`round $lat_avg`
 		lat_tail_avg=`round $lat_tail_avg`
 
+		count=`SQL_CMD "SELECT count(*) from $table_raw
+			where event_name=\"$event_name\" and RFBM=$RFBM and
+			XINUSE=$XINUSE;"`
+
 		SQL_CMD "INSERT INTO $table_results
-			(event_name, RFBM,XINUSE, lat_min, lat_max, lat_avg, lat_tail_avg)
-			VALUES (\"$event_name\", $RFBM, $XINUSE, $lat_min, $lat_max,
+			(event_name,RFBM,XINUSE, CNT, lat_min, lat_max, lat_avg, lat_tail_avg)
+			VALUES (\"$event_name\", $RFBM, $XINUSE, $count, $lat_min, $lat_max,
 			$lat_avg, $lat_tail_avg);"
 	done
 
 	SQL_CMD_HEADER "select event_name[EVENTs],printf('0x%x',RFBM)[RFBM],
-			printf('0x%x',XINUSE)[XINUSE],lat_min,lat_max,lat_avg,
+			printf('0x%x',XINUSE)[XINUSE],CNT,lat_min,lat_max,lat_avg,
 			lat_tail_avg[lat_avg(97%)]
 			from $table_results;"
 }
