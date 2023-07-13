@@ -5929,6 +5929,9 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	if (unlikely(allow_smaller_maxphyaddr && kvm_vcpu_is_illegal_gpa(vcpu, gpa)))
 		return kvm_emulate_instruction(vcpu, 0);
 
+	if (is_td_part_vcpu(vcpu))
+		return td_part_handle_ept_violation(vcpu, gpa, exit_qualification);
+
 	return __vmx_handle_ept_violation(vcpu, gpa, exit_qualification, PG_LEVEL_NONE);
 }
 

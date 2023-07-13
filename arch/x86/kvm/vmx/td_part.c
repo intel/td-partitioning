@@ -361,10 +361,41 @@ static int td_part_map_gpa(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static bool is_tdvmcall_valid(struct kvm_vcpu *vcpu)
+{
+	union tdx_l2_vcpu_ctls *ctls;
+	u16 vm_id = vcpu->kvm->arch.vm_id;
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	ctls = &l2_ctls[vm_id - 1];
+	if (!ctls->enable_tdvmcall)
+		return true;
+
+	WARN_ON(unlikely((vmx->exit_reason.full & TDX_TDCALL_STATUS_MASK) !=
+			 TDX_L2_EXIT_HOST_ROUTED_TDVMCALL));
+
+	/*
+	 * With enable_tdvmcall, some tdvmcall is handled by L0 VMM, like
+	 * EPT_VIOLATION. So only handle the tdvmcalls which are not handled
+	 * by L0 VMM.
+	 */
+	switch (tdvmcall_leaf(vcpu)) {
+	case TDG_VP_VMCALL_MAP_GPA:
+		return true;
+	default:
+		break;
+	}
+
+	return false;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	unsigned long leaf = tdvmcall_leaf(vcpu);
 	int r;
+
+	if (!is_tdvmcall_valid(vcpu))
+		return 1;
 
 	if (tdvmcall_exit_type(vcpu))
 		return td_part_skip_emulated_instruction(vcpu);
@@ -559,6 +590,23 @@ noinstr void td_part_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	vcpu->arch.cr2 = native_read_cr2();
 
 	guest_state_exit_irqoff();
+}
+
+int td_part_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
+				 unsigned long exit_qualification)
+{
+	gfn_t gfn = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(vcpu->kvm);
+	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+
+	if (!kvm_is_private_gpa(vcpu->kvm, gpa) &&
+			slot && !(slot->flags & KVM_MEMSLOT_INVALID))
+		/*
+		 * L1 VMM doesn't handle shared L2 memory EPT_VIOLATION
+		 * as this should be already handled by L0 VMM.
+		 */
+		return 1;
+
+	return __vmx_handle_ept_violation(vcpu, gpa, exit_qualification, PG_LEVEL_NONE);
 }
 
 int td_part_handle_ept_misconfig(struct kvm_vcpu *vcpu)
