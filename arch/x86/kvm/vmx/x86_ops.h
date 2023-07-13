@@ -481,6 +481,8 @@ int __init td_part_hardware_setup(struct kvm_x86_ops *x86_ops);
 int td_part_vm_init(struct kvm *kvm);
 void td_part_vm_destroy(struct kvm *kvm);
 int td_part_vcpu_create(struct kvm_vcpu *vcpu);
+int td_part_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
+				 unsigned long exit_qualification);
 int td_part_handle_ept_misconfig(struct kvm_vcpu *vcpu);
 int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
 int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in);
@@ -496,6 +498,8 @@ static inline int td_part_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0
 static inline int td_part_vm_init(struct kvm *kvm) { return 0; }
 static inline void td_part_vm_destroy(struct kvm *kvm) {}
 static inline int td_part_vcpu_create(struct kvm_vcpu *vcpu) { return 0; }
+static inline int td_part_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
+					       unsigned long exit_qualifcation) { return 0; }
 static inline int td_part_handle_ept_misconfig(struct kvm_vcpu *vcpu) { return 0; }
 static inline int td_part_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
 static inline int td_part_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_in) { return 0; }
