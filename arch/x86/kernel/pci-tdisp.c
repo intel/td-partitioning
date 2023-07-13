@@ -492,12 +492,17 @@ static const struct file_operations tdisp_mgr_ops = {
 	.unlocked_ioctl		= tmgr_ioctl,
 };
 
-static void tdisp_mgr_get_spdm(struct tdisp_mgr *tmgr, int budget)
+static int tdisp_mgr_get_spdm(struct tdisp_mgr *tmgr, int budget)
 {
 	struct spdm_session *session = tmgr_to_sess(tmgr);
+	int ret;
 
 	spdm_msg_exchange_prepare(session->spdm);
-	spdm_session_msg_exchange_prepare(session, budget);
+	ret = spdm_session_msg_exchange_prepare(session, budget);
+	if (ret)
+		spdm_msg_exchange_complete(session->spdm);
+
+	return ret;
 }
 
 static void tdisp_mgr_put_spdm(struct tdisp_mgr *tmgr)
@@ -565,6 +570,17 @@ done:
 	return ret;
 }
 
+static void tdisp_mgr_set_session_state(struct tdisp_mgr *tmgr, int state)
+{
+	struct pci_tdisp_dev *tdev = tmgr->tdev;
+	struct spdm_session *session = tdev->session;
+	struct device *dev = tmgr_to_dev(tmgr);
+
+	spdm_session_set_state(session, state);
+
+	dev_dbg(dev, "spdm session state: %d\n", state);
+}
+
 #define dwork_to_tmgr(x) container_of((x), struct tdisp_mgr, sess_hbeat_dwork)
 static void tdisp_mgr_sess_hbeat_timeout(struct work_struct *work)
 {
@@ -573,16 +589,24 @@ static void tdisp_mgr_sess_hbeat_timeout(struct work_struct *work)
 	struct pci_tdisp_dev *tdev = tmgr->tdev;
 	unsigned long delay = tdev->session->heartbeat_period * HZ;
 	struct device *dev = tmgr_to_dev(tmgr);
+	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
 
 	/* heartbeat requires only 1 session budget */
-	tdisp_mgr_get_spdm(tmgr, 1);
+	ret = tdisp_mgr_get_spdm(tmgr, 1);
+	if (ret) {
+		dev_err(dev, "fail to get budget for heartbeat %d\n", ret);
+		return;
+	}
+
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
 
-	tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_HEARTBEAT);
-
-	schedule_delayed_work(&tmgr->sess_hbeat_dwork, delay);
+	ret = tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_HEARTBEAT);
+	if (ret)
+		tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_ERROR);
+	else
+		schedule_delayed_work(&tmgr->sess_hbeat_dwork, delay);
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);
@@ -698,17 +722,20 @@ static int tdisp_mgr_session_keyupdate(struct spdm_session *session)
 {
 	struct tdisp_mgr *tmgr = session->priv;
 	struct device *dev = tmgr_to_dev(tmgr);
+	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
 
-	tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_KEYUPDATE);
+	ret = tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_KEYUPDATE);
+	if (ret)
+		tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_ERROR);
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 
 	dev_dbg(dev, "%s ------>\n", __func__);
-	return 0;
+	return ret;
 }
 
 static int tdisp_mgr_spdm_setup(struct tdisp_mgr *tmgr)
@@ -843,7 +870,7 @@ static void tdisp_mgr_update_spdm(struct tdisp_mgr *tmgr)
 	spdm->state = SPDM_STATE_CONNECT;
 }
 
-static void tdisp_mgr_update_session(struct tdisp_mgr *tmgr)
+static void tdisp_mgr_update_session_info(struct tdisp_mgr *tmgr)
 {
 	struct pci_tdisp_dev *tdev = tmgr->tdev;
 	struct dev_spdm_info *info = &tmgr->data.spdm_info;
@@ -862,8 +889,6 @@ static void tdisp_mgr_update_session(struct tdisp_mgr *tmgr)
 		delay = session->heartbeat_period * HZ;
 		schedule_delayed_work(&tmgr->sess_hbeat_dwork, delay);
 	}
-
-	session->state = SPDM_SESS_STATE_READY;
 }
 
 static int tdisp_mgr_start(struct tdisp_mgr *tmgr)
@@ -874,8 +899,15 @@ static int tdisp_mgr_start(struct tdisp_mgr *tmgr)
 	dev_dbg(dev, "%s --------> %p\n", __func__, tmgr);
 
 	/* always assume enough budget for start session operation */
-	tdisp_mgr_get_spdm(tmgr, 0);
+	ret = tdisp_mgr_get_spdm(tmgr, 0);
+	if (ret) {
+		dev_err(dev, "fail to get spdm for start session %d\n", ret);
+		return ret;
+	}
+
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
+
+	tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_SETUP);
 
 	/*
 	 * START_SESSION to TPA
@@ -885,8 +917,10 @@ static int tdisp_mgr_start(struct tdisp_mgr *tmgr)
 	 * 3 TDISP version/capability negotiation
 	 */
 	ret = tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_START_SESSION);
-	if (ret)
+	if (ret) {
+		tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_ERROR);
 		goto done;
+	}
 
 	dev_dbg(dev, "%s: request process done\n", __func__);
 
@@ -900,20 +934,22 @@ static int tdisp_mgr_start(struct tdisp_mgr *tmgr)
 	 * 3 Update TDISP Information
 	 */
 	tdisp_mgr_update_spdm(tmgr);
-	tdisp_mgr_update_session(tmgr);
+	tdisp_mgr_update_session_info(tmgr);
+	tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_READY);
 	tdisp_mgr_update(tmgr);
 
 done:
 	/* Switch owner back to Kernel (TDX module) */
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);
-	dev_dbg(dev, "%s <---------- done\n", __func__);
+	dev_dbg(dev, "%s <---------- done %d\n", __func__, ret);
 	return ret;
 }
 
 static void tdisp_mgr_stop(struct tdisp_mgr *tmgr)
 {
 	struct device *dev = tmgr_to_dev(tmgr);
+	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -921,10 +957,21 @@ static void tdisp_mgr_stop(struct tdisp_mgr *tmgr)
 	if (delayed_work_pending(&tmgr->sess_hbeat_dwork))
 		cancel_delayed_work(&tmgr->sess_hbeat_dwork);
 
-	tdisp_mgr_get_spdm(tmgr, 1);
+	ret = tdisp_mgr_get_spdm(tmgr, 1);
+	if (ret) {
+		dev_err(dev, "fail to get budget for end session %d\n", ret);
+		return;
+	}
+
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_USER);
 
-	tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_END_SESSION);
+	ret = tdisp_mgr_request_process_sync(tmgr, TMGR_SESS_REQ_END_SESSION);
+	if (ret) {
+		dev_err(dev, "Fail to end session\n");
+		tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_ERROR);
+	} else {
+		tdisp_mgr_set_session_state(tmgr, SPDM_SESS_STATE_NONE);
+	}
 
 	tdisp_mgr_set_spdm_owner(tmgr, TMGR_SPDM_OWNER_KERNEL);
 	tdisp_mgr_put_spdm(tmgr);

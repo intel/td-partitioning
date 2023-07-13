@@ -162,6 +162,21 @@ static inline bool is_spdm_session_keyupdate_required(struct spdm_session *sessi
 	       (seq_num + budget >= session->keyupdate_threshold);
 }
 
+static inline void spdm_session_set_state(struct spdm_session *session, int state)
+{
+	session->state = state;
+}
+
+static inline int spdm_session_get_state(struct spdm_session *session)
+{
+	return session->state;
+}
+
+static inline bool is_spdm_session_alive(struct spdm_session *session)
+{
+	return !(session->state == SPDM_SESS_STATE_ERROR);
+}
+
 static inline int spdm_session_msg_exchange_prepare(struct spdm_session *session, int budget)
 {
 	int ret;
@@ -169,6 +184,11 @@ static inline int spdm_session_msg_exchange_prepare(struct spdm_session *session
 	ret = mutex_lock_interruptible(&session->transfer_lock);
 	if (ret)
 		return ret;
+
+	if (!is_spdm_session_alive(session)) {
+		mutex_unlock(&session->transfer_lock);
+		return -EIO;
+	}
 
 	if (is_spdm_session_keyupdate_required(session, budget)) {
 		ret = session->keyupdate(session);
