@@ -12,6 +12,7 @@
 
 #define TDX_CPUID_LEAF_ID	0x21
 #define TDX_IDENT		"IntelTDX    "
+#define TDP_IDENT		"IntelTDP    "
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1

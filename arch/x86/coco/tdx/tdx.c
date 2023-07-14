@@ -1117,14 +1117,53 @@ static bool tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
 	return tdx_enc_status_changed_phys(start, end, enc);
 }
 
+static void __init tdp_early_init(void)
+{
+	u64 cc_mask;
+
+	iomap_mmio = &tdx_iomap_mmio;
+
+	/*
+	 * The only secure (monotonous) timer inside a TD guest
+	 * is the TSC. The TDX module does various checks on the TSC.
+	 * There are no other reliable fall back options. Also checking
+	 * against jiffies is very unreliable. So force the TSC reliable.
+	 */
+	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+
+	/* Set restricted memory access for virtio. */
+	virtio_set_mem_acc_cb(virtio_require_restricted_mem_acc);
+
+	cc_set_vendor(CC_VENDOR_INTEL);
+	tdx_parse_tdinfo(&cc_mask);
+	cc_set_mask(cc_mask);
+
+	/*
+	 * All bits above GPA width are reserved and kernel treats shared bit
+	 * as flag, not as part of physical address.
+	 *
+	 * Adjust physical mask to only cover valid GPA bits.
+	 */
+	physical_mask &= cc_mask - 1;
+
+	x86_platform.guest.enc_cache_flush_required = tdx_cache_flush_required;
+	x86_platform.guest.enc_tlb_flush_required   = tdx_tlb_flush_required;
+	x86_platform.guest.enc_status_change_finish = tdx_enc_status_changed;
+
+	pr_info("TDP Guest detected\n");
+}
+
 void __init tdx_early_init(void)
 {
 	u32 eax, sig[3];
 
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
-	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
+	if (memcmp(TDX_IDENT, sig, sizeof(sig))) {
+		if (!memcmp(TDP_IDENT, sig, sizeof(sig)))
+			tdp_early_init();
 		return;
+	}
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 	setup_clear_cpu_cap(X86_FEATURE_MCE);
