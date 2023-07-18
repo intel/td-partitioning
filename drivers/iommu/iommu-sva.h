@@ -22,8 +22,6 @@ int iopf_queue_flush_dev(struct device *dev);
 struct iopf_queue *iopf_queue_alloc(const char *name);
 void iopf_queue_free(struct iopf_queue *queue);
 int iopf_queue_discard_partial(struct iopf_queue *queue);
-enum iommu_page_response_code
-iommu_sva_handle_iopf(struct iommu_fault *fault, void *data);
 void iopf_free_group(struct iopf_group *group);
 int iopf_queue_work(struct iopf_group *group, work_func_t func);
 int iommu_sva_handle_iopf_group(struct iopf_group *group);
@@ -63,12 +61,6 @@ static inline void iopf_queue_free(struct iopf_queue *queue)
 static inline int iopf_queue_discard_partial(struct iopf_queue *queue)
 {
 	return -ENODEV;
-}
-
-static inline enum iommu_page_response_code
-iommu_sva_handle_iopf(struct iommu_fault *fault, void *data)
-{
-	return IOMMU_PAGE_RESP_INVALID;
 }
 
 static inline void iopf_free_group(struct iopf_group *group)

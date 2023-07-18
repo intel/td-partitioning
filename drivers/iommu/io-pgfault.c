@@ -11,8 +11,6 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
-#include "iommu-sva.h"
-
 /**
  * struct iopf_queue - IO Page Fault queue
  * @wq: the fault workqueue
@@ -106,6 +104,7 @@ int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 {
 	int ret;
 	struct iopf_group *group;
+	struct iommu_domain *domain;
 	struct iopf_fault *iopf, *next;
 	struct iopf_device_param *iopf_param;
 	struct dev_iommu *param = dev->iommu;
@@ -137,6 +136,16 @@ int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 		return 0;
 	}
 
+	if (fault->prm.flags & IOMMU_FAULT_PAGE_REQUEST_PASID_VALID)
+		domain = iommu_get_domain_for_dev_pasid(dev, fault->prm.pasid, 0);
+	else
+		domain = iommu_get_domain_for_dev(dev);
+
+	if (!domain || !domain->iopf_handler) {
+		ret = -ENODEV;
+		goto cleanup_partial;
+	}
+
 	group = kzalloc(sizeof(*group), GFP_KERNEL);
 	if (!group) {
 		/*
@@ -150,6 +159,7 @@ int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 
 	group->dev = dev;
 	group->last_fault.fault = *fault;
+	group->data = domain->fault_data;
 	INIT_LIST_HEAD(&group->faults);
 	list_add(&group->last_fault.list, &group->faults);
 
@@ -160,7 +170,7 @@ int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 			list_move(&iopf->list, &group->faults);
 	}
 
-	ret = iommu_sva_handle_iopf_group(group);
+	ret = domain->iopf_handler(group);
 	if (ret)
 		iopf_free_group(group);
 

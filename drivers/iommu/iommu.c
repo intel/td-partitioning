@@ -3460,7 +3460,7 @@ struct iommu_domain *iommu_sva_domain_alloc(struct device *dev,
 	domain->type = IOMMU_DOMAIN_SVA;
 	mmgrab(mm);
 	domain->mm = mm;
-	domain->iopf_handler = iommu_sva_handle_iopf;
+	domain->iopf_handler = iommu_sva_handle_iopf_group;
 	domain->fault_data = mm;
 
 	return domain;
