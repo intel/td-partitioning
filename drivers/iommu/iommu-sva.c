@@ -6,8 +6,7 @@
 #include <linux/mutex.h>
 #include <linux/sched/mm.h>
 #include <linux/iommu.h>
-
-#include "iommu-sva.h"
+#include <linux/mm_types.h>
 
 static DEFINE_MUTEX(iommu_sva_lock);
 
