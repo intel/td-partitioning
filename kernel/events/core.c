@@ -12393,6 +12393,48 @@ static int perf_event_group_leader_check(struct perf_event *group_leader,
 	return 0;
 }
 
+static void perf_event_move_group(struct perf_event *group_leader,
+				  struct perf_event_pmu_context *pmu_ctx,
+				  struct perf_event_context *ctx)
+{
+	struct perf_event *sibling;
+
+	perf_remove_from_context(group_leader, 0);
+	put_pmu_ctx(group_leader->pmu_ctx);
+
+	for_each_sibling_event(sibling, group_leader) {
+		perf_remove_from_context(sibling, 0);
+		put_pmu_ctx(sibling->pmu_ctx);
+	}
+
+	/*
+	 * Install the group siblings before the group leader.
+	 *
+	 * Because a group leader will try and install the entire group
+	 * (through the sibling list, which is still in-tact), we can
+	 * end up with siblings installed in the wrong context.
+	 *
+	 * By installing siblings first we NO-OP because they're not
+	 * reachable through the group lists.
+	 */
+	for_each_sibling_event(sibling, group_leader) {
+		sibling->pmu_ctx = pmu_ctx;
+		get_pmu_ctx(pmu_ctx);
+		perf_event__state_init(sibling);
+		perf_install_in_context(ctx, sibling, sibling->cpu);
+	}
+
+	/*
+	 * Removing from the context ends up with disabled
+	 * event. What we want here is event in the initial
+	 * startup state, ready to be add into new context.
+	 */
+	group_leader->pmu_ctx = pmu_ctx;
+	get_pmu_ctx(pmu_ctx);
+	perf_event__state_init(group_leader);
+	perf_install_in_context(ctx, group_leader, group_leader->cpu);
+}
+
 /**
  * sys_perf_event_open - open a performance event, associate it to a task/cpu
  *
@@ -12408,7 +12450,7 @@ SYSCALL_DEFINE5(perf_event_open,
 {
 	struct perf_event *group_leader = NULL, *output_event = NULL;
 	struct perf_event_pmu_context *pmu_ctx;
-	struct perf_event *event, *sibling;
+	struct perf_event *event;
 	struct perf_event_attr attr;
 	struct perf_event_context *ctx;
 	struct file *event_file = NULL;
@@ -12640,42 +12682,8 @@ SYSCALL_DEFINE5(perf_event_open,
 	 * where we start modifying current state.
 	 */
 
-	if (move_group) {
-		perf_remove_from_context(group_leader, 0);
-		put_pmu_ctx(group_leader->pmu_ctx);
-
-		for_each_sibling_event(sibling, group_leader) {
-			perf_remove_from_context(sibling, 0);
-			put_pmu_ctx(sibling->pmu_ctx);
-		}
-
-		/*
-		 * Install the group siblings before the group leader.
-		 *
-		 * Because a group leader will try and install the entire group
-		 * (through the sibling list, which is still in-tact), we can
-		 * end up with siblings installed in the wrong context.
-		 *
-		 * By installing siblings first we NO-OP because they're not
-		 * reachable through the group lists.
-		 */
-		for_each_sibling_event(sibling, group_leader) {
-			sibling->pmu_ctx = pmu_ctx;
-			get_pmu_ctx(pmu_ctx);
-			perf_event__state_init(sibling);
-			perf_install_in_context(ctx, sibling, sibling->cpu);
-		}
-
-		/*
-		 * Removing from the context ends up with disabled
-		 * event. What we want here is event in the initial
-		 * startup state, ready to be add into new context.
-		 */
-		group_leader->pmu_ctx = pmu_ctx;
-		get_pmu_ctx(pmu_ctx);
-		perf_event__state_init(group_leader);
-		perf_install_in_context(ctx, group_leader, group_leader->cpu);
-	}
+	if (move_group)
+		perf_event_move_group(group_leader, pmu_ctx, ctx);
 
 	/*
 	 * Precalculate sample_data sizes; do while holding ctx::mutex such
