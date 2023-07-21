@@ -3083,8 +3083,13 @@ static int handle_pmi_common(struct pt_regs *regs, u64 status)
 	 * Intel Perf metrics
 	 */
 	if (__test_and_clear_bit(GLOBAL_STATUS_PERF_METRICS_OVF_BIT, (unsigned long *)&status)) {
+		struct perf_event *event = cpuc->events[GLOBAL_STATUS_PERF_METRICS_OVF_BIT];
+
 		handled++;
-		static_call(intel_pmu_update_topdown_event)(NULL);
+		if (event && is_vmetrics_event(event))
+			READ_ONCE(event->overflow_handler)(event, &data, regs);
+		else
+			static_call(intel_pmu_update_topdown_event)(NULL);
 	}
 
 	/*

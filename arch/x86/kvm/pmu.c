@@ -101,7 +101,7 @@ static void kvm_pmi_trigger_fn(struct irq_work *irq_work)
 	kvm_pmu_deliver_pmi(vcpu);
 }
 
-static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
+static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi, bool metrics_of)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
 	bool skip_pmi = false;
@@ -121,7 +121,11 @@ static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
 						      (unsigned long *)&pmu->global_status);
 		}
 	} else {
-		__set_bit(pmc->idx, (unsigned long *)&pmu->global_status);
+		if (metrics_of)
+			__set_bit(GLOBAL_STATUS_PERF_METRICS_OVF_BIT,
+				  (unsigned long *)&pmu->global_status);
+		else
+			__set_bit(pmc->idx, (unsigned long *)&pmu->global_status);
 	}
 
 	if (!pmc->intr || skip_pmi)
@@ -141,11 +145,18 @@ static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
 		kvm_make_request(KVM_REQ_PMI, pmc->vcpu);
 }
 
+static inline bool is_vmetrics_event(struct perf_event *event)
+{
+	return (event->attr.config & INTEL_ARCH_EVENT_MASK) ==
+			INTEL_FIXED_VMETRICS_EVENT;
+}
+
 static void kvm_perf_overflow(struct perf_event *perf_event,
 			      struct perf_sample_data *data,
 			      struct pt_regs *regs)
 {
 	struct kvm_pmc *pmc = perf_event->overflow_handler_context;
+	bool metrics_of = is_vmetrics_event(perf_event);
 
 	/*
 	 * Ignore overflow events for counters that are scheduled to be
@@ -155,7 +166,7 @@ static void kvm_perf_overflow(struct perf_event *perf_event,
 	if (test_and_set_bit(pmc->idx, pmc_to_pmu(pmc)->reprogram_pmi))
 		return;
 
-	__kvm_perf_overflow(pmc, true);
+	__kvm_perf_overflow(pmc, true, metrics_of);
 
 	kvm_make_request(KVM_REQ_PMU, pmc->vcpu);
 }
@@ -490,7 +501,7 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 		goto reprogram_complete;
 
 	if (pmc->counter < pmc->prev_counter)
-		__kvm_perf_overflow(pmc, false);
+		__kvm_perf_overflow(pmc, false, false);
 
 	if (eventsel & ARCH_PERFMON_EVENTSEL_PIN_CONTROL)
 		printk_once("kvm pmu: pin control bit is ignored\n");
