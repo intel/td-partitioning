@@ -423,6 +423,21 @@ static inline bool is_topdown_idx(int idx)
 #define INTEL_PMC_IDX_FIXED_VLBR		(GLOBAL_STATUS_LBRS_FROZEN_BIT)
 
 /*
+ * We model guest TopDown metrics event tracing similarly.
+ *
+ * Guest metric events are recognized as vCPU process's events on host, they
+ * would be time-sharing multiplexed with other host metric events, so that
+ * we choose bit 48 (INTEL_PMC_IDX_METRIC_BASE) as the index of virtual
+ * metrics event.
+ */
+#define INTEL_PMC_IDX_FIXED_VMETRICS		(INTEL_PMC_IDX_METRIC_BASE)
+
+/*
+ * Pseudo-encoding the guest metrics event as event=0x00,umask=0x11,
+ * since it would claim bit 48 which is effectively Fixed16.
+ */
+#define INTEL_FIXED_VMETRICS_EVENT		0x1100
+/*
  * Pseudo-encoding the guest LBR event as event=0x00,umask=0x1b,
  * since it would claim bit 58 which is effectively Fixed26.
  */

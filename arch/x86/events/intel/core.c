@@ -3188,17 +3188,26 @@ intel_bts_constraints(struct perf_event *event)
 	return NULL;
 }
 
+static struct event_constraint *intel_virt_event_constraints[] __read_mostly = {
+	&vlbr_constraint,
+	&vmetrics_constraint,
+};
+
 /*
- * Note: matches a fake event, like Fixed2.
+ * Note: matches a virtual event, like vmetrics.
  */
 static struct event_constraint *
-intel_vlbr_constraints(struct perf_event *event)
+intel_virt_constraints(struct perf_event *event)
 {
-	struct event_constraint *c = &vlbr_constraint;
+	int i;
+	struct event_constraint *c;
 
-	if (unlikely(constraint_match(c, event->hw.config))) {
-		event->hw.flags |= c->flags;
-		return c;
+	for (i = 0; i < ARRAY_SIZE(intel_virt_event_constraints); i++) {
+		c = intel_virt_event_constraints[i];
+		if (unlikely(constraint_match(c, event->hw.config))) {
+			event->hw.flags |= c->flags;
+			return c;
+		}
 	}
 
 	return NULL;
@@ -3398,7 +3407,7 @@ __intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 {
 	struct event_constraint *c;
 
-	c = intel_vlbr_constraints(event);
+	c = intel_virt_constraints(event);
 	if (c)
 		return c;
 
@@ -5605,6 +5614,11 @@ static struct attribute *spr_tsx_events_attrs[] = {
 	EVENT_PTR(cycles_ct),
 	NULL,
 };
+
+struct event_constraint vmetrics_constraint =
+	__EVENT_CONSTRAINT(INTEL_FIXED_VMETRICS_EVENT,
+			   (1ULL << INTEL_PMC_IDX_FIXED_VMETRICS),
+			   FIXED_EVENT_FLAGS, 1, 0, 0);
 
 static ssize_t freeze_on_smi_show(struct device *cdev,
 				  struct device_attribute *attr,

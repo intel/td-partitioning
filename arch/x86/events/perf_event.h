@@ -1574,6 +1574,7 @@ void reserve_lbr_buffers(void);
 
 extern struct event_constraint bts_constraint;
 extern struct event_constraint vlbr_constraint;
+extern struct event_constraint vmetrics_constraint;
 
 void intel_pmu_enable_bts(u64 config);
 
