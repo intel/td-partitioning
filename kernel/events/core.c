@@ -12318,6 +12318,81 @@ perf_check_permission(struct perf_event_attr *attr, struct task_struct *task)
 	return is_capable || ptrace_may_access(task, ptrace_mode);
 }
 
+static int perf_event_group_leader_check(struct perf_event *group_leader,
+					 struct perf_event *event,
+					 struct perf_event_attr *attr,
+					 struct perf_event_context *ctx,
+					 struct pmu **pmu,
+					 int *move_group)
+{
+	if (!group_leader)
+		return 0;
+
+	/*
+	 * Do not allow a recursive hierarchy (this new sibling
+	 * becoming part of another group-sibling):
+	 */
+	if (group_leader->group_leader != group_leader)
+		return -EINVAL;
+
+	/* All events in a group should have the same clock */
+	if (group_leader->clock != event->clock)
+		return -EINVAL;
+
+	/*
+	 * Make sure we're both events for the same CPU;
+	 * grouping events for different CPUs is broken; since
+	 * you can never concurrently schedule them anyhow.
+	 */
+	if (group_leader->cpu != event->cpu)
+		return -EINVAL;
+
+	/*
+	 * Make sure we're both on the same context; either task or cpu.
+	 */
+	if (group_leader->ctx != ctx)
+		return -EINVAL;
+
+	/*
+	 * Only a group leader can be exclusive or pinned
+	 */
+	if (attr->exclusive || attr->pinned)
+		return -EINVAL;
+
+	if (is_software_event(event) &&
+	    !in_software_context(group_leader)) {
+		/*
+		 * If the event is a sw event, but the group_leader
+		 * is on hw context.
+		 *
+		 * Allow the addition of software events to hw
+		 * groups, this is safe because software events
+		 * never fail to schedule.
+		 *
+		 * Note the comment that goes with struct
+		 * perf_event_pmu_context.
+		 */
+		*pmu = group_leader->pmu_ctx->pmu;
+	} else if (!is_software_event(event)) {
+		if (is_software_event(group_leader) &&
+		    (group_leader->group_caps & PERF_EV_CAP_SOFTWARE)) {
+			/*
+			 * In case the group is a pure software group, and we
+			 * try to add a hardware event, move the whole group to
+			 * the hardware context.
+			 */
+			*move_group = 1;
+		}
+
+		/* Don't allow group of multiple hw events from different pmus */
+		if (!in_software_context(group_leader) &&
+		    group_leader->pmu_ctx->pmu != *pmu)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  * sys_perf_event_open - open a performance event, associate it to a task/cpu
  *
@@ -12512,71 +12587,9 @@ SYSCALL_DEFINE5(perf_event_open,
 		}
 	}
 
-	if (group_leader) {
-		err = -EINVAL;
-
-		/*
-		 * Do not allow a recursive hierarchy (this new sibling
-		 * becoming part of another group-sibling):
-		 */
-		if (group_leader->group_leader != group_leader)
-			goto err_locked;
-
-		/* All events in a group should have the same clock */
-		if (group_leader->clock != event->clock)
-			goto err_locked;
-
-		/*
-		 * Make sure we're both events for the same CPU;
-		 * grouping events for different CPUs is broken; since
-		 * you can never concurrently schedule them anyhow.
-		 */
-		if (group_leader->cpu != event->cpu)
-			goto err_locked;
-
-		/*
-		 * Make sure we're both on the same context; either task or cpu.
-		 */
-		if (group_leader->ctx != ctx)
-			goto err_locked;
-
-		/*
-		 * Only a group leader can be exclusive or pinned
-		 */
-		if (attr.exclusive || attr.pinned)
-			goto err_locked;
-
-		if (is_software_event(event) &&
-		    !in_software_context(group_leader)) {
-			/*
-			 * If the event is a sw event, but the group_leader
-			 * is on hw context.
-			 *
-			 * Allow the addition of software events to hw
-			 * groups, this is safe because software events
-			 * never fail to schedule.
-			 *
-			 * Note the comment that goes with struct
-			 * perf_event_pmu_context.
-			 */
-			pmu = group_leader->pmu_ctx->pmu;
-		} else if (!is_software_event(event)) {
-			if (is_software_event(group_leader) &&
-			    (group_leader->group_caps & PERF_EV_CAP_SOFTWARE)) {
-				/*
-				 * In case the group is a pure software group, and we
-				 * try to add a hardware event, move the whole group to
-				 * the hardware context.
-				 */
-				move_group = 1;
-			}
-
-			/* Don't allow group of multiple hw events from different pmus */
-			if (!in_software_context(group_leader) &&
-			    group_leader->pmu_ctx->pmu != pmu)
-				goto err_locked;
-		}
-	}
+	err = perf_event_group_leader_check(group_leader, event, &attr, ctx, &pmu, &move_group);
+	if (err)
+		goto err_locked;
 
 	/*
 	 * Now that we're certain of the pmu; find the pmu_ctx.
