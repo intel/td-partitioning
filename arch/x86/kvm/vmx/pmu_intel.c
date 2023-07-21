@@ -45,6 +45,14 @@ enum intel_pmu_architectural_events {
 	 * core crystal clock or the bus clock (yeah, "architectural").
 	 */
 	PSEUDO_ARCH_REFERENCE_CYCLES = NR_REAL_INTEL_ARCH_EVENTS,
+	/*
+	 * Pseudo-architectural event used to implement IA32_FIXED_CTR3, a.k.a.
+	 * topDown slots. The topdown slots event counts the total number of
+	 * available slots for an unhalted logical processor. The topdwon slots
+	 * event with PERF_METRICS MSR together provides support for topdown
+	 * micro-architecture analysis method.
+	 */
+	PSEUDO_ARCH_TOPDOWN_SLOTS,
 	NR_INTEL_ARCH_EVENTS,
 };
 
@@ -61,6 +69,7 @@ static struct {
 	[INTEL_ARCH_BRANCHES_MISPREDICTED]	= { 0xc5, 0x00 },
 	[INTEL_ARCH_TOPDOWN_SLOTS]		= { 0xa4, 0x01 },
 	[PSEUDO_ARCH_REFERENCE_CYCLES]		= { 0x00, 0x03 },
+	[PSEUDO_ARCH_TOPDOWN_SLOTS]		= { 0x00, 0x04 },
 };
 
 /* mapping between fixed pmc index and intel_arch_events array */
@@ -68,6 +77,7 @@ static int fixed_pmc_events[] = {
 	[0] = INTEL_ARCH_INSTRUCTIONS_RETIRED,
 	[1] = INTEL_ARCH_CPU_CYCLES,
 	[2] = PSEUDO_ARCH_REFERENCE_CYCLES,
+	[3] = PSEUDO_ARCH_TOPDOWN_SLOTS,
 };
 
 static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
