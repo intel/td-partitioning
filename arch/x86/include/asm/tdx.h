@@ -209,6 +209,99 @@ int __init tdx_init(void);
 
 /* tdxio related */
 bool tdx_io_support(void);
+
+/* Temp solution, copied from tdx_error.h */
+#define TDX_INTERRUPTED_RESUMABLE		0x8000000300000000ULL
+#define TDX_VCPU_ASSOCIATED			0x8000070100000000ULL
+#define TDX_VCPU_NOT_ASSOCIATED			0x8000070200000000ULL
+
+static inline u64 __seamcall_retry(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			         u64 r10, u64 r11, u64 r12, u64 r13, u64 r14,
+				 u64 r15,
+				 struct tdx_module_args *out, bool need_saved)
+{
+	u64 ret, retries = 0;
+
+	do {
+		if (out) {
+			*out = (struct tdx_module_args) {
+				.rcx = rcx,
+				.rdx = rdx,
+				.r8 = r8,
+				.r9 = r9,
+				.r10 = r10,
+				.r11 = r11,
+			};
+			if (need_saved) {
+				out->r12 = r12;
+				out->r13 = r13;
+				out->r14 = r14;
+				out->r15 = r15;
+				ret = __seamcall_saved_ret(op, out);
+			} else {
+				ret = __seamcall_ret(op, out);
+			}
+		} else {
+			struct tdx_module_args args = {
+				.rcx = rcx,
+				.rdx = rdx,
+				.r8 = r8,
+				.r9 = r9,
+				.r10 = r10,
+				.r11 = r11,
+			};
+			if (need_saved) {
+				args.r12 = r12;
+				args.r13 = r13;
+				args.r14 = r14;
+				args.r15 = r15;
+				ret = __seamcall_saved(op, &args);
+			} else {
+				ret = __seamcall(op, &args);
+			}
+		}
+		if (unlikely(ret == TDX_SEAMCALL_UD)) {
+			/*
+			 * SEAMCALLs fail with TDX_SEAMCALL_UD returned when VMX is off.
+			 * This can happen when the host gets rebooted or live
+			 * updated. In this case, the instruction execution is ignored
+			 * as KVM is shut down, so the error code is suppressed. Other
+			 * than this, the error is unexpected and the execution can't
+			 * continue as the TDX features reply on VMX to be on.
+			 */
+			pr_err("%s ret 0x%llx TDX_SEAMCALL_UD\n", __func__, ret);
+			return ret;
+		}
+		if (!ret ||
+		    ret == TDX_VCPU_ASSOCIATED ||
+		    ret == TDX_VCPU_NOT_ASSOCIATED ||
+		    ret == TDX_INTERRUPTED_RESUMABLE)
+			return ret;
+
+		if (retries++ > TDX_SEAMCALL_RETRY_MAX)
+			break;
+	} while (TDX_SEAMCALL_ERR_RECOVERABLE(ret));
+
+	return ret;
+}
+
+static inline u64 seamcall_retry(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			         u64 r10, u64 r11,
+				 struct tdx_module_args *out)
+{
+	return __seamcall_retry(op, rcx, rdx, r8, r9, r10, r11,
+				0, 0, 0, 0, out, false);
+}
+
+static inline u64 seamcall_retry_saved(u64 op, u64 rcx, u64 rdx, u64 r8,
+				       u64 r9, u64 r10, u64 r11, u64 r12,
+				       u64 r13, u64 r14, u64 r15,
+				       struct tdx_module_args *out)
+{
+	return __seamcall_retry(op, rcx, rdx, r8, r9, r10, r11, r12, r13, r14,
+				r15, out, true);
+}
+
 /* tdxio related end */
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
@@ -229,6 +322,20 @@ static inline int __init tdx_init(void) { return 0; }
 
 /* tdxio related */
 static inline bool tdx_io_support(void) { return false; }
+static inline u64 seamcall_retry(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			         u64 r10, u64 r11, u64 r12, u64 r13,
+			         u64 r14, u64 r15,
+			         struct tdx_module_args *out)
+{
+	return TDX_SEAMCALL_UD;
+}
+static inline u64 seamcall_retry_saved(u64 op, u64 rcx, u64 rdx, u64 r8,
+				       u64 r9, u64 r10, u64 r11, u64 r12,
+				       u64 r13, u64 r14, u64 r15,
+				       struct tdx_module_args *out)
+{
+	return TDX_SEAMCALL_UD;
+}
 /* tdxio related end */
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
