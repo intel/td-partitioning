@@ -2161,6 +2161,18 @@ static struct extra_reg intel_cmt_extra_regs[] __read_mostly = {
 	EVENT_EXTRA_END
 };
 
+EVENT_ATTR_STR(topdown-fe-bound,       td_fe_bound_skt,        "event=0x9c,umask=0x01");
+EVENT_ATTR_STR(topdown-retiring,       td_retiring_skt,        "event=0xc2,umask=0x02");
+EVENT_ATTR_STR(topdown-be-bound,       td_be_bound_skt,        "event=0xa4,umask=0x02");
+
+static struct attribute *skt_events_attrs[] = {
+       EVENT_PTR(td_fe_bound_skt),
+       EVENT_PTR(td_retiring_skt),
+       EVENT_PTR(td_bad_spec_cmt),
+       EVENT_PTR(td_be_bound_skt),
+       NULL,
+};
+
 #define KNL_OT_L2_HITE		BIT_ULL(19) /* Other Tile L2 Hit */
 #define KNL_OT_L2_HITF		BIT_ULL(20) /* Other Tile L2 Hit */
 #define KNL_MCDRAM_LOCAL	BIT_ULL(21)
@@ -6401,6 +6413,36 @@ __init int intel_pmu_init(void)
 		extra_attr = cmt_format_attr;
 		pr_cont("Crestmont events, ");
 		name = "crestmont";
+		break;
+
+	case INTEL_FAM6_CLEARWATERFOREST_X:
+	case INTEL_FAM6_CLEARWATERFOREST_D:
+		x86_pmu.mid_ack = true;
+		memcpy(hw_cache_event_ids, glp_hw_cache_event_ids,
+		       sizeof(hw_cache_event_ids));
+		memcpy(hw_cache_extra_regs, tnt_hw_cache_extra_regs,
+		       sizeof(hw_cache_extra_regs));
+		hw_cache_event_ids[C(ITLB)][C(OP_READ)][C(RESULT_ACCESS)] = -1;
+
+		x86_pmu.event_constraints = intel_skm_event_constraints;
+		x86_pmu.pebs_constraints = intel_grt_pebs_event_constraints;
+		x86_pmu.extra_regs = intel_cmt_extra_regs;
+		x86_pmu.pebs_aliases = NULL;
+		x86_pmu.pebs_prec_dist = true;
+		x86_pmu.lbr_pt_coexist = true;
+		x86_pmu.pebs_block = true;
+		x86_pmu.flags |= PMU_FL_HAS_RSP_1;
+		x86_pmu.flags |= PMU_FL_INSTR_LATENCY;
+
+		intel_pmu_pebs_data_source_cmt();
+		x86_pmu.pebs_latency_data = mtl_latency_data_small;
+		x86_pmu.get_event_constraints = cmt_get_event_constraints;
+		x86_pmu.limit_period = spr_limit_period;
+		td_attr = skt_events_attrs;
+		mem_attr = grt_mem_attrs;
+		extra_attr = cmt_format_attr;
+		pr_cont("Darkmont events, ");
+		name = "darkmont";
 		break;
 
 	case INTEL_FAM6_WESTMERE:
