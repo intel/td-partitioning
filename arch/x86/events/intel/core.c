@@ -211,7 +211,7 @@ static struct event_constraint intel_slm_event_constraints[] __read_mostly =
 	EVENT_CONSTRAINT_END
 };
 
-static struct event_constraint intel_skm_event_constraints[] __read_mostly =
+static struct event_constraint intel_skt_event_constraints[] __read_mostly =
 {
 	FIXED_EVENT_CONSTRAINT(0x00c0, 0), /* INST_RETIRED.ANY */
 	FIXED_EVENT_CONSTRAINT(0x003c, 1), /* CPU_CLK_UNHALTED.CORE */
@@ -6424,7 +6424,7 @@ __init int intel_pmu_init(void)
 		       sizeof(hw_cache_extra_regs));
 		hw_cache_event_ids[C(ITLB)][C(OP_READ)][C(RESULT_ACCESS)] = -1;
 
-		x86_pmu.event_constraints = intel_skm_event_constraints;
+		x86_pmu.event_constraints = intel_skt_event_constraints;
 		x86_pmu.pebs_constraints = intel_grt_pebs_event_constraints;
 		x86_pmu.extra_regs = intel_cmt_extra_regs;
 		x86_pmu.pebs_aliases = NULL;
@@ -7022,7 +7022,7 @@ __init int intel_pmu_init(void)
 		memcpy(pmu->hw_cache_event_ids, glp_hw_cache_event_ids, sizeof(pmu->hw_cache_event_ids));
 		memcpy(pmu->hw_cache_extra_regs, tnt_hw_cache_extra_regs, sizeof(pmu->hw_cache_extra_regs));
 		pmu->hw_cache_event_ids[C(ITLB)][C(OP_READ)][C(RESULT_ACCESS)] = -1;
-		pmu->event_constraints = intel_skm_event_constraints;
+		pmu->event_constraints = intel_skt_event_constraints;
 		pmu->pebs_constraints = intel_grt_pebs_event_constraints;
 		pmu->extra_regs = intel_cmt_extra_regs;
 		pr_cont("Lunar Lake Hybrid events, ");
