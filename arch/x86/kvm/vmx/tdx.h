@@ -52,11 +52,40 @@ struct tdx_binding_slot {
 	struct tdx_binding_slot_migtd migtd_data;
 };
 
+#define TD_DMAR_LEVEL_PASID_TBL		0x0
+#define TD_DMAR_LEVEL_PASID_DIR		0x1
+#define TD_DMAR_LEVEL_CTX_TBL		0x2
+#define TD_DMAR_LEVEL_ROOT_TBL		0x3
+#define TD_DMAR_LEVEL_INV		0x4
+
+union dmar_index {
+	struct {
+		u64 level:3;
+		u64 reserved:9;
+		u64 pasid:20;
+		u64 rid:16;
+		u64 iommu_id:16;
+	};
+	u64 raw;
+};
+
+struct tdx_iommu;
+
+struct tiommu_ct_page {
+	unsigned long va;
+	union dmar_index index;
+	struct tdx_iommu *tiommu;
+
+	struct kref ref;
+};
+
 struct tdx_iommu {
 	u64 iommu_id;
 
 	unsigned long wait_desc_pa;
 	raw_spinlock_t  invq_lock;
+
+	struct xarray ct_pages_xa;
 
 	struct kref ref;
 	struct list_head node;

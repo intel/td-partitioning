@@ -6980,42 +6980,42 @@ out:
 	return 0;
 }
 
-static int tdx_tdi_iq_inv_rte(struct tdx_tdi *ttdi)
+static int tdx_tdi_iq_inv_rte(struct tdx_iommu *tiommu, u16 rid)
 {
 	union tdxio_inv_target inv_target = { 0 };
 
-	inv_target.rid = ttdi->rid;
+	inv_target.rid = rid;
 
-	return tdx_iq_inv(ttdi->tiommu, INVAL_RTE, inv_target.raw);
+	return tdx_iq_inv(tiommu, INVAL_RTE, inv_target.raw);
 }
 
-static int tdx_tdi_iq_inv_cte(struct tdx_tdi *ttdi)
+static int tdx_tdi_iq_inv_cte(struct tdx_iommu *tiommu, u16 rid)
 {
 	union tdxio_inv_target inv_target = { 0 };
 
-	inv_target.rid = ttdi->rid;
+	inv_target.rid = rid;
 
-	return tdx_iq_inv(ttdi->tiommu, INVAL_CTE, inv_target.raw);
+	return tdx_iq_inv(tiommu, INVAL_CTE, inv_target.raw);
 }
 
-static int tdx_tdi_iq_inv_pde(struct tdx_tdi *ttdi)
+static int tdx_tdi_iq_inv_pde(struct tdx_iommu *tiommu, u16 rid, u32 pasid)
 {
 	union tdxio_inv_target inv_target = { 0 };
 
-	inv_target.rid = ttdi->rid;
-	inv_target.pasid = 0;//TODO:  CONFIRM the value
+	inv_target.rid = rid;
+	inv_target.pasid = pasid;
 
-	return tdx_iq_inv(ttdi->tiommu, INVAL_PDE, inv_target.raw);
+	return tdx_iq_inv(tiommu, INVAL_PDE, inv_target.raw);
 }
 
-static int tdx_tdi_iq_inv_pte(struct tdx_tdi *ttdi)
+static int tdx_tdi_iq_inv_pte(struct tdx_iommu *tiommu, u16 rid, u32 pasid)
 {
 	union tdxio_inv_target inv_target = { 0 };
 
-	inv_target.rid = ttdi->rid;
-	inv_target.pasid = 0;//TODO:  CONFIRM the value
+	inv_target.rid = rid;
+	inv_target.pasid = pasid;
 
-	return tdx_iq_inv(ttdi->tiommu, INVAL_PTE, inv_target.raw);
+	return tdx_iq_inv(tiommu, INVAL_PTE, inv_target.raw);
 }
 
 static int tdx_tdi_iq_inv_iotlb(struct kvm_tdx *kvm_tdx)
@@ -7033,23 +7033,6 @@ static int tdx_tdi_iq_inv_iotlb(struct kvm_tdx *kvm_tdx)
 
 	return 0;
 }
-
-#define TD_DMAR_LEVEL_PASID_TBL		0x0
-#define TD_DMAR_LEVEL_PASID_DIR		0x1
-#define TD_DMAR_LEVEL_CTX_TBL		0x2
-#define TD_DMAR_LEVEL_ROOT_TBL		0x3
-#define TD_DMAR_LEVEL_INV		0x4
-
-union dmar_index {
-	struct {
-		u64 level:3;
-		u64 reserved:9;
-		u64 pasid:20;
-		u64 rid:16;
-		u64 iommu_id:16;
-	};
-	u64 raw;
-};
 
 union dmar_param {
 	struct {
@@ -7285,6 +7268,7 @@ static struct tdx_iommu *tdx_iommu_get(u64 iommu_id)
 	tiommu->wait_desc_pa = __pa(va);
 
 	kref_init(&tiommu->ref);
+	xa_init(&tiommu->ct_pages_xa);
 
 	list_add(&tiommu->node, &global_tiommu_list);
 	mutex_unlock(&global_tiommu_lock);
@@ -7306,6 +7290,8 @@ static void tdx_iommu_release(struct kref *kref)
 	list_del(&tiommu->node);
 	mutex_unlock(&global_tiommu_lock);
 
+	WARN_ON(!xa_empty(&tiommu->ct_pages_xa));
+	xa_destroy(&tiommu->ct_pages_xa);
 	free_page((unsigned long)__va(tiommu->wait_desc_pa));
 	kfree(tiommu);
 }
@@ -7359,6 +7345,141 @@ static void tdx_iommu_del(struct kvm_tdx *kvm_tdx, struct tdx_iommu *tiommu)
 	}
 }
 
+/*
+ * for scalable mode translation only, which needs the highest bit of devnum
+ * to select Lower Context Table or Upper Context TAble.
+ */
+#define RTE_INDEX_RID_MASK	GENMASK(15, 7)
+
+static u16 rid_to_rte_index(u16 rid)
+{
+	return FIELD_GET(RTE_INDEX_RID_MASK, rid);
+}
+
+static u16 rid_base_for_rte(u16 rid)
+{
+	return rid & RTE_INDEX_RID_MASK;
+}
+
+static void __tdx_iommu_rte_release(struct kref *kref)
+{
+	struct tiommu_ct_page *ct_page = container_of(kref, struct tiommu_ct_page, ref);
+	struct tdx_iommu *tiommu = ct_page->tiommu;
+	u16 rte_index = rid_to_rte_index(ct_page->index.rid);
+	int ret;
+
+	pr_info("%s: dmar index=0x%llx, rte idx=0x%x\n", __func__,
+		ct_page->index.raw, rte_index);
+
+	__xa_erase(&tiommu->ct_pages_xa, rte_index);
+
+	tdx_iommu_dmar_block(ct_page->index);
+	tdx_tdi_iq_inv_rte(tiommu, ct_page->index.rid);
+	ret = tdx_iommu_dmar_remove(ct_page->index);
+	/* If failed, let the page stay with tdx module forever. */
+	if (!WARN_ON(ret))
+		free_page(ct_page->va);
+
+	kfree(ct_page);
+}
+
+static void tdx_iommu_rte_put(struct tdx_iommu *tiommu, u16 rid)
+{
+	u16 rte_index = rid_to_rte_index(rid);
+	struct tiommu_ct_page *ct_page;
+
+	xa_lock(&tiommu->ct_pages_xa);
+	ct_page = xa_load(&tiommu->ct_pages_xa, rte_index);
+	if (WARN_ON(!ct_page))
+		goto out;
+
+	kref_put(&ct_page->ref, __tdx_iommu_rte_release);
+
+out:
+	xa_unlock(&tiommu->ct_pages_xa);
+}
+
+static int tdx_iommu_rte_get(struct tdx_iommu *tiommu, u16 rid)
+{
+	u16 rte_index = rid_to_rte_index(rid);
+	struct tiommu_ct_page *ct_page;
+	union dmar_param p = { 0 };
+	bool retry;
+	int ret;
+
+again:
+	retry = false;
+
+	/* check existing ct_page */
+	xa_lock(&tiommu->ct_pages_xa);
+	ct_page = xa_load(&tiommu->ct_pages_xa, rte_index);
+	if (ct_page) {
+		kref_get(&ct_page->ref);
+		xa_unlock(&tiommu->ct_pages_xa);
+		return 0;
+	}
+	xa_unlock(&tiommu->ct_pages_xa);
+
+	/* create new ct_page */
+	ct_page = kzalloc(sizeof(*ct_page), GFP_KERNEL);
+	if (!ct_page)
+		return -ENOMEM;
+
+	ct_page->va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!ct_page->va) {
+		ret = -ENOMEM;
+		goto err_free_ct;
+	}
+
+	ct_page->tiommu = tiommu;
+	ct_page->index.rid = rid_base_for_rte(rid);
+	ct_page->index.iommu_id = tiommu->iommu_id;
+	ct_page->index.pasid = 0;
+	ct_page->index.level = TD_DMAR_LEVEL_ROOT_TBL;
+	kref_init(&ct_page->ref);
+
+	/* add new ct_page to xarray */
+	xa_lock(&tiommu->ct_pages_xa);
+	ret = __xa_insert(&tiommu->ct_pages_xa, rte_index, ct_page, GFP_KERNEL);
+	if (ret) {
+		/* Another ct_page is just added, free mine & get theirs */
+		if (ret == -EBUSY)
+			retry = true;
+
+		goto err_unlock;
+	}
+
+	/* Setup Root Table Entry */
+	pr_info("%s: dmar index=0x%llx, rte_index=0x%x\n", __func__,
+		ct_page->index.raw, rte_index);
+
+	tdx_iommu_dmar_read(ct_page->index, &p);
+	if (p.raw[0])
+		pr_warn("%s: rte exists!\n", __func__);
+
+	memset(&p, 0, sizeof(p));
+	p.raw[0] = __pa(ct_page->va);
+	/* Present must be 1 */
+	p.rte.present = 1;
+	tdx_iommu_dmar_add(ct_page->index, 0, &p);
+	tdx_iommu_dmar_read(ct_page->index, &p);
+
+	xa_unlock(&tiommu->ct_pages_xa);
+
+	return 0;
+
+err_unlock:
+	xa_unlock(&tiommu->ct_pages_xa);
+	free_page(ct_page->va);
+err_free_ct:
+	kfree(ct_page);
+
+	if (retry)
+		goto again;
+
+	return ret;
+}
+
 static void tdx_tdi_dmar_uinit(struct tdx_tdi *ttdi)
 {
 	struct pci_dev *pdev = ttdi->tdi->pdev;
@@ -7378,34 +7499,29 @@ static void tdx_tdi_dmar_uinit(struct tdx_tdi *ttdi)
 
 	index.level = TD_DMAR_LEVEL_PASID_TBL;
 	tdx_iommu_dmar_block(index);
-	tdx_tdi_iq_inv_pte(ttdi);
+	tdx_tdi_iq_inv_pte(ttdi->tiommu, ttdi->rid, 0);
 	ret = tdx_iommu_dmar_remove(index);
 	if (ret)
 		skip_page_reclaim = true;
 
 	index.level = TD_DMAR_LEVEL_PASID_DIR;
 	tdx_iommu_dmar_block(index);
-	tdx_tdi_iq_inv_pde(ttdi);
+	tdx_tdi_iq_inv_pde(ttdi->tiommu, ttdi->rid, 0);
 	ret = tdx_iommu_dmar_remove(index);
 	if (ret)
 		skip_page_reclaim = true;
 
 	index.level = TD_DMAR_LEVEL_CTX_TBL;
 	tdx_iommu_dmar_block(index);
-	tdx_tdi_iq_inv_cte(ttdi);
-	ret = tdx_iommu_dmar_remove(index);
-	if (ret)
-		skip_page_reclaim = true;
-
-	index.level = TD_DMAR_LEVEL_ROOT_TBL;
-	tdx_iommu_dmar_block(index);
-	tdx_tdi_iq_inv_rte(ttdi);
+	tdx_tdi_iq_inv_cte(ttdi->tiommu, ttdi->rid);
 	ret = tdx_iommu_dmar_remove(index);
 	if (ret)
 		skip_page_reclaim = true;
 
 	if (!skip_page_reclaim)
 		free_pages(ttdi->dmar_pages_va, 5);
+
+	tdx_iommu_rte_put(ttdi->tiommu, ttdi->rid);
 
 	tdx_iommu_put(ttdi->tiommu);
 }
@@ -7416,9 +7532,9 @@ static int tdx_tdi_dmar_init(struct tdx_tdi *ttdi)
 	struct kvm_tdx *kvm_tdx = ttdi->kvm_tdx;
 	union dmar_index index = { 0 };
 	union dmar_param p = { 0 };
-
 	unsigned long va, offset;
 	hpa_t pa;
+	int ret;
 
 	dev_info(&pdev->dev, "%s: dmar init\n", __func__);
 
@@ -7426,26 +7542,18 @@ static int tdx_tdi_dmar_init(struct tdx_tdi *ttdi)
 	if (IS_ERR(ttdi->tiommu))
 		return PTR_ERR(ttdi->tiommu);
 
-	va = __get_free_pages(GFP_KERNEL_ACCOUNT, 5);
-	pa = __pa(va);
-	offset = 0;
+	/* Setup Root Table Entry 1 page */
+	ret = tdx_iommu_rte_get(ttdi->tiommu, ttdi->rid);
+	if (ret)
+		return ret;
 
 	index.rid = ttdi->rid;
 	index.iommu_id = ttdi->id.iommu_id;
 	index.pasid = 0;
 
-	/* Setup Root Table Entry 1 page */
-	index.level = TD_DMAR_LEVEL_ROOT_TBL;
-	tdx_iommu_dmar_read(index, &p);
-	if (p.raw[0])
-		dev_warn(&pdev->dev, "%s: rte exists!\n", __func__);
-	memset(&p, 0, sizeof(p));
-	p.raw[0] = pa + offset;
-	/* Present must be 1 */
-	p.rte.present = 1;
-	tdx_iommu_dmar_add(index, 0, &p);
-	tdx_iommu_dmar_read(index, &p);
-	offset += PAGE_SIZE;
+	va = __get_free_pages(GFP_KERNEL_ACCOUNT, 5);
+	pa = __pa(va);
+	offset = 0;
 
 	/* Setup Context Table Entry 16 pages */
 	index.level = TD_DMAR_LEVEL_CTX_TBL;
