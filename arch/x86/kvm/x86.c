@@ -1847,6 +1847,11 @@ out:
 }
 EXPORT_SYMBOL_GPL(kvm_msr_allowed);
 
+#define CET_US_RESERVED_BITS		GENMASK(9, 6)
+#define CET_US_SHSTK_MASK_BITS		GENMASK(1, 0)
+#define CET_US_IBT_MASK_BITS		(GENMASK_ULL(5, 2) | GENMASK_ULL(63, 10))
+#define CET_US_LEGACY_BITMAP_BASE(data)	((data) >> 12)
+
 /*
  * Write @data into the MSR specified by @index.  Select MSR specific fault
  * checks are bypassed if @host_initiated is %true.
@@ -1856,6 +1861,7 @@ EXPORT_SYMBOL_GPL(kvm_msr_allowed);
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated)
 {
+	bool host_msr_reset = host_initiated && data == 0;
 	struct msr_data msr;
 
 	switch (index) {
@@ -1906,6 +1912,46 @@ static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 
 		data = (u32)data;
 		break;
+	case MSR_IA32_U_CET:
+	case MSR_IA32_S_CET:
+		if (host_msr_reset && (kvm_cpu_cap_has(X86_FEATURE_SHSTK) ||
+				       kvm_cpu_cap_has(X86_FEATURE_IBT)))
+			break;
+		if (!guest_can_use(vcpu, X86_FEATURE_SHSTK) &&
+		    !guest_can_use(vcpu, X86_FEATURE_IBT))
+			return 1;
+		if (data & CET_US_RESERVED_BITS)
+			return 1;
+		if (!guest_can_use(vcpu, X86_FEATURE_SHSTK) &&
+		    (data & CET_US_SHSTK_MASK_BITS))
+			return 1;
+		if (!guest_can_use(vcpu, X86_FEATURE_IBT) &&
+		    (data & CET_US_IBT_MASK_BITS))
+			return 1;
+		if (!IS_ALIGNED(CET_US_LEGACY_BITMAP_BASE(data), 4))
+			return 1;
+
+		/* IBT can be suppressed iff the TRACKER isn't WAIT_ENDBR. */
+		if ((data & CET_SUPPRESS) && (data & CET_WAIT_ENDBR))
+			return 1;
+		break;
+	case MSR_IA32_INT_SSP_TAB:
+		if (!guest_cpuid_has(vcpu, X86_FEATURE_LM))
+			return 1;
+		fallthrough;
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+	case MSR_KVM_SSP:
+		if (host_msr_reset && kvm_cpu_cap_has(X86_FEATURE_SHSTK))
+			break;
+		if (!guest_can_use(vcpu, X86_FEATURE_SHSTK))
+			return 1;
+		if (index == MSR_KVM_SSP && !host_initiated)
+			return 1;
+		if (is_noncanonical_address(data, vcpu))
+			return 1;
+		if (index != MSR_IA32_INT_SSP_TAB && !IS_ALIGNED(data, 4))
+			return 1;
+		break;
 	}
 
 	msr.data = data;
@@ -1947,6 +1993,23 @@ static int __kvm_get_msr(struct kvm_vcpu *vcpu, u32 index, u64 *data,
 		if (!host_initiated &&
 		    !guest_cpuid_has(vcpu, X86_FEATURE_RDTSCP) &&
 		    !guest_cpuid_has(vcpu, X86_FEATURE_RDPID))
+			return 1;
+		break;
+	case MSR_IA32_U_CET:
+	case MSR_IA32_S_CET:
+		if (!guest_can_use(vcpu, X86_FEATURE_IBT) &&
+		    !guest_can_use(vcpu, X86_FEATURE_SHSTK))
+			return 1;
+		break;
+	case MSR_IA32_INT_SSP_TAB:
+		if (!guest_cpuid_has(vcpu, X86_FEATURE_LM))
+			return 1;
+		fallthrough;
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+	case MSR_KVM_SSP:
+		if (!guest_can_use(vcpu, X86_FEATURE_SHSTK))
+			return 1;
+		if (index == MSR_KVM_SSP && !host_initiated)
 			return 1;
 		break;
 	}
@@ -4009,6 +4072,10 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		vcpu->arch.guest_fpu.xfd_err = data;
 		break;
 #endif
+	case MSR_IA32_U_CET:
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+		kvm_set_xstate_msr(vcpu, msr_info);
+		break;
 	default:
 		if (kvm_pmu_is_valid_msr(vcpu, msr))
 			return kvm_pmu_set_msr(vcpu, msr_info);
@@ -4365,6 +4432,10 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data = vcpu->arch.guest_fpu.xfd_err;
 		break;
 #endif
+	case MSR_IA32_U_CET:
+	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
+		kvm_get_xstate_msr(vcpu, msr_info);
+		break;
 	default:
 		if (kvm_pmu_is_valid_msr(vcpu, msr_info->index))
 			return kvm_pmu_get_msr(vcpu, msr_info);
