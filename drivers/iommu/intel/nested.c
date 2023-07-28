@@ -64,6 +64,52 @@ static int intel_nested_attach_dev(struct iommu_domain *domain,
 	return 0;
 }
 
+static int intel_nested_set_dev_pasid(struct iommu_domain *domain,
+				      struct device *dev, ioasid_t pasid)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
+	struct intel_iommu *iommu = info->iommu;
+	struct dev_pasid_info *dev_pasid;
+	unsigned long flags;
+	int ret = 0;
+
+	if (!pasid_supported(iommu))
+		return -EOPNOTSUPP;
+
+	if (iommu->agaw < dmar_domain->s2_domain->agaw)
+		return -EINVAL;
+
+	ret = prepare_domain_attach_device(&dmar_domain->s2_domain->domain, dev);
+	if (ret)
+		return ret;
+
+	dev_pasid = kzalloc(sizeof(*dev_pasid), GFP_KERNEL);
+	if (!dev_pasid)
+		return -ENOMEM;
+
+	ret = domain_attach_iommu(dmar_domain, iommu);
+	if (ret)
+		goto err_free;
+
+	ret = intel_pasid_setup_nested(iommu, dev, pasid, dmar_domain);
+	if (ret)
+		goto err_detach_iommu;
+
+	dev_pasid->dev = dev;
+	dev_pasid->pasid = pasid;
+	spin_lock_irqsave(&dmar_domain->lock, flags);
+	list_add(&dev_pasid->link_domain, &dmar_domain->dev_pasids);
+	spin_unlock_irqrestore(&dmar_domain->lock, flags);
+
+	return 0;
+err_detach_iommu:
+	domain_detach_iommu(dmar_domain, iommu);
+err_free:
+	kfree(dev_pasid);
+	return ret;
+}
+
 static void intel_nested_domain_free(struct iommu_domain *domain)
 {
 	kfree(to_dmar_domain(domain));
@@ -131,6 +177,7 @@ static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
 
 static const struct iommu_domain_ops intel_nested_domain_ops = {
 	.attach_dev		= intel_nested_attach_dev,
+	.set_dev_pasid		= intel_nested_set_dev_pasid,
 	.cache_invalidate_user	= intel_nested_cache_invalidate_user,
 	.cache_invalidate_user_data_len =
 		sizeof(struct iommu_hwpt_vtd_s1_invalidate),
@@ -167,6 +214,7 @@ struct iommu_domain *intel_nested_domain_alloc(struct iommu_domain *s2_domain,
 	domain->domain.ops = &intel_nested_domain_ops;
 	domain->domain.type = IOMMU_DOMAIN_NESTED;
 	INIT_LIST_HEAD(&domain->devices);
+	INIT_LIST_HEAD(&domain->dev_pasids);
 	spin_lock_init(&domain->lock);
 	xa_init(&domain->iommu_array);
 
