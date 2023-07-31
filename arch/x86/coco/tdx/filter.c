@@ -581,6 +581,9 @@ static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
 	ret = tdx_get_dev_context(devid, &func_id,
 				  &nonce0, &nonce1, &nonce2, &nonce3);
 	if (ret) {
+		if (enum_mode != MODE_SECURE)
+			return MODE_SHARED;
+
 		dev_err(dev, "failed to get dev context\n");
 		return result;
 	}

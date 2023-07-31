@@ -1415,7 +1415,6 @@ static int __tdx_service(u64 cmd, u64 resp, u64 notify, u64 timeout)
 	pr_debug("%s ret 0x%llx cmd %llx resp %llx notify %llx timeout %llx\n",
 		 __func__, ret, cmd, resp, notify, timeout);
 
-	WARN_ON(ret);
 	return ret ? -EIO : 0;
 }
 
