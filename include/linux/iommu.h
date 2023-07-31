@@ -14,6 +14,7 @@
 #include <linux/err.h>
 #include <linux/of.h>
 #include <uapi/linux/iommu.h>
+#include <uapi/linux/iommufd.h>
 
 #define IOMMU_READ	(1 << 0)
 #define IOMMU_WRITE	(1 << 1)
@@ -731,6 +732,8 @@ iommu_get_domain_for_dev_pasid(struct device *dev, ioasid_t pasid,
 ioasid_t iommu_alloc_global_pasid(struct device *dev);
 void iommu_free_global_pasid(ioasid_t pasid);
 int iommu_domain_set_trusted(struct iommu_domain *domain);
+int iommu_get_hw_info(struct device *dev, enum iommu_hw_info_type type,
+		      void *info, size_t length);
 #else /* CONFIG_IOMMU_API */
 
 struct iommu_ops {};
@@ -1101,6 +1104,13 @@ static inline ioasid_t iommu_alloc_global_pasid(struct device *dev)
 static inline void iommu_free_global_pasid(ioasid_t pasid) {}
 
 static inline int iommu_domain_set_trusted(struct iommu_domain *domain)
+{
+	return -ENODEV;
+}
+
+static inline int iommu_get_hw_info(struct device *dev,
+				    enum iommu_hw_info_type type,
+				    void *info, size_t length)
 {
 	return -ENODEV;
 }
