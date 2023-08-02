@@ -615,9 +615,9 @@ static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
 
 	tdi->intf_id.func_id = func_id;
 	tdi->nonce[0] = nonce0;
-	tdi->nonce[0] = nonce0;
-	tdi->nonce[0] = nonce0;
-	tdi->nonce[0] = nonce0;
+	tdi->nonce[1] = nonce1;
+	tdi->nonce[2] = nonce2;
+	tdi->nonce[3] = nonce3;
 
 	/*
 	 * Step 2: Device Data Collection for TDI
