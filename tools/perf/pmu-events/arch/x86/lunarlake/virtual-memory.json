@@ -1,0 +1,997 @@
+[
+    {
+        "BriefDescription": "DTLB_HWPF_MISSES.IA_EPT_WALKS",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.IA_EPT_WALKS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "First level TLB miss but second level hit; no page walk. Account for all pages sizes (4K/2M/4M/1G). DTLB prefetch accesses.",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.STLB_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x320",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "First level TLB miss but second level hit; no page walk. Account for 1G pages. DTLB prefetch accesses.",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.STLB_HIT_1G",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "First level TLB miss but second level hit; no page walk. Account for 2M pages. DTLB prefetch accesses.",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.STLB_HIT_2M",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "First level TLB miss but second level hit; no page walk. Account for 4K pages. DTLB prefetch accesses.",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.STLB_HIT_4K",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Page Walk Successfully Completed",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.WALK_COMPLETED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xe",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_HWPF_MISSES.WALK_COMPLETED_1GB",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.WALK_COMPLETED_1GB",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_HWPF_MISSES.WALK_COMPLETED_2M_4M",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.WALK_COMPLETED_2M_4M",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_HWPF_MISSES.WALK_COMPLETED_4K",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.WALK_COMPLETED_4K",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_HWPF_MISSES.WALK_PENDING",
+        "EventCode": "0x14",
+        "EventName": "DTLB_HWPF_MISSES.WALK_PENDING",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of Load triggered DTLB fills that were not shared. That is a fill has occurred after STLB hit or walk completion (of any page size); which implies no identical DTLB entry was found to merge the new fill with.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.DTLB_FILL_UNSHARED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_LOAD_MISSES.IA_EPT_WALKS",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.IA_EPT_WALKS",
+        "PublicDescription": "Counts EPT (Extended Page Table) walks of any page size (4K/2M/4M/1G) caused by a demand data loads. This implies it missed in the DTLB and further levels of TLB, but the walk need not have completed.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks initiated by a demand load that missed the first and second level TLBs.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.MISS_CAUSED_WALK",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "DTLB demand load misses with low part of linear-to-physical address translation missed",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.PDE_CACHE_MISS",
+        "PublicDescription": "This event counts the number of DTLB load misses with the low part of the linear-to-physical address translation missed. Counting covers only STLB misses.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x80",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts walks that miss the PDE_CACHE",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.PDE_CACHE_MISS",
+        "SampleAfterValue": "200003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Loads that miss the DTLB and hit the STLB.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT",
+        "PublicDescription": "Counts loads that miss the DTLB (Data TLB) and hit the STLB (Second level TLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x320",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to a demand load that did not start a page walk. Accounts for all page sizes. Will result in a DTLB write from STLB.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT",
+        "SampleAfterValue": "200003",
+        "UMask": "0x60",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Loads that miss the DTLB and hit the STLB. Account for 1G pages only",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT_1G",
+        "PublicDescription": "Counts loads that miss the DTLB (Data TLB) and hit the STLB (Second level TLB). Account for 1G pages only",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Loads that miss the DTLB and hit the STLB. Account for 2M pages only",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT_2M",
+        "PublicDescription": "Counts loads that miss the DTLB (Data TLB) and hit the STLB (Second level TLB). Account for 2M pages only",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Loads that miss the DTLB and hit the STLB. Account for 4K pages only",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT_4K",
+        "PublicDescription": "Counts loads that miss the DTLB (Data TLB) and hit the STLB (Second level TLB). Account for 4K pages only",
+        "SampleAfterValue": "100003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to a demand load that did not start a page walk. Account for 4k page size only. Will result in a DTLB write from STLB.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT_4K",
+        "SampleAfterValue": "200003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to a demand load that did not start a page walk. Account for large page sizes only. Will result in a DTLB write from STLB.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.STLB_HIT_LGPG",
+        "SampleAfterValue": "200003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Cycles when at least one PMH is busy with a page walk for a demand load.",
+        "CounterMask": "1",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_ACTIVE",
+        "PublicDescription": "Counts cycles when at least one PMH (Page Miss Handler) is busy with a page walk for a demand load.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Load miss in all TLB levels causes a page walk that completes. (All page sizes)",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts completed page walks  (all page sizes) caused by demand data loads. This implies it missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0xe",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to load DTLB misses to any page size.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts the number of page walks completed due to loads (including SW prefetches) whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to any page size. Includes page walks that page fault.",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data load to a 1G page.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts completed page walks  (1G sizes) caused by demand data loads. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to load DTLB misses to a 1G page.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts the number of page walks completed due to loads (including SW prefetches) whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 1GB pages. Includes page walks that page fault.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data load to a 2M/4M page.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts completed page walks  (2M/4M sizes) caused by demand data loads. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to load DTLB misses to a 2M or 4M page.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts the number of page walks completed due to loads (including SW prefetches) whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 2M or 4M pages. Includes page walks that page fault.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data load to a 4K page.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts completed page walks  (4K sizes) caused by demand data loads. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to load DTLB misses to a 4K page.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts the number of page walks completed due to loads (including SW prefetches) whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 4K pages. Includes page walks that page fault.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of page walks outstanding for a demand load in the PMH each cycle.",
+        "EventCode": "0x12",
+        "EventName": "DTLB_LOAD_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for a demand load in the PMH (Page Miss Handler) each cycle.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks outstanding for Loads (demand or SW prefetch) in PMH every cycle.",
+        "EventCode": "0x08",
+        "EventName": "DTLB_LOAD_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for Loads (demand or SW prefetch) in PMH every cycle.  A PMH page walk is outstanding from page walk start till PMH becomes idle again (ready to serve next walk). Includes EPT-walk intervals.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of Store triggered DTLB fills that were not shared. That is a fill has occurred after STLB hit or walk completion (of any page size); which implies no identical DTLB entry was found to merge the new fill with.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.DTLB_FILL_UNSHARED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DTLB_STORE_MISSES.IA_EPT_WALKS",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.IA_EPT_WALKS",
+        "PublicDescription": "Counts EPT (Extended Page Table) walks of any page size (4K/2M/4M/1G) caused by a demand data stores. This implies it missed in the DTLB and further levels of TLB, but the walk need not have completed.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks initiated by a store that missed the first and second level TLBs.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.MISS_CAUSED_WALK",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts walks that miss the PDE_CACHE",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.PDE_CACHE_MISS",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Stores that miss the DTLB and hit the STLB.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT",
+        "PublicDescription": "Counts stores that miss the DTLB (Data TLB) and hit the STLB (2nd Level TLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x320",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to stores that did not start a page walk. Accounts for all page sizes. Will result in a DTLB write from STLB.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x60",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Stores that miss the DTLB and hit the STLB. Account for 1G pages only",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT_1G",
+        "PublicDescription": "Counts stores that miss the DTLB (Data TLB) and hit the STLB (2nd Level TLB). Account for 1G pages only",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Stores that miss the DTLB and hit the STLB. Account for 2M pages only",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT_2M",
+        "PublicDescription": "Counts stores that miss the DTLB (Data TLB) and hit the STLB (2nd Level TLB). Account for 2M pages only",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Stores that miss the DTLB and hit the STLB. Account for 4K pages only",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT_4K",
+        "PublicDescription": "Counts stores that miss the DTLB (Data TLB) and hit the STLB (2nd Level TLB). Account for 4K pages only",
+        "SampleAfterValue": "100003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to stores that did not start a page walk. Account for 4k page size only. Will result in a DTLB write from STLB.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT_4K",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to stores that did not start a page walk. Account for large page sizes only. Will result in a DTLB write from STLB.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.STLB_HIT_LGPG",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Cycles when at least one PMH is busy with a page walk for a store.",
+        "CounterMask": "1",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_ACTIVE",
+        "PublicDescription": "Counts cycles when at least one PMH (Page Miss Handler) is busy with a page walk for a store.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Store misses in all TLB levels causes a page walk that completes. (All page sizes)",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts completed page walks  (all page sizes) caused by demand data stores. This implies it missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0xe",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to store DTLB misses to any page size.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts the number of page walks completed due to stores whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to any page size.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0xe",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data store to a 1G page.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts completed page walks  (1G sizes) caused by demand data stores. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to store DTLB misses to a 1G page.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts the number of page walks completed due to stores whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 1G pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data store to a 2M/4M page.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts completed page walks  (2M/4M sizes) caused by demand data stores. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to store DTLB misses to a 2M or 4M page.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts the number of page walks completed due to stores whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 2M or 4M pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Page walks completed due to a demand data store to a 4K page.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts completed page walks  (4K sizes) caused by demand data stores. This implies address translations missed in the DTLB and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to store DTLB misses to a 4K page.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts the number of page walks completed due to stores whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 4K pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of page walks outstanding for a store in the PMH each cycle.",
+        "EventCode": "0x13",
+        "EventName": "DTLB_STORE_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for a store in the PMH (Page Miss Handler) each cycle.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks outstanding for Stores in PMH every cycle.",
+        "EventCode": "0x49",
+        "EventName": "DTLB_STORE_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for Stores in PMH every cycle. A PMH page walk is outstanding from page walk start till PMH becomes idle again (ready to serve next walk). Includes EPT-walk intervals.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "EPT.EPDE_HIT",
+        "EventCode": "0x10",
+        "EventName": "EPT.EPDE_HIT",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts Extended Page Directory Entry misses.  The Extended Page Directory cache is used by Virtual Machine operating systems while the guest operating systems use the standard TLB caches.",
+        "EventCode": "0x4f",
+        "EventName": "EPT.EPDE_HIT",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "EPT.EPDE_MISS",
+        "EventCode": "0x10",
+        "EventName": "EPT.EPDE_MISS",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts Extended Page Directory Entry hits.  The Extended Page Directory cacje is used by Virtual Machine operating systems while the guest operating systems use the standard TLB caches.",
+        "EventCode": "0x4f",
+        "EventName": "EPT.EPDE_MISS",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "EPT.EPDPE_HIT",
+        "EventCode": "0x10",
+        "EventName": "EPT.EPDPE_HIT",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts Extended Page Directory Pointer Entry hits.  The Extended Page Directory cache is used by Virtual Machine operating systems while the guest operating systems use the standard TLB caches.",
+        "EventCode": "0x4f",
+        "EventName": "EPT.EPDPE_HIT",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "EPT.EPDPE_MISS",
+        "EventCode": "0x10",
+        "EventName": "EPT.EPDPE_MISS",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts Extended Page Directory Pointer Entry misses.  The Extended Page Directory cache is used by Virtual Machine operating systems while the guest operating systems use the standard TLB caches.",
+        "EventCode": "0x4f",
+        "EventName": "EPT.EPDPE_MISS",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "EPT.HLAT_RESTART",
+        "EventCode": "0x10",
+        "EventName": "EPT.HLAT_RESTART",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Estimated number of EPT walks",
+        "CounterMask": "1",
+        "EdgeDetect": "1",
+        "EventCode": "0x10",
+        "EventName": "EPT.WALKS",
+        "PublicDescription": "An estimated Number of EPT (Extended Page Table) walks for any request type.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles when a page walker is handling an EPT (Extended Page Table) walk for any request type.",
+        "CounterMask": "1",
+        "EventCode": "0x10",
+        "EventName": "EPT.WALK_ACTIVE",
+        "PublicDescription": "Counts cycles when at least one PMH (Page Miss Handler) is busy with an EPT (Extended Page Table) walk for any request type.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts 1 per cycle for each PMH that is busy with a EPT (Extended Page Table) walk for any request type.",
+        "EventCode": "0x10",
+        "EventName": "EPT.WALK_PENDING",
+        "PublicDescription": "Counts cycles for each PMH (Page Miss Handler) that is busy with an EPT (Extended Page Table) walk for any request type.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks outstanding for an Extended Page table walk including GTLB hits.",
+        "EventCode": "0x4f",
+        "EventName": "EPT.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for an Extended Page table walk including GTLB hits.  The Extended Page Directory cache is used by Virtual Machine operating systems while the guest operating systems use the standard TLB caches.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of times there was an ITLB miss and a new translation was filled into the ITLB.",
+        "EventCode": "0x81",
+        "EventName": "ITLB.FILLS",
+        "PublicDescription": "Counts the number of times the machine was unable to find a translation in the Instruction Translation Lookaside Buffer (ITLB) and a new translation was filled into the ITLB. The event is speculative in nature, but will not count translations (page walks) that are begun and not finished, or translations that are finished but not filled into the ITLB.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Flushing of the Instruction TLB (ITLB) pages, includes 4k/2M/4M pages.",
+        "EventCode": "0x81",
+        "EventName": "ITLB.ITLB_FLUSH",
+        "PublicDescription": "Counts the number of flushes of the big or small ITLB pages. Counting include both TLB Flush (covering all sets) and TLB Set Clear (set-specific).",
+        "SampleAfterValue": "100007",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Misses at all ITLB levels that cause page walks",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.IA_EPT_WALKS",
+        "PublicDescription": "Counts EPT (Extended Page Table) walks any page size (4K/2M/4M/1G) caused by a code fetch. This implies it missed in the ITLB (Instruction TLB) and further levels of TLB, but the walk need not have completed.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks initiated by a instruction fetch that missed the first and second level TLBs.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.MISS_CAUSED_WALK",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts walks that miss the PDE_CACHE",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.PDE_CACHE_MISS",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Instruction fetch requests that miss the ITLB and hit the STLB.",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.STLB_HIT",
+        "PublicDescription": "Counts instruction fetch requests that miss the ITLB (Instruction TLB) and hit the STLB (Second-level TLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x120",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of first level TLB misses but second level hits due to an instruction fetch that did not start a page walk. Account for all pages sizes. Will result in an ITLB write from STLB.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.STLB_HIT",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Cycles when at least one PMH is busy with a page walk for code (instruction fetch) request.",
+        "CounterMask": "1",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_ACTIVE",
+        "PublicDescription": "Counts cycles when at least one PMH (Page Miss Handler) is busy with a page walk for a code (instruction fetch) request.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Code miss in all TLB levels causes a page walk that completes. (All page sizes)",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts completed page walks (all page sizes) caused by a code fetch. This implies it missed in the ITLB (Instruction TLB) and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0xe",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to instruction fetch misses to any page size.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED",
+        "PublicDescription": "Counts the number of page walks completed due to instruction fetches whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to any page size.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0xe",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Code miss in all TLB levels causes a page walk that completes. (1G)",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts completed page walks (1G page sizes) caused by a code fetch. This implies it missed in the ITLB (Instruction TLB) and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to instruction fetch misses to a 1G page.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_1G",
+        "PublicDescription": "Counts the number of page walks completed due to instruction fetches whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 1G pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Code miss in all TLB levels causes a page walk that completes. (2M/4M)",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts completed page walks (2M/4M page sizes) caused by a code fetch. This implies it missed in the ITLB (Instruction TLB) and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to instruction fetch misses to a 2M or 4M page.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_2M_4M",
+        "PublicDescription": "Counts the number of page walks completed due to instruction fetches whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 2M or 4M pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Code miss in all TLB levels causes a page walk that completes. (4K)",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts completed page walks (4K page sizes) caused by a code fetch. This implies it missed in the ITLB (Instruction TLB) and further levels of TLB. The page walk can end with or without a fault.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks completed due to instruction fetch misses to a 4K page.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.WALK_COMPLETED_4K",
+        "PublicDescription": "Counts the number of page walks completed due to instruction fetches whose address translations missed in all Translation Lookaside Buffer (TLB) levels and were mapped to 4K pages.  Includes page walks that page fault.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of page walks outstanding for an outstanding code request in the PMH each cycle.",
+        "EventCode": "0x11",
+        "EventName": "ITLB_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for an outstanding code (instruction fetch) request in the PMH (Page Miss Handler) each cycle.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of page walks outstanding for iside in PMH every cycle.",
+        "EventCode": "0x85",
+        "EventName": "ITLB_MISSES.WALK_PENDING",
+        "PublicDescription": "Counts the number of page walks outstanding for iside in PMH every cycle.  A PMH page walk is outstanding from page walk start till PMH becomes idle again (ready to serve next walk). Includes EPT-walk intervals.  Walks could be counted by edge detecting on this event, but would count restarted suspended walks.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of occurrences a load gets blocked because of a micro TLB miss",
+        "EventCode": "0x03",
+        "EventName": "LD_BLOCKS.DTLB_MISS",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that the head (oldest load) of the load buffer is stalled due to a DTLB miss",
+        "EventCode": "0x05",
+        "EventName": "LD_HEAD.DTLB_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that the head (oldest load) of the load buffer and retirement are both stalled due to a DTLB miss.",
+        "EventCode": "0x05",
+        "EventName": "LD_HEAD.DTLB_MISS_AT_RET",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x90",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of DTLB page walker hits in the L0 or L1 or FB (Fill Buffer)",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L1",
+        "SampleAfterValue": "100003",
+        "UMask": "0x11",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of PMH walks that hit in the L1 or WCBs",
+        "EventCode": "0xbc",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L1_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of DTLB page walker hits in the L2 or XQ (External Queue)",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L2",
+        "SampleAfterValue": "100003",
+        "UMask": "0x12",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of PMH walks that hit in the L2",
+        "EventCode": "0xbc",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L2_HIT",
+        "PublicDescription": "Counts the number of PMH walks that hit in the L2.  Includes L2 Hit resulting from and L1D eviction of another core in the same module which is longer latency than a typical L2 hit.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of DTLB page walker hits in the L3 + XSNP",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L3",
+        "SampleAfterValue": "100003",
+        "UMask": "0x14",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of PMH walks that hit in the L3",
+        "EventCode": "0xbc",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_L3_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of DTLB page walker hits in Memory or other non-cache data source",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_MEMORY",
+        "SampleAfterValue": "100003",
+        "UMask": "0x18",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of PMH walks that miss the L3 and hit in memory.",
+        "EventCode": "0xbc",
+        "EventName": "PAGE_WALKER_LOADS.DTLB_MEMORY_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the DTLB that hit in the L0, L1 and FB.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_DTLB_L1",
+        "SampleAfterValue": "100003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the DTLB that hit in the L2 or XQ (External Queue).",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_DTLB_L2",
+        "SampleAfterValue": "100003",
+        "UMask": "0x42",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the DTLB that hit in the L3.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_DTLB_L3",
+        "SampleAfterValue": "100003",
+        "UMask": "0x44",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the DTLB that hit in memory or other non-cache data source.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_DTLB_MEMORY",
+        "SampleAfterValue": "100003",
+        "UMask": "0x48",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the ITLB that hit in the L0, L1 and FB.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_ITLB_L1",
+        "SampleAfterValue": "100003",
+        "UMask": "0x81",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the ITLB that hit in the L2 or XQ (External Queue).",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_ITLB_L2",
+        "SampleAfterValue": "100003",
+        "UMask": "0x82",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the ITLB that hit in the L3.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_ITLB_L3",
+        "SampleAfterValue": "100003",
+        "UMask": "0x84",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of Extended Page Table walks from the ITLB that hit in memory or other non-cache data source.",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.EPT_ITLB_MEMORY",
+        "SampleAfterValue": "100003",
+        "UMask": "0x88",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of ITLB page walker hits in the L0, L1 or FB (Fill Buffer)",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.ITLB_L1",
+        "SampleAfterValue": "100003",
+        "UMask": "0x21",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of ITLB page walker hits in the L2 or XQ (External Queue)",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.ITLB_L2",
+        "SampleAfterValue": "100003",
+        "UMask": "0x22",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of ITLB page walker hits in the L3 + XSNP",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.ITLB_L3",
+        "SampleAfterValue": "100003",
+        "UMask": "0x24",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of ITLB page walker hits in Memory or other non-cache data source",
+        "EventCode": "0x1c",
+        "EventName": "PAGE_WALKER_LOADS.ITLB_MEMORY",
+        "SampleAfterValue": "100003",
+        "UMask": "0x28",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of DTLB flushes of all entries (independent of thread specificity).",
+        "EventCode": "0x1d",
+        "EventName": "TLB_FLUSH.DTLB_ENTIRE",
+        "PublicDescription": "This event counts the number of DTLB flush attempts of all entries (without depending on thread specificity).\r\nNote: For many TLB/PMH events over count occurs when the flush operation is aborted, for example, if it was adjacent to entry lock uop.",
+        "SampleAfterValue": "100007",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "STLB flush attempts",
+        "EventCode": "0x1d",
+        "EventName": "TLB_FLUSH.STLB_ANY",
+        "PublicDescription": "Counts the number of any STLB flush attempts (such as entire, VPID, PCID, InvPage, CR3 write, etc.).",
+        "SampleAfterValue": "100007",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of STLB flushes for a specific ASID",
+        "EventCode": "0x1d",
+        "EventName": "TLB_FLUSH.STLB_ASID",
+        "PublicDescription": "This event counts the number of STLB flush attempts for the specific ASID (can be a result of either PCID or VPID dependency on OS/VMM).",
+        "SampleAfterValue": "100007",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of entire STLB flushes",
+        "EventCode": "0x1d",
+        "EventName": "TLB_FLUSH.STLB_ENTIRE",
+        "PublicDescription": "This event counts the number of entire STLB flushes.",
+        "SampleAfterValue": "100007",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of STLB flushes involving Global pages flushes",
+        "EventCode": "0x1d",
+        "EventName": "TLB_FLUSH.STLB_GLOBAL",
+        "PublicDescription": "This event counts the number of STLB flush attempts involving Global pages flush attempts (pages valid for all processes).",
+        "SampleAfterValue": "100007",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of any STLB flush attempts (Entire, PCID, InvPage, CR3 write, etc)",
+        "EventCode": "0xbd",
+        "EventName": "TLB_FLUSHES.STLB_ANY",
+        "SampleAfterValue": "20003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of second level TLB flush attempts for a specific ASID.",
+        "EventCode": "0xbd",
+        "EventName": "TLB_FLUSHES.STLB_ASID",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Count number of entire STLB flushes",
+        "EventCode": "0xbd",
+        "EventName": "TLB_FLUSHES.STLB_ENTIRE",
+        "SampleAfterValue": "20003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    }
+]

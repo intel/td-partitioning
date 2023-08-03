@@ -1,0 +1,857 @@
+[
+    {
+        "BriefDescription": "Counts available CFI.DataDRS credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.DATADRSCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.DataShared credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.DATASHAREDCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.DataWb credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.DATAWBCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.Rsp credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.NCBCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x40",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.DataDRS credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.NCSCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.Req credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.REQCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts available CFI.Rsp credits every cycle",
+        "EventCode": "0x89",
+        "EventName": "UNC_SANTA_CFI_CREDITS.RSPCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI transactions",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.ALL",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI Invalidation - InvXtoI",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.INVALIDATION",
+        "PerPkg": "1",
+        "UMask": "0x40",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI OwnershipReq ( no data) - InvItoE/InvItoM",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.OWNERSHIPREQ",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI reads - RdCurr/RdCode/RdData/RdDataMig/RdInvOwn/RdInv",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.READS",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI ReqFwdCnflt",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.REQFWDCNFLT",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI WbEtoI",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.WBETOI",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of all CFI writes",
+        "EventCode": "0x8a",
+        "EventName": "UNC_SANTA_CFI_TX_TRANSACTIONS.WRITES",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Aperture requests occupancy",
+        "EventCode": "0x48",
+        "EventName": "UNC_SANTA_CNCU_APERTURE_OCCUPANCY_ARB",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of aperture requests",
+        "EventCode": "0x47",
+        "EventName": "UNC_SANTA_CNCU_APERTURE_REQ_ARB",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles DPT is waiting for arbitration",
+        "EventCode": "0x4f",
+        "EventName": "UNC_SANTA_CNCU_DPT_CYCLES.ARB",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of times DPT event lost arbitration (first attempt)",
+        "EventCode": "0x4c",
+        "EventName": "UNC_SANTA_CNCU_DPT_EVENTS.DPT_ARB_LOST",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of times DPT event lost arbitration (all attempts)",
+        "EventCode": "0x4c",
+        "EventName": "UNC_SANTA_CNCU_DPT_EVENTS.DPT_ARB_LOSTX",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of times DPT event wins arbitration (first attempt)",
+        "EventCode": "0x4c",
+        "EventName": "UNC_SANTA_CNCU_DPT_EVENTS.DPT_ARB_WIN",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Start_Core",
+        "EventCode": "0x44",
+        "EventName": "UNC_SANTA_CNCU_LOCK_CYCLES.START",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Stop_Core and Drain_Cbo",
+        "EventCode": "0x44",
+        "EventName": "UNC_SANTA_CNCU_LOCK_CYCLES.STOP",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "MMIO Patching set0 was hit",
+        "EventCode": "0x4a",
+        "EventName": "UNC_SANTA_CNCU_MMIO_PATCHING_HIT.SET0",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "MMIO Patching set1 was hit",
+        "EventCode": "0x4a",
+        "EventName": "UNC_SANTA_CNCU_MMIO_PATCHING_HIT.SET1",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "MMIO Patching set2 was hit",
+        "EventCode": "0x4a",
+        "EventName": "UNC_SANTA_CNCU_MMIO_PATCHING_HIT.SET2",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "MMIO Patching set3 was hit",
+        "EventCode": "0x4a",
+        "EventName": "UNC_SANTA_CNCU_MMIO_PATCHING_HIT.SET3",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "This event uses the UMask as a Message Channel (MsgCh) PortID, and matches the RACU Target port against the Mask field, counting the number of times a request is going to be sent to a specific MsgCh destination from the RACU. It accounts for all types of requests.",
+        "EventCode": "0x49",
+        "EventName": "UNC_SANTA_CNCU_MSGCH_TXN_TO_DESTINATION.PORTID",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "New LT Doorbell CFI received by SANTA",
+        "EventCode": "0x42",
+        "EventName": "UNC_SANTA_CNCU_MSG_RECEIVED.DOORBELL",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "New IPI IDI received by SANTA (incase fast IPI was enabled)",
+        "EventCode": "0x42",
+        "EventName": "UNC_SANTA_CNCU_MSG_RECEIVED.IPI",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "New IntLogical/IntPhysical CFI received by SANTA",
+        "EventCode": "0x42",
+        "EventName": "UNC_SANTA_CNCU_MSG_RECEIVED.MSI",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "New VLW CFI received by SANTA",
+        "EventCode": "0x42",
+        "EventName": "UNC_SANTA_CNCU_MSG_RECEIVED.VLW",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of requests (read or writes) sent to the RACU (Register Access Control Unit).",
+        "EventCode": "0x46",
+        "EventName": "UNC_SANTA_CNCU_RACU_REQUESTS.REQUEST",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Correctable Machine Check",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.CMC",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count number of LiveLock messages received from Any Core",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.LIVELOCK",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "UNC_SANTA_CNCU_U2C_EVENTS.LTERROR",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.LTERROR",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Other events was sent to the core  PMI, PSMI, PCUSMI",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.OTHER",
+        "PerPkg": "1",
+        "UMask": "0x80",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Uncore Trap",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.TRAP",
+        "PerPkg": "1",
+        "UMask": "0x40",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Uncorrectable Machine Check",
+        "EventCode": "0x43",
+        "EventName": "UNC_SANTA_CNCU_U2C_EVENTS.UMC",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which NCQ is full",
+        "EventCode": "0x8e",
+        "EventName": "UNC_SANTA_IFA_FULL.RDIFA_FULL",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which NCQ is full -1",
+        "EventCode": "0x8e",
+        "EventName": "UNC_SANTA_IFA_FULL.RDIFA_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RSPQ is full",
+        "EventCode": "0x8e",
+        "EventName": "UNC_SANTA_IFA_FULL.WRIFA_FULL",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RSPQ is full -1",
+        "EventCode": "0x8e",
+        "EventName": "UNC_SANTA_IFA_FULL.WRIFA_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which NCQ is full",
+        "EventCode": "0x8c",
+        "EventName": "UNC_SANTA_NCQ_RSPQ_FULL.NCQ_FULL",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which NCQ is full -1",
+        "EventCode": "0x8c",
+        "EventName": "UNC_SANTA_NCQ_RSPQ_FULL.NCQ_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RSPQ is full",
+        "EventCode": "0x8c",
+        "EventName": "UNC_SANTA_NCQ_RSPQ_FULL.RSPQ_FULL",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RSPQ is full -1",
+        "EventCode": "0x8c",
+        "EventName": "UNC_SANTA_NCQ_RSPQ_FULL.RSPQ_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Total Non-Coherent Read requests received by SANTA (DRd/CRd/PRd.CRd_UC/UCRdF/RdCUrr)",
+        "EventCode": "0x82",
+        "EventName": "UNC_SANTA_NC_REQUESTS.READS",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Total Non-Coherent Write requests received by SANTA",
+        "EventCode": "0x82",
+        "EventName": "UNC_SANTA_NC_REQUESTS.WRITES",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.DRS credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.DATADRSCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.DataShared credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.DATASHAREDCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.WB credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.DATAWBCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.NCB credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.NCBCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x40",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.NCS credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.NCSCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.Req credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.REQCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts cycles without available CFI.Rsp credits",
+        "EventCode": "0x85",
+        "EventName": "UNC_SANTA_NO_CFI_CREDITS.RSPCREDIT",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "When this event is programmed to counter#1, it indicates that the input of the event programmed on counter#0 will be used by this (light) counter to calculate a cycles value, based on the counter Threshold-ing config.",
+        "EventCode": "0x70",
+        "EventName": "UNC_SANTA_OCCUPANCY_AUX.CYCLES",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RDQ is full",
+        "EventCode": "0x8b",
+        "EventName": "UNC_SANTA_RDQ_WRQ_FULL.RDQ_FULL",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which RDQ is full -1",
+        "EventCode": "0x8b",
+        "EventName": "UNC_SANTA_RDQ_WRQ_FULL.RDQ_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which WRQ is full",
+        "EventCode": "0x8b",
+        "EventName": "UNC_SANTA_RDQ_WRQ_FULL.WRQ_FULL",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in which WRQ is full -1",
+        "EventCode": "0x8b",
+        "EventName": "UNC_SANTA_RDQ_WRQ_FULL.WRQ_FULL_1",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of Clean Evictions",
+        "EventCode": "0x8f",
+        "EventName": "UNC_SANTA_REQ.CLEAN_EVICTIONS",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of dirty Evictions",
+        "EventCode": "0x8f",
+        "EventName": "UNC_SANTA_REQ.DIRTY_EVICTIONS",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Filter for SnpCode and SnpData type",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPCURDATA",
+        "PerPkg": "1",
+        "UMask": "0x40",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Filter for either SnpInv or BackInv",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPE",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Asserted when one or more of the selected snoop response type is sent back to SANTA.",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPI",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Write M to memory and invalidate my copy\nCounts RspIWb and WbMtoE over UPI.C",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPIWB",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "RspS was returned",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPS",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Write M to memory and keep my copy in S-state. Added in GSR with M2S policy.",
+        "EventCode": "0x88",
+        "EventName": "UNC_SANTA_REQTRK_SNP_RESPONSE.RSPSWB",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in prefetch state 0 (per thread)",
+        "EventCode": "0x8d",
+        "EventName": "UNC_SANTA_REQ_TRK_DPT_STATE.DPT_S0",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in prefetch state 1 (per thread)",
+        "EventCode": "0x8d",
+        "EventName": "UNC_SANTA_REQ_TRK_DPT_STATE.DPT_S1",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in prefetch state 2 (per thread)",
+        "EventCode": "0x8d",
+        "EventName": "UNC_SANTA_REQ_TRK_DPT_STATE.DPT_S2",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Number of cycles in prefetch state 3 (per thread)",
+        "EventCode": "0x8d",
+        "EventName": "UNC_SANTA_REQ_TRK_DPT_STATE.DPT_S3",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in DataQ",
+        "EventCode": "0x84",
+        "EventName": "UNC_SANTA_RXQ_ALLOCATION.DATAQ",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in LockQ",
+        "EventCode": "0x84",
+        "EventName": "UNC_SANTA_RXQ_ALLOCATION.LOCKQ",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in ReqQ",
+        "EventCode": "0x84",
+        "EventName": "UNC_SANTA_RXQ_ALLOCATION.REQQ",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in RspQ",
+        "EventCode": "0x84",
+        "EventName": "UNC_SANTA_RXQ_ALLOCATION.RSPQ",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in DataQ",
+        "EventCode": "0x83",
+        "EventName": "UNC_SANTA_RXQ_OCCUPANCY.DATAQ",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in LockQ",
+        "EventCode": "0x83",
+        "EventName": "UNC_SANTA_RXQ_OCCUPANCY.LOCKQ",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in ReqQ",
+        "EventCode": "0x83",
+        "EventName": "UNC_SANTA_RXQ_OCCUPANCY.REQQ",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in RspQ",
+        "EventCode": "0x83",
+        "EventName": "UNC_SANTA_RXQ_OCCUPANCY.RSPQ",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in RdIFA",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TRQ_OCCUPANCY.RDIFA",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in NCQ",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.NCQ",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in RdIFA",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.RDIFA",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in RDQ",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.RDQ",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count allocations in RspQ",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.RSPQ",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count CL in WRQ for DRS only",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.WRQ_DRS",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Count CL in WRQ for WB only",
+        "EventCode": "0x81",
+        "EventName": "UNC_SANTA_TXQ_ALLOCATION.WRQ_WB",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in NCQ",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TXQ_OCCUPANCY.NCQ",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in RDQ",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TXQ_OCCUPANCY.RDQ",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of allocated entries in RspQ",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TXQ_OCCUPANCY.RSPQ",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of CL in WRQ for DRS only",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TXQ_OCCUPANCY.WRQ_DRS",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Each cycle count number of CL in WRQ for WB only",
+        "EventCode": "0x80",
+        "EventName": "UNC_SANTA_TXQ_OCCUPANCY.WRQ_WB",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts the number of available U2C credits (any data credits) every cycle",
+        "EventCode": "0x71",
+        "EventName": "UNC_SANTA_U2C_CREDITS.DATA_BL",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts the number of available U2C credits (IPQ credits) every cycle",
+        "EventCode": "0x71",
+        "EventName": "UNC_SANTA_U2C_CREDITS.REQ",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counts the number of available U2C credits (any rsponse credits) every cycle",
+        "EventCode": "0x71",
+        "EventName": "UNC_SANTA_U2C_CREDITS.RSP",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "SANTA"
+    },
+    {
+        "BriefDescription": "Counting the number of Lock cycles",
+        "EventCode": "0x04",
+        "EventName": "UNC_SNCU_LOCK_CYCLES.LOCKS",
+        "PerPkg": "1",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Incoming LT Doorbell requests",
+        "EventCode": "0x02",
+        "EventName": "UNC_SNCU_MSG_RECEIVED.DOORBELL",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Incoming IntPrioUpd requests",
+        "EventCode": "0x02",
+        "EventName": "UNC_SNCU_MSG_RECEIVED.INT_PRIO_UPDATE",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Incoming IPI requests",
+        "EventCode": "0x02",
+        "EventName": "UNC_SNCU_MSG_RECEIVED.IPI",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Incoming MSI requests",
+        "EventCode": "0x02",
+        "EventName": "UNC_SNCU_MSG_RECEIVED.MSI",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Incoming VLW requests",
+        "EventCode": "0x02",
+        "EventName": "UNC_SNCU_MSG_RECEIVED.VLW",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing Correctable-Machine-Check events",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.CMC",
+        "PerPkg": "1",
+        "UMask": "0x4",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing LLB events",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.LIVELOCK",
+        "PerPkg": "1",
+        "UMask": "0x1",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing LTError events",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.LTERROR",
+        "PerPkg": "1",
+        "UMask": "0x2",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing events not listed above",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.OTHERS",
+        "PerPkg": "1",
+        "UMask": "0x20",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing Uncore-Trap events",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.TRAP",
+        "PerPkg": "1",
+        "UMask": "0x10",
+        "Unit": "sNCU"
+    },
+    {
+        "BriefDescription": "Outgoing Uncorrectable-Machine-Check events",
+        "EventCode": "0x03",
+        "EventName": "UNC_SNCU_U2C_EVENTS.UMC",
+        "PerPkg": "1",
+        "UMask": "0x8",
+        "Unit": "sNCU"
+    }
+]

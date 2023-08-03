@@ -1,0 +1,2966 @@
+[
+    {
+        "BriefDescription": "Counts the number of request that were not accepted into the L2Q because the L2Q is FULL.",
+        "EventCode": "0x31",
+        "EventName": "CORE_REJECT_L2Q.ANY",
+        "PublicDescription": "Counts the number of (demand and L1 prefetchers) core requests rejected by the L2Q due to a full or nearly full w condition which likely indicates back pressure from L2Q.  It also counts requests that would have gone directly to the XQ, but are rejected due to a full or nearly full condition, indicating back pressure from the IDI link.  The L2Q may also reject transactions  from a core to insure fairness between cores, or to delay a cores dirty eviction when the address conflicts incoming external snoops.  (Note that L2 prefetcher requests that are dropped are not counted by this event.)",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of cycles a demand request has waited due to L1D Fill Buffer (FB) unavailability.",
+        "EventCode": "0x49",
+        "EventName": "DCACHE_MISS.FB_FULL",
+        "PublicDescription": "Counts number of cycles a demand request has waited due to L1D Fill Buffer (FB) unavailablability. Demand requests include cacheable/uncacheable demand load, store, lock or SW prefetch accesses.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of phases a demand request has waited due to L1D Fill Buffer (FB) unavailability.",
+        "CounterMask": "1",
+        "EdgeDetect": "1",
+        "EventCode": "0x49",
+        "EventName": "DCACHE_MISS.FB_FULL_PERIODS",
+        "PublicDescription": "Counts number of phases a demand request has waited due to L1D Fill Buffer (FB) unavailability. Demand requests include cacheable/uncacheable demand load, store, lock or SW prefetch accesses.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of cycles a demand request has waited due to L1D due to lack of L2 resources.",
+        "EventCode": "0x49",
+        "EventName": "DCACHE_MISS.L2_STALLS",
+        "PublicDescription": "Counts number of cycles a demand request has waited due to L1D due to lack of L2 resources. Demand requests include cacheable/uncacheable demand load, store, lock or SW prefetch accesses.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of demand requests that missed L1D cache",
+        "EventCode": "0x49",
+        "EventName": "DCACHE_MISS.LOAD",
+        "PublicDescription": "Count occurrences (rising-edge) of DCACHE_PENDING sub-event0. Impl. sends per-port binary inc-bit the occupancy increases* (at FB alloc or promotion).",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of L1D misses that are outstanding",
+        "EventCode": "0x48",
+        "EventName": "DCACHE_PENDING.LOAD",
+        "PublicDescription": "Counts number of L1D misses that are outstanding in each cycle, that is each cycle the number of Fill Buffers (FB) outstanding required by Demand Reads. FB either is held by demand loads, or it is held by non-demand loads and gets hit at least once by demand. The valid outstanding interval is defined until the FB deallocation by one of the following ways: from FB allocation, if FB is allocated by demand from the demand Hit FB, if it is allocated by hardware or software prefetch. Note: In the L1D, a Demand Read contains cacheable or noncacheable demand loads, including ones causing cache-line splits and reads due to page walks resulted from any request type.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles with L1D load Misses outstanding.",
+        "CounterMask": "1",
+        "EventCode": "0x48",
+        "EventName": "DCACHE_PENDING.LOAD_CYCLES",
+        "PublicDescription": "Counts duration of L1D miss outstanding in cycles.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L1D cacheline (dirty) evictions caused by load misses, stores, and prefetches.",
+        "EventCode": "0x51",
+        "EventName": "DL1.DIRTY_EVICTION",
+        "PublicDescription": "Counts the number of L1D cacheline (dirty) evictions caused by load misses, stores, and prefetches.  Does not count evictions or dirty writebacks caused by snoops.  Does not count a replacement unless a (dirty) line was written back.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles fetch stalls because of an icache miss. This is a cummulative count of cycles stalled for all icache misses.",
+        "EventCode": "0x86",
+        "EventName": "FETCH_STALL.ICACHE_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.E_ANY",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.E_ANY",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1c4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cases when invalidated snoops from Uncore find L1D cache lines in E state",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.E_SNOOP2I",
+        "PublicDescription": "This event counts cases when invalidated snoops from Uncore find L1D cache lines in the Exclusive state.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x84",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.E_SNOOP2S",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.E_SNOOP2S",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x44",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.I_ANY",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.I_ANY",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1c1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Invalidated snoops from Uncore that find L1D cache line in I state",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.I_SNOOP2I",
+        "PublicDescription": "This event counts invalidated snoops from Uncore that find L1D cache line in the Invalidate state.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x81",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.I_SNOOP2S",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.I_SNOOP2S",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.M_ANY",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.M_ANY",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1c8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.M_SNOOP2I",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.M_SNOOP2I",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x88",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.M_SNOOP2S",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.M_SNOOP2S",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x48",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.S_ANY",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.S_ANY",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1c2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "A snoop from Uncore find DCU cache line in S-state.",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.S_SNOOP2I",
+        "PublicDescription": "This event counts cases when invalidated snoops from Uncore find L1D cache lines in the Shared state.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x82",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D_SNOOP_RESPONSE.S_SNOOP2S",
+        "EventCode": "0x41",
+        "EventName": "L1D_SNOOP_RESPONSE.S_SNOOP2S",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x42",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 cache lines filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.ALL",
+        "PublicDescription": "Counts the number of L2 cache lines filling the L2. Counting does not cover rejects.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 cache lines in E state filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.E",
+        "PublicDescription": "This event counts the number of L2 cache lines in the Exclusive state filling the L2. Counting does not cover rejects.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines filled into the L2 cache that are in Exclusive state",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.E",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L2 cache lines in F state filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.F",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines filled into the L2 cache that are in Forward state",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.F",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L2 cache lines in I state filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.I",
+        "PublicDescription": "This event counts the number of L2 cache lines in the Invalidate state filling the L2. Counting does not cover rejects.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines filled into the L2 cache that are in Invalid state",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.I",
+        "PublicDescription": "Counts the number of cache lines filled into the L2 cache that are in Invalid state, does not count lines that go Invalid due to an eviction",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L2 cache lines in M state filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.M",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines filled into the L2 cache that are in Modified state",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.M",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L2 cache lines in S state filling L2",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.S",
+        "PublicDescription": "This event counts the number of L2 cache lines in the Shared state filling the L2. Counting does not cover rejects.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines filled into the L2 cache that are in Shared state",
+        "EventCode": "0x25",
+        "EventName": "L2_LINES_IN.S",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Modified cache lines that are evicted by L2 cache when triggered by an L2 cache fill.",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.NON_SILENT",
+        "PublicDescription": "Counts the number of lines that are evicted by L2 cache when triggered by an L2 cache fill. Those lines are in Modified state. Modified lines are written back to L3",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 cache lines that are evicted due to an L2 cache fill",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.NON_SILENT",
+        "PublicDescription": "Counts the number of L2 cache lines that are evicted due to an L2 cache fill. Increments on the core that brought the line in originally.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Non-modified cache lines that are silently dropped by L2 cache when triggered by an L2 cache fill.",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.SILENT",
+        "PublicDescription": "Counts the number of lines that are silently dropped by L2 cache when triggered by an L2 cache fill. These lines are typically in Shared or Exclusive state. A non-threaded event.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 cache lines that are silently dropped due to an L2 cache fill",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.SILENT",
+        "PublicDescription": "Counts the number of L2 cache lines that are silently dropped due to an L2 cache fill.  Increments on the core that brought the line in originally.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Cache lines that have been L2 hardware prefetched but not used by demand accesses",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.USELESS_HWPF",
+        "PublicDescription": "Counts the number of cache lines that have been prefetched by the L2 hardware prefetcher but not used by demand access when evicted from the L2 cache",
+        "SampleAfterValue": "200003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 cache lines that have been L2 hardware prefetched but not used by demand accesses",
+        "EventCode": "0x26",
+        "EventName": "L2_LINES_OUT.USELESS_HWPF",
+        "PublicDescription": "Counts the number of L2 cache lines that have been L2 hardware prefetched but not used by demand accesses.  Increments on the core that brought the line in originally.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 prefetches initiated by either the L2 Stream or AMP that were  throttled due to Dynamic Prefetch Throttling. The throttle requestor/source could be from the uncore/SOC or the Dead Block Predictor.  Counts on a per core basis.",
+        "EventCode": "0x28",
+        "EventName": "L2_PREFETCHES_THROTTLED.DPT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 prefetches initiated by the L2 Stream that were throttled due to Demand Throttle Prefetcher.  DTP Global Triggered with no Local Override. Counts on a per core basis.",
+        "EventCode": "0x28",
+        "EventName": "L2_PREFETCHES_THROTTLED.DTP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 prefetches initiated by the L2 Stream and not throttled by DTP due to local override.  These prefetches may still be throttled due to another throttler mechanism besides DTP. Counts on a per core basis.",
+        "EventCode": "0x28",
+        "EventName": "L2_PREFETCHES_THROTTLED.DTP_OVERRIDE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 prefetches initiated by either the L2 Stream or AMP that were throttled due to exceeding the XQ threshold set by either XQ_THRESOLD_DTP or XQ_THRESHOLD. Counts on a per core basis.",
+        "EventCode": "0x28",
+        "EventName": "L2_PREFETCHES_THROTTLED.XQ_THRESH",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Any reject type. Account for Rejects for all agents including HWP. All reject types included - incl. Same set, DCU WB match, SMC, Load/RFO conflict, etc",
+        "EventCode": "0x22",
+        "EventName": "L2_REJECTS.ALL",
+        "SampleAfterValue": "200003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of demand and prefetch transactions that the L2 XQ rejects due to a full or near full condition which likely indicates back pressure from the IDI link.  The XQ may reject transactions from the L2Q (non-cacheable requests), BBS (L2 misses",
+        "EventCode": "0x30",
+        "EventName": "L2_REJECT_XQ.ANY",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "All accesses to L2 cache [This event is alias to L2_RQSTS.REFERENCES, L2_RQSTS.ANY]",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.ALL",
+        "PublicDescription": "Counts all requests that were hit or true misses in L2 cache. True-miss excludes misses that were merged with ongoing L2 misses. [This event is alias to L2_RQSTS.REFERENCES, L2_RQSTS.ANY]",
+        "SampleAfterValue": "200003",
+        "UMask": "0xff",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 Cache Accesses Counts the total number of L2 Cache Accesses - sum of hits, misses, rejects  front door requests for CRd/DRd/RFO/ItoM/L2 Prefetches only, per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.ALL",
+        "PublicDescription": "Counts the number of L2 Cache Accesses Counts the total number of L2 Cache Accesses - sum of hits, misses, rejects  front door requests for CRd/DRd/RFO/ItoM/L2 Prefetches only.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x7",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the total number of L2 Cache Accesses - sum of hits, misses, rejects, external snoops, per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.ALL_PRIVATE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xf",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "All requests that hit L2 cache. [This event is alias to L2_RQSTS.HIT]",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.HIT",
+        "PublicDescription": "Counts all requests that hit L2 cache. [This event is alias to L2_RQSTS.HIT]",
+        "SampleAfterValue": "200003",
+        "UMask": "0x5f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 Cache Accesses that resulted in a Hit from a front door request only (does not include rejects or recycles), per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Read requests with true-miss in L2 cache [This event is alias to L2_RQSTS.MISS]",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.MISS",
+        "PublicDescription": "Counts read requests of any type with true-miss in the L2 cache. True-miss excludes L2 misses that were merged with ongoing L2 misses. [This event is alias to L2_RQSTS.MISS]",
+        "SampleAfterValue": "200003",
+        "UMask": "0x3f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of total L2 Cache Accesses that resulted in a Miss from a front door request only (does not include rejects or recycles), per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 Cache Accesses that miss the L2 and get BBL reject  short and long rejects (includes those counted in L2_reject_XQ.any), per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.REJECTS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of L2 Cache Accesses due to a snoop that can result in a hit or miss but not included in L2_request.hit or L2_request.miss (this only includes the first pass of the snoops, not the second pass read the data or change the state), per core event",
+        "EventCode": "0x24",
+        "EventName": "L2_REQUEST.SNOOPS",
+        "PublicDescription": "Counts the number of L2 Cache Accesses due to a snoop that can result in a hit or miss but not included in L2_request.hit or L2_request.miss (this only includes the first pass of the snoops, not the second pass read the data or change the state).",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "L2 code requests",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_CODE_RD",
+        "PublicDescription": "Counts the total number of L2 code requests.",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read access L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_DEMAND_DATA_RD",
+        "PublicDescription": "Counts Demand Data Read requests accessing the L2 cache. These requests may hit or miss L2 cache. True-miss exclude misses that were merged with ongoing L2 misses. An access is counted once.",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand requests that miss L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_DEMAND_MISS",
+        "PublicDescription": "Counts demand requests that miss L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x27",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand requests to L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_DEMAND_REFERENCES",
+        "PublicDescription": "Counts demand requests to L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe7",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2_RQSTS.ALL_HWPF",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_HWPF",
+        "SampleAfterValue": "200003",
+        "UMask": "0xf0",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RFO requests to L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_RFO",
+        "PublicDescription": "Counts the total number of RFO (read for ownership) requests to L2 cache. L2 RFO requests include both L1D demand RFO misses as well as L1D RFO prefetches.",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2_RQSTS.ALL_SWPF",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ALL_SWPF",
+        "SampleAfterValue": "200003",
+        "UMask": "0xe8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "All accesses to L2 cache [This event is alias to L2_RQSTS.REFERENCES, L2_REQUEST.ALL]",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ANY",
+        "PublicDescription": "Counts all requests that were hit or true misses in L2 cache. True-miss excludes misses that were merged with ongoing L2 misses. [This event is alias to L2_RQSTS.REFERENCES, L2_REQUEST.ALL]",
+        "SampleAfterValue": "200003",
+        "UMask": "0xff",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Any request in shadow of ongoing request in XQ",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.ANY_XQ",
+        "SampleAfterValue": "200003",
+        "UMask": "0x9f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 cache hits when fetching instructions, code reads.",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.CODE_RD_HIT",
+        "PublicDescription": "Counts L2 cache hits when fetching instructions, code reads.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x44",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 cache misses when fetching instructions",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.CODE_RD_MISS",
+        "PublicDescription": "Counts L2 cache misses when fetching instructions.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x24",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read requests that hit L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.DEMAND_DATA_RD_HIT",
+        "PublicDescription": "Counts the number of demand Data Read requests initiated by load instructions that hit L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read miss L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.DEMAND_DATA_RD_MISS",
+        "PublicDescription": "Counts demand Data Read requests with true-miss in the L2 cache. True-miss excludes misses that were merged with ongoing L2 misses. An access is counted once.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x21",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read XQ Promotion, no rejects",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.DEMAND_DATA_RD_PROMO",
+        "PublicDescription": "Counts the number of demand Data Read requests that were promoted in L2 cache's XQ (External Queue). Only not rejected loads are counted.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x81",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "All requests that hit L2 cache. [This event is alias to L2_REQUEST.HIT]",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.HIT",
+        "PublicDescription": "Counts all requests that hit L2 cache. [This event is alias to L2_REQUEST.HIT]",
+        "SampleAfterValue": "200003",
+        "UMask": "0x5f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of HW prefetch requests that hit the L2 cache.",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.HWPF_HIT",
+        "PublicDescription": "Counts the HW prefetch requests that hit the L2 cache. This event accounts for all HW prefetches: DCU, MLC prefetches for Load, RFO and Code requests, regardless of prefetch destination (MLC or LLC).",
+        "SampleAfterValue": "200003",
+        "UMask": "0x50",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2_RQSTS.HWPF_MISS",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.HWPF_MISS",
+        "SampleAfterValue": "200003",
+        "UMask": "0x30",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Read requests with true-miss in L2 cache [This event is alias to L2_REQUEST.MISS]",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.MISS",
+        "PublicDescription": "Counts read requests of any type with true-miss in the L2 cache. True-miss excludes L2 misses that were merged with ongoing L2 misses. [This event is alias to L2_REQUEST.MISS]",
+        "SampleAfterValue": "200003",
+        "UMask": "0x3f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Requests from the L1/L2/L3 hardware prefetchers or Load software prefetches that hit L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.PF_HIT",
+        "SampleAfterValue": "200003",
+        "UMask": "0x58",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "All accesses to L2 cache [This event is alias to L2_REQUEST.ALL,L2_RQSTS.ANY]",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.REFERENCES",
+        "PublicDescription": "Counts all requests that were hit or true misses in L2 cache. True-miss excludes misses that were merged with ongoing L2 misses. [This event is alias to L2_REQUEST.ALL,L2_RQSTS.ANY]",
+        "SampleAfterValue": "200003",
+        "UMask": "0xff",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RFO requests that hit L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.RFO_HIT",
+        "PublicDescription": "Counts the RFO (Read-for-Ownership) requests that hit L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x42",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RFO requests that miss L2 cache",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.RFO_MISS",
+        "PublicDescription": "Counts the RFO (Read-for-Ownership) requests that miss L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x22",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RFO requests that got XQ Promotion.",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.RFO_PROMO",
+        "PublicDescription": "Counts the RFO (Read-for-Ownership) requests that were promoted in L2 cache's XQ (External Queue).",
+        "SampleAfterValue": "200003",
+        "UMask": "0x82",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "SW prefetch requests that hit L2 cache.",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.SWPF_HIT",
+        "PublicDescription": "Counts Software prefetch requests that hit the L2 cache. Accounts for PREFETCHNTA and PREFETCHT0/1/2 instructions when FB is not full.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x48",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "SW prefetch requests that miss L2 cache.",
+        "EventCode": "0x24",
+        "EventName": "L2_RQSTS.SWPF_MISS",
+        "PublicDescription": "Counts Software prefetch requests that miss the L2 cache. Accounts for PREFETCHNTA and PREFETCHT0/1/2 instructions when FB is not full.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x28",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Transactions accessing L2 pipe",
+        "EventCode": "0x23",
+        "EventName": "L2_TRANS.ALL_REQUESTS",
+        "PublicDescription": "This event counts transactions that access the L2 pipe including snoops, pagewalks, and so on.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x80",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read requests that access L2 cache",
+        "EventCode": "0x23",
+        "EventName": "L2_TRANS.DEMAND_DATA_RD",
+        "PublicDescription": "This event counts Demand Data Read requests that access L2 cache, including rejects.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L1D writebacks that access L2 cache",
+        "EventCode": "0x23",
+        "EventName": "L2_TRANS.L1D_WB",
+        "PublicDescription": "This event counts L1D writebacks that access L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 fill requests that access L2 cache",
+        "EventCode": "0x23",
+        "EventName": "L2_TRANS.L2_FILL",
+        "PublicDescription": "This event counts L2 fill requests that access L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L2 writebacks that access L2 cache",
+        "EventCode": "0x23",
+        "EventName": "L2_TRANS.L2_WB",
+        "PublicDescription": "Counts L2 writebacks that access L2 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles when L1D is locked",
+        "EventCode": "0x42",
+        "EventName": "LOCK_CYCLES.CACHE_LOCK_DURATION",
+        "PublicDescription": "This event counts the number of cycles when the L1D is locked.",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Core-originated cacheable requests that missed L3  (Except hardware prefetches to the L3)",
+        "EventCode": "0x2e",
+        "EventName": "LONGEST_LAT_CACHE.MISS",
+        "PublicDescription": "Counts core-originated cacheable requests that miss the L3 cache (Longest Latency cache). Requests include data and code reads, Reads-for-Ownership (RFOs), speculative accesses and hardware prefetches to the L1 and L2.  It does not include hardware prefetches to the L3, and may not count other types of requests to the L3.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cacheable memory requests that miss in the LLC. Counts on a per core basis.",
+        "EventCode": "0x2e",
+        "EventName": "LONGEST_LAT_CACHE.MISS",
+        "PublicDescription": "Counts the number of cacheable memory requests that miss in the Last Level Cache (LLC). Requests include demand loads, reads for ownership (RFO), instruction fetches and L1 HW prefetches. If the platform has an L3 cache, the LLC is the L3 cache, otherwise it is the L2 cache. Counts on a per core basis.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x41",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Core-originated cacheable requests that refer to L3 (Except hardware prefetches to the L3)",
+        "EventCode": "0x2e",
+        "EventName": "LONGEST_LAT_CACHE.REFERENCE",
+        "PublicDescription": "Counts core-originated cacheable requests to the L3 cache (Longest Latency cache). Requests include data and code reads, Reads-for-Ownership (RFOs), speculative accesses and hardware prefetches to the L1 and L2.  It does not include hardware prefetches to the L3, and may not count other types of requests to the L3.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4f",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cacheable memory requests that access the LLC. Counts on a per core basis.",
+        "EventCode": "0x2e",
+        "EventName": "LONGEST_LAT_CACHE.REFERENCE",
+        "PublicDescription": "Counts the number of cacheable memory requests that access the Last Level Cache (LLC). Requests include demand loads, reads for ownership (RFO), instruction fetches and L1 HW prefetches. If the platform has an L3 cache, the LLC is the L3 cache, otherwise it is the L2 cache. Counts on a per core basis.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4f",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all complete load uops that accessed 16 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.LD_16B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x11",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete load uops that accessed 32 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.LD_32B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x21",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete load uops that accessed 4 Bytes or less",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.LD_4B_OR_LESS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete load uops that accessed 64 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.LD_64B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete load uops that accessed 8 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.LD_8B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x9",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete STA uops that accessed 16 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.STA_16B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x12",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete STA uops that accessed 32 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.STA_32B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x22",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete STA uops that accessed 4 Bytes or less",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.STA_4B_OR_LESS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete STA uops that accessed 64 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.STA_64B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x42",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all complete STA uops that accessed 8 Bytes",
+        "EventCode": "0x04",
+        "EventName": "MEM_ACCESS_SIZE.STA_8B",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xa",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the core is stalled due to an instruction cache or TLB miss.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.ALL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6f",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the core is stalled due to an instruction cache or TLB miss which hit in the L2 cache.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.L2_HIT",
+        "PublicDescription": "Counts the number of cycles the core is stalled due to an instruction cache or Translation Lookaside Buffer (TLB) miss which hit in the L2 cache.  Includes L2 Hit resulting from and L1D eviction of another core in the same module which is longer latency than a typical L2 hit.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb miss which hit in the LLC.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles that the core is stalled due to an icache or itlb miss which hit in the LLC, no snoop was required, and the LLC provided data",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_HIT_NOSNOOP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb miss which hit in the LLC, a snoop was required, the snoop misses or the snoop hits but no fwd. LLC provides the data",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_HIT_SNOOP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb miss which missed all the caches.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x68",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb miss which missed all the caches. Local DRAM, MMIO or other local memory type provides the data.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_MISS_LOCALMEM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb which missed all the caches, a snoop was required, and hits in other core or module on same die.  Another core provides the data with a fwd, no fwd, or hitM.",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_MISS_OTHERMOD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an icache or itlb miss which missed all the local caches and memory, and hits in a remote memory.  Other NUMA cluster or other DIE provides the data",
+        "EventCode": "0x35",
+        "EventName": "MEM_BOUND_STALLS_IFETCH.LLC_MISS_REMOTEMEM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to an L1 demand load miss.",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.ALL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6f",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the core is stalled due to a demand load which hit in the L2 cache.",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.L2_HIT",
+        "PublicDescription": "Counts the number of cycles a core is stalled due to a demand load which hit in the L2 cache.  Includes L2 Hit resulting from and L1D eviction of another core in the same module which is longer latency than a typical L2 hit.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which hit in the LLC.",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles that the core is stalled due to a demand load miss which hit in the LLC, no snoop was required, and the LLC provided data",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_HIT_NOSNOOP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which hit in the LLC, a snoop was required, the snoop misses or the snoop hits but no fwd. LLC provides the data",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_HIT_SNOOP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which missed all the local caches.",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x68",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which missed all the caches.  DRAM, MMIO or other LOCAL memory type provides the data",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_MISS_LOCALMEM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which missed all the caches, a snoop was required, and hits in other core or module on same die.  Another core provides the data with a fwd, no fwd, or hitM.",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_MISS_OTHERMOD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled due to a demand load miss which missed all the local caches and memory, and hits in a remote memory.  Other NUMA cluster or other DIE provides the data",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.LLC_MISS_REMOTEMEM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles when the core is stalled to a store buffer full condition",
+        "EventCode": "0x34",
+        "EventName": "MEM_BOUND_STALLS_LOAD.SBFULL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.ALL_LOADS",
+        "PEBS": "1",
+        "PublicDescription": "Counts all retired load instructions. This event accounts for SW prefetch instructions of PREFETCHNTA or PREFETCHT0/1/2 or PREFETCHW.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x81",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired store instructions.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.ALL_STORES",
+        "PEBS": "1",
+        "PublicDescription": "Counts all retired store instructions.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x82",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired software prefetch instructions.",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.ALL_SWPF",
+        "PublicDescription": "Counts all retired software prefetch instructions.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x84",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "All retired memory instructions.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.ANY",
+        "PEBS": "1",
+        "PublicDescription": "Counts all retired memory instructions - loads and stores.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x87",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions with locked access.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.LOCK_LOADS",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with locked access.",
+        "SampleAfterValue": "100007",
+        "UMask": "0x21",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of lock store instructions retired",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.LOCK_STORES",
+        "PEBS": "1",
+        "SampleAfterValue": "100007",
+        "UMask": "0x22",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of lock software prefetch instructions retired",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.LOCK_SWPF",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x24",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions that split across a cacheline boundary.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.SPLIT_LOADS",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions that split across a cacheline boundary.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired store instructions that split across a cacheline boundary.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.SPLIT_STORES",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired store instructions that split across a cacheline boundary.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x42",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired SWPF instructions that split across a cacheline boundary.",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.SPLIT_SWPF",
+        "PublicDescription": "Counts retired SWPF instructions that split across a cacheline boundary.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x44",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions that hit the STLB.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_HIT_LOADS",
+        "PEBS": "1",
+        "PublicDescription": "Number of retired load instructions with a clean hit in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x9",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired store instructions that hit the STLB.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_HIT_STORES",
+        "PEBS": "1",
+        "PublicDescription": "Number of retired store instructions that hit in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0xa",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired SWPF instructions that hit the STLB.",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_HIT_SWPF",
+        "PublicDescription": "Number of retired SWPF instructions that hit in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xc",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions that miss the STLB.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_MISS_LOADS",
+        "PEBS": "1",
+        "PublicDescription": "Number of retired load instructions that (start a) miss in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x11",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired store instructions that miss the STLB.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_MISS_STORES",
+        "PEBS": "1",
+        "PublicDescription": "Number of retired store instructions that (start a) miss in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "100003",
+        "UMask": "0x12",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired SWPF instructions that miss the STLB.",
+        "EventCode": "0xd0",
+        "EventName": "MEM_INST_RETIRED.STLB_MISS_SWPF",
+        "PublicDescription": "Number of retired SWPF instructions that (start a) miss in the 2nd-level TLB (STLB).",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x14",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "This event counts the number of completed demand load requests that missed the L1, but hit the FB(fill buffer), because a preceding miss to the same cacheline initiated the line to be brought into L1, but data is not yet ready in L1.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.FB",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with L0 cache hits as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L0",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with 1st level DCU hit and were 5-cycle store forwarding.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L0_UNALIGN_FWD",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with L1 cache hits as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops that miss the L1 d-cache.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L1_MISS_ANY",
+        "PublicDescription": "Number of completed demand load requests that missed the L1 data cache including shadow misses (FB hits, merge to an ongoing L1D miss)",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x9ffc",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with L2 cache hits as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L2",
+        "SampleAfterValue": "500009",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with any L3 cache hits (including TOR) as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.L3",
+        "SampleAfterValue": "500009",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with Unknown data-source, Non-DRAM and Uncacheable (UC) memory type as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.OTHER",
+        "SampleAfterValue": "100003",
+        "UMask": "0x80",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Completed demand load uops with L1 cache hits as data sources.",
+        "EventCode": "0x43",
+        "EventName": "MEM_LOAD_COMPLETED.XQ",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were a cross-core Snoop hits and forwards data from an in on-package core cache (induced by NI$)",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_FWD",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions whose data sources were a cross-core Snoop hits and forwards data from an in on-package core cache (induced by NI$)",
+        "SampleAfterValue": "20011",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were L3 and cross-core snoop hits in on-pkg core cache",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions whose data sources were L3 and cross-core snoop hits in on-pkg core cache.",
+        "SampleAfterValue": "20011",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were HitM responses from shared L3, Hit-with-FWD is normally excluded.",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_HITM",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions whose data sources were HitM responses from shared L3, Hit-with-FWD is normally excluded.",
+        "SampleAfterValue": "20011",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were L3 hit and cross-core snoop missed in on-pkg core cache.",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_MISS",
+        "PEBS": "1",
+        "PublicDescription": "Counts the retired load instructions whose data sources were L3 hit and cross-core snoop missed in on-pkg core cache.",
+        "SampleAfterValue": "20011",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were hits in L3 without snoops required",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_NONE",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions whose data sources were hits in L3 without snoops required.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions whose data sources were L3 and cross-core snoop hits in on-pkg core cache",
+        "Data_LA": "1",
+        "EventCode": "0xd2",
+        "EventName": "MEM_LOAD_L3_HIT_RETIRED.XSNP_NO_FWD",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions whose data sources were L3 and cross-core snoop hits in on-pkg core cache.",
+        "SampleAfterValue": "20011",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions which data sources missed L3 but serviced from local dram",
+        "Data_LA": "1",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM",
+        "PEBS": "1",
+        "PublicDescription": "Retired load instructions which data sources missed L3 but serviced from local DRAM.",
+        "SampleAfterValue": "100007",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in Local HBM",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.LOCAL_HBM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in Local PMM",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.LOCAL_PMM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in a Remote DRAM",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.REMOTE_DRAM_OR_NOFWD",
+        "PEBS": "1",
+        "PublicDescription": "Counts the number of load ops retired that miss the L3 cache and hit in a Remote DRAM, OR had a Remote snoop miss/no fwd and hit in the Local Dram",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in a Remote Cache and modified data was forwarded",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.REMOTE_FWD_HITM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in a Remote Cache and non-modified data was forwarded",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.REMOTE_FWD_NONM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in Remote HBM",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.REMOTE_HBM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss the L3 cache and hit in Remote PMM",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.REMOTE_PMM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired instruction with at least 1 load uop whose Data Source was merged to an ongoing L3 miss",
+        "Data_LA": "1",
+        "EventCode": "0xd3",
+        "EventName": "MEM_LOAD_L3_MISS_RETIRED.SHADOW_MISS",
+        "SampleAfterValue": "100007",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops that hit in the L3 cache in which a snoop was required and modified data was forwarded",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.L3_HIT_SNOOP_HITM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops that hit in the L3 cache in which a snoop was required and no data was forwarded",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.L3_HIT_SNOOP_NO_FWD",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops that hit in the L3 cache in which a snoop was required and non-modified data was forwarded",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.L3_HIT_SNOOP_WITH_FWD",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops with an unknown source",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.LOCAL_DRAM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired instructions with at least 1 load uop whose Data Source was Non DRAM",
+        "Data_LA": "1",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.NON_DRAM",
+        "PEBS": "1",
+        "SampleAfterValue": "100007",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops with a non-DRAM or MMIO source.",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.NON_DRAM",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired instruction with at least 1 load uop whose Data Source was: SPECIAL",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.SPECIAL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired instructions with at least 1 uncacheable load or lock.",
+        "Data_LA": "1",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.UC",
+        "PEBS": "1",
+        "PublicDescription": "Retired instructions with at least one load to uncacheable memory-type, or at least one cache-line split locked access (Bus Lock).",
+        "SampleAfterValue": "100007",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of retired load ops that are uncacheable",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.UC",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired instruction with at least 1 load uop whose Data Source could not be determined by HW.",
+        "Data_LA": "1",
+        "EventCode": "0xd4",
+        "EventName": "MEM_LOAD_MISC_RETIRED.UNKNOWN_SOURCE",
+        "PEBS": "1",
+        "SampleAfterValue": "100007",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of completed demand load requests that missed the L1, but hit the FB(fill buffer), because a preceding miss to the same cacheline initiated the line to be brought into L1, but data is not yet ready in L1.",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.FB_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop was load missed in L1 but hit FB (Fill Buffers) due to preceding miss to the same cache line with data not ready.",
+        "SampleAfterValue": "100007",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions with L0 cache hits as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L0_DCU_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop that hit in the L0 data cache. This event includes all SW prefetches and lock instructions regardless of the data source.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions with L1 cache hits as data sources",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L1_DCU_HIT",
+        "PublicDescription": "Counts retired load instructions with at least one uop that hit in the L1 data cache. This event includes all SW prefetches and lock instructions regardless of the data source.",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Retired load instructions with L1 cache hits as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L1_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop that hit in the L1 data cache. This event includes all SW prefetches and lock instructions regardless of the data source.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit the L1 data cache",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L1_HIT",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions missed L1 cache as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L1_MISS",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop that missed in the L1 cache.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss in the L1 data cache",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L1_MISS",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions with L2 cache hits as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L2_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with L2 cache hits as data sources.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit in the L2 cache",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L2_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts the number of load ops retired that hit in the L2 cache.  Includes L2 Hit resulting from and L1D eviction of another core in the same module which is longer latency than a typical L2 hit.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions missed L2 cache as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L2_MISS",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions missed L2 cache as data sources.",
+        "SampleAfterValue": "100021",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that miss in the L2 cache",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L2_MISS",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions with L3 cache hits as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_HIT",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop that hit in the L3 cache.",
+        "SampleAfterValue": "100021",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit in the L3 cache.",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1c",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit in the L3 cache in which no snoop was required",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_HIT_NO_SNOOP",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit in the L3 cache in which a snoop was required and it hit and forwarded data, it hit and did not forward data, or it hit and the forwarded data was modified",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_HIT_SNOOP_HIT",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that hit in the L3 cache in which a snoop was required and it missed",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_HIT_SNOOP_MISS",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions missed L3 cache as data sources",
+        "Data_LA": "1",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.L3_MISS",
+        "PEBS": "1",
+        "PublicDescription": "Counts retired load instructions with at least one uop that missed in the L3 cache.",
+        "SampleAfterValue": "50021",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of loads that hit in a write combining buffer (WCB), excluding the first load that caused the WCB to allocate.",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.WCB_HIT",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired load instructions hit XQ (External Queue) as data sources",
+        "EventCode": "0xd1",
+        "EventName": "MEM_LOAD_RETIRED.XQ_HIT",
+        "PublicDescription": "Counts retired load instructions with at least one uop whose data source is XQ (External Queue)",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that uops are blocked for any of the following reasons:  load buffer, store buffer or RSV full.",
+        "EventCode": "0x04",
+        "EventName": "MEM_SCHEDULER_BLOCK.ALL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x7",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that uops are blocked due to load buffer full",
+        "EventCode": "0x04",
+        "EventName": "MEM_SCHEDULER_BLOCK.LD_BUF",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that uops are blocked due to RSV full",
+        "EventCode": "0x04",
+        "EventName": "MEM_SCHEDULER_BLOCK.RSV",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles that uops are blocked due to store buffer full",
+        "EventCode": "0x04",
+        "EventName": "MEM_SCHEDULER_BLOCK.ST_BUF",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "MEM_STORE_MISC_RETIRED.NON_DRAM",
+        "EventCode": "0x45",
+        "EventName": "MEM_STORE_MISC_RETIRED.NON_DRAM",
+        "SampleAfterValue": "100007",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_MISC_RETIRED.UC",
+        "EventCode": "0x45",
+        "EventName": "MEM_STORE_MISC_RETIRED.UC",
+        "SampleAfterValue": "100007",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_MISC_RETIRED.UNKNOWN_SOURCE",
+        "EventCode": "0x45",
+        "EventName": "MEM_STORE_MISC_RETIRED.UNKNOWN_SOURCE",
+        "SampleAfterValue": "100007",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_RETIRED.L2_HIT",
+        "EventCode": "0x44",
+        "EventName": "MEM_STORE_RETIRED.L2_HIT",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_RETIRED.L3_HIT",
+        "EventCode": "0x44",
+        "EventName": "MEM_STORE_RETIRED.L3_HIT",
+        "SampleAfterValue": "100021",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_RETIRED.L3_MISS",
+        "EventCode": "0x44",
+        "EventName": "MEM_STORE_RETIRED.L3_MISS",
+        "SampleAfterValue": "100021",
+        "UMask": "0xb9",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_RETIRED.L3_XSNP",
+        "EventCode": "0x44",
+        "EventName": "MEM_STORE_RETIRED.L3_XSNP",
+        "SampleAfterValue": "100021",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_STORE_RETIRED.LOCAL_MEMORY",
+        "EventCode": "0x44",
+        "EventName": "MEM_STORE_RETIRED.LOCAL_MEMORY",
+        "SampleAfterValue": "50021",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of memory uops retired.  A single uop that performs both a load AND a store will be counted as 1, not 2 (e.g. ADD [mem], CONST)",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.ALL",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x83",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load uops retired.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.ALL_LOADS",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x81",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of store uops retired.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.ALL_STORES",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x82",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x1",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_1024",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x400",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_128",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x80",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_16",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x10",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_2048",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x800",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_256",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x100",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_32",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x20",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_4",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x4",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_512",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x200",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_64",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x40",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of tagged load uops retired that exceed the latency threshold defined in MEC_CR_PEBS_LD_LAT_THRESHOLD - Only counts with PEBS enabled",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOAD_LATENCY_GT_8",
+        "MSRIndex": "0x3F6",
+        "MSRValue": "0x8",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load uops retired that performed one or more locks",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.LOCK_LOADS",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x21",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of memory renamed load uops retired.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.MRN_LOADS",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x9",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of memory renamed store uops retired.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.MRN_STORES",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xa",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of memory uops retired that were splits.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.SPLIT",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x43",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of retired split load uops.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.SPLIT_LOADS",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x41",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of retired split store uops.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.SPLIT_STORES",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x42",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of memory uops retired that missed in the second level TLB.",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.STLB_MISS",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x13",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of load ops retired that filled the STLB - includes those in DTLB_LOAD_MISSES submasks",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.STLB_MISS_LOADS",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x11",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of store ops retired (store STLB miss)",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.STLB_MISS_STORES",
+        "PEBS": "1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x12",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of  stores uops retired same as MEM_UOPS_RETIRED.ALL_STORES",
+        "Data_LA": "1",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED.STORE_LATENCY",
+        "PEBS": "2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x6",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Load uop retired (invalid unless used in conjuction with one or more filter bits)",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._LOAD_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit for a load/store",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._LOAD_STORE_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit for lock loads",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._LOCK_LOAD_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit for MRN's loads/stores",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._MRN_FILTER",
+        "PublicDescription": "Load uop retired (invalid unless used in conjuction with one or more filter bits)",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit for split loads/stores",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._SPLIT_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit for DTLB miss loads/stores",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._STLB_MISS_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Store uop retired (invalid unless used in conjunction with one or more filter bits)",
+        "EventCode": "0xd0",
+        "EventName": "MEM_UOPS_RETIRED._STORE_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Retired memory uops for any access",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.ANY",
+        "PublicDescription": "Number of retired micro-operations (uops) for load or store memory accesses",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xf",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_UOP_RETIRED.LOAD",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.LOAD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x5",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts number of retired non-x87 load uops.",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.LOAD_OTHER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts number of retired x87 load uops.",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.LOAD_X87",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MEM_UOP_RETIRED.STA",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.STA",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xa",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts number of retired non-x87 STA uops.",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.STA_OTHER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts number of retired x87 STA uops.",
+        "EventCode": "0xe5",
+        "EventName": "MEM_UOP_RETIRED.STA_X87",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts writebacks of non-modified cachelines that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.COREWB_NONM.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C1000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that resulted in a snoop hit in another cores caches, data forwarding is required as the data is modified.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB were supplied by the L3 cache where A snoop was sent and modified data was forward - LLC hit E or M and the CV bit(s) was set, modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that resulted in a snoop hit in another core, data forwarding is not required.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB were supplied by the L3 cache where A snoop was sent but no data forward - LLC hit and CV bit(s) was set but no data forward from the core, data returned from LLC - LLC miss and Dram data returned directly to the core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that resulted in a snoop hit in another cores caches which forwarded the unmodified data to the requesting core.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB were supplied by the L3 cache where A snoop was sent and non-modified data was forward - LLC hit and CV bit(s) was set, non-modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that resulted in a snoop hit in another cores caches, data forwarding is required as the data is modified.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads were supplied by the L3 cache where A snoop was sent and modified data was forward - LLC hit E or M and the CV bit(s) was set, modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that resulted in a snoop hit in another core, data forwarding is not required.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads were supplied by the L3 cache where A snoop was sent but no data forward - LLC hit and CV bit(s) was set but no data forward from the core, data returned from LLC - LLC miss and Dram data returned directly to the core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that resulted in a snoop hit in another cores caches which forwarded the unmodified data to the requesting core.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads were supplied by the L3 cache where A snoop was sent and non-modified data was forward - LLC hit and CV bit(s) was set, non-modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that resulted in a snoop hit in another cores caches, data forwarding is required as the data is modified.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO were supplied by the L3 cache where A snoop was sent and modified data was forward - LLC hit E or M and the CV bit(s) was set, modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that resulted in a snoop hit in another core, data forwarding is not required.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO were supplied by the L3 cache where A snoop was sent but no data forward - LLC hit and CV bit(s) was set but no data forward from the core, data returned from LLC - LLC miss and Dram data returned directly to the core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that resulted in a snoop hit in another cores caches which forwarded the unmodified data to the requesting core.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO were supplied by the L3 cache where A snoop was sent and non-modified data was forward - LLC hit and CV bit(s) was set, non-modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts full, 64 byte streaming stores (WCiLF) were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.FULL_STREAMING_WR.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x803F803C0000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to all cache levels that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C27F0",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all hardware prefetches that were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C07F0",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache prefetch requests and software prefetches (except PREFETCHW) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L1D.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache hardware prefetch requests were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L1D.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to the L2 only that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all L2 cache hardware prefetches that were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch data reads (which bring data to L2)  that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_DATA_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) data reads were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_DATA_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch RFOs (which bring data to L2) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_RFO.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) RFOs were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_RFO.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to the L3 only that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L3.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C2380",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all L3 cache hardware prefetches that were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L3.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0380",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "(IC) DO NOT USE (IC) Counts requests for exclusive ownership of a cacheline with no data transfer and atomically writes the cacheline back to the fabric, guaranteeing the entire line will be modified (ItoM, SpecItoM) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.ITOM.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "OCR.ITOM.L3_HIT - Counts requests for exclusive ownership of a cacheline with no data transfer and atomically writes the cacheline back to the fabric, guarantees that the entire line will be modified (ItoM, SpecItoM) were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.ITOM.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003F803C0000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as I/O and uncacheable accesses that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.OTHER.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C8000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as Uncacheables, CLFlushes, I/O accesses were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.OTHER.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C8000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts partial (less than 64 byte) streaming stores (WCiL) were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.PARTIAL_STREAMING_WR.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x403F803C0000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x103F803C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that resulted in a snoop hit in another cores caches, data forwarding is required as the data is modified.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that were supplied by the L3 cache where A snoop was sent and modified data was forward - LLC hit E or M and the CV bit(s) was set, modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x1010003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that resulted in a snoop hit in another core, data forwarding is not required.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that were supplied by the L3 cache where A snoop was sent but no data forward - LLC hit and CV bit(s) was set but no data forward from the core, data returned from LLC - LLC miss and Dram data returned directly to the core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x1004003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that resulted in a snoop hit in another cores caches which forwarded the unmodified data to the requesting core.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that were supplied by the L3 cache where A snoop was sent and non-modified data was forward - LLC hit and CV bit(s) was set, non-modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x1008003C4477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts streaming stores that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.STREAMING_WR.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0800",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts streaming stores were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.STREAMING_WR.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C0800",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that hit in the L3 or were snooped from another core's caches.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA were supplied by the L3 cache.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.L3_HIT",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x3F803C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that resulted in a snoop hit in another cores caches, data forwarding is required as the data is modified.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA were supplied by the L3 cache where A snoop was sent and modified data was forward - LLC hit E or M and the CV bit(s) was set, modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HITM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that resulted in a snoop hit in another core, data forwarding is not required.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA were supplied by the L3 cache where A snoop was sent but no data forward - LLC hit and CV bit(s) was set but no data forward from the core, data returned from LLC - LLC miss and Dram data returned directly to the core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HIT_NO_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x4003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that resulted in a snoop hit in another cores caches which forwarded the unmodified data to the requesting core.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA were supplied by the L3 cache where A snoop was sent and non-modified data was forward - LLC hit and CV bit(s) was set, non-modified data was forward from core",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.L3_HIT.SNOOP_HIT_WITH_FWD",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8003C4000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Any memory transaction that reached the SQ.",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.ALL_REQUESTS",
+        "PublicDescription": "Counts memory transactions reached the super queue including requests initiated by the core, all L3 prefetches, page walks, etc..",
+        "SampleAfterValue": "100003",
+        "UMask": "0x80",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand and prefetch data reads",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.DATA_RD",
+        "PublicDescription": "Counts the demand and prefetch data reads. All Core Data Reads include cacheable 'Demands' and L2 prefetchers (not L3 prefetchers). Counting also covers reads due to page walks resulted from any request type.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cacheable and Non-Cacheable code read requests",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.DEMAND_CODE_RD",
+        "PublicDescription": "Counts both cacheable and Non-Cacheable code read requests.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand Data Read requests sent to uncore",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.DEMAND_DATA_RD",
+        "PublicDescription": "Counts the Demand Data Read requests sent to uncore. Use it in conjunction with OFFCORE_REQUESTS_OUTSTANDING to determine average latency in the uncore.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Demand RFO requests including regular RFOs, locks, ItoM",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.DEMAND_RFO",
+        "PublicDescription": "Counts the demand RFO (read for ownership) requests including regular RFOs, locks, ItoM.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Offcore Uncacheable memory data read transactions.",
+        "EventCode": "0x21",
+        "EventName": "OFFCORE_REQUESTS.MEM_UC",
+        "PublicDescription": "This event counts noncacheable memory data read transactions.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles when offcore outstanding cacheable Core Data Read transactions are present in SuperQueue (SQ), queue to uncore.",
+        "CounterMask": "1",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.CYCLES_WITH_DATA_RD",
+        "PublicDescription": "Counts cycles when offcore outstanding cacheable Core Data Read transactions are present in the super queue. A transaction is considered to be in the Offcore outstanding state between L2 miss and transaction completion sent to requestor (SQ de-allocation). See corresponding Umask under OFFCORE_REQUESTS.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles with offcore outstanding Code Reads transactions in the SuperQueue (SQ), queue to uncore.",
+        "CounterMask": "1",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.CYCLES_WITH_DEMAND_CODE_RD",
+        "PublicDescription": "Counts the number of offcore outstanding Code Reads transactions in the super queue every cycle. The 'Offcore outstanding' state of the transaction lasts from the L2 miss until the sending transaction completion to requestor (SQ deallocation). See the corresponding Umask under OFFCORE_REQUESTS.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles where at least 1 outstanding demand data read request is pending.",
+        "CounterMask": "1",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.CYCLES_WITH_DEMAND_DATA_RD",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles with offcore outstanding demand rfo reads transactions in SuperQueue (SQ), queue to uncore.",
+        "CounterMask": "1",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.CYCLES_WITH_DEMAND_RFO",
+        "PublicDescription": "Counts the number of offcore outstanding demand rfo Reads transactions in the super queue every cycle. The 'Offcore outstanding' state of the transaction lasts from the L2 miss until the sending transaction completion to requestor (SQ deallocation). See the corresponding Umask under OFFCORE_REQUESTS.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "OFFCORE_REQUESTS_OUTSTANDING.DATA_RD",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.DATA_RD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Offcore outstanding Code Reads transactions in the SuperQueue (SQ), queue to uncore, every cycle.",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.DEMAND_CODE_RD",
+        "PublicDescription": "Counts the number of offcore outstanding Code Reads transactions in the super queue every cycle. The 'Offcore outstanding' state of the transaction lasts from the L2 miss until the sending transaction completion to requestor (SQ deallocation). See the corresponding Umask under OFFCORE_REQUESTS.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "For every cycle, increments by the number of outstanding demand data read requests pending.",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.DEMAND_DATA_RD",
+        "PublicDescription": "For every cycle, increments by the number of outstanding demand data read requests pending.   Requests are considered outstanding from the time they miss the core's L2 cache until the transaction completion message is sent to the requestor.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles with at least 6 offcore outstanding Demand Data Read transactions in uncore queue.",
+        "CounterMask": "6",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.DEMAND_DATA_RD_GE_6",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Store Read transactions pending for off-core. Highly correlated.",
+        "EventCode": "0x20",
+        "EventName": "OFFCORE_REQUESTS_OUTSTANDING.DEMAND_RFO",
+        "PublicDescription": "Counts the number of off-core outstanding read-for-ownership (RFO) store transactions every cycle. An RFO transaction is considered to be in the Off-core outstanding state between L2 cache miss and transaction completion.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts bus locks, accounts for cache line split locks and UC locks.",
+        "EventCode": "0x2c",
+        "EventName": "SQ_MISC.BUS_LOCK",
+        "PublicDescription": "Counts the more expensive bus lock needed to enforce cache coherency for certain memory accesses that need to be done atomically.  Can be created by issuing an atomic instruction (via the LOCK prefix) which causes a cache line split or accesses uncacheable memory.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Core cycles the core was throttled due to a pending power level request.",
+        "EventCode": "0x2c",
+        "EventName": "SQ_MISC.ICCP_THROTTLE",
+        "PublicDescription": "Core cycles the out-of-order engine was throttled due to a pending power level request.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Subsets of the seb-event 0",
+        "EventCode": "0x2c",
+        "EventName": "SQ_MISC.L1D_WB_MISS",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "SQ_MISC.SNP_CYCLES",
+        "EventCode": "0x2c",
+        "EventName": "SQ_MISC.SNP_CYCLES",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "SW_PREFETCH_ACCESS.ANY",
+        "EventCode": "0x40",
+        "EventName": "SW_PREFETCH_ACCESS.ANY",
+        "SampleAfterValue": "100003",
+        "UMask": "0xf",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of PREFETCHNTA instructions executed.",
+        "EventCode": "0x40",
+        "EventName": "SW_PREFETCH_ACCESS.NTA",
+        "PublicDescription": "Counts the number of PREFETCHNTA instructions executed.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of PREFETCHW instructions executed.",
+        "EventCode": "0x40",
+        "EventName": "SW_PREFETCH_ACCESS.PREFETCHW",
+        "PublicDescription": "Counts the number of PREFETCHW instructions executed.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of PREFETCHT0 instructions executed.",
+        "EventCode": "0x40",
+        "EventName": "SW_PREFETCH_ACCESS.T0",
+        "PublicDescription": "Counts the number of PREFETCHT0 instructions executed.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of PREFETCHT1 or PREFETCHT2 instructions executed.",
+        "EventCode": "0x40",
+        "EventName": "SW_PREFETCH_ACCESS.T1_T2",
+        "PublicDescription": "Counts the number of PREFETCHT1 or PREFETCHT2 instructions executed.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of issue slots every cycle that were not delivered by the frontend due to an icache miss",
+        "EventCode": "0x71",
+        "EventName": "TOPDOWN_FE_BOUND.ICACHE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    }
+]
