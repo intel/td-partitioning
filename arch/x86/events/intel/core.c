@@ -6933,6 +6933,7 @@ __init int intel_pmu_init(void)
 		break;
 
 	case INTEL_FAM6_LUNARLAKE_M:
+	case INTEL_FAM6_ARROWLAKE:
 
 		x86_pmu.hybrid_pmu = kcalloc(X86_HYBRID_NUM_PMUS,
 					     sizeof(struct x86_hybrid_pmu),
