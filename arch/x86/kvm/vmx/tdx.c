@@ -1859,12 +1859,20 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 
 static int tdx_complete_map_gpa(struct kvm_vcpu *vcpu)
 {
-	gpa_t gpa = tdvmcall_a0_read(vcpu);
-	gpa_t size = tdvmcall_a1_read(vcpu);
+	struct kvm_tdx_vmcall *tdx_vmcall = &vcpu->run->tdx.u.vmcall;
+	gpa_t gpa = tdx_vmcall->in_r12;
+	gpa_t size = tdx_vmcall->in_r13;
 	bool prefault = tdx_io_enabled();
 	u64 error_code = TDX_EPT_PFERR;
 
 	WARN_ON(!prefault);
+
+	if (tdx_vmcall->status_code != TDG_VP_VMCALL_SUCCESS) {
+		if (tdx_vmcall->status_code == TDG_VP_VMCALL_RETRY)
+			size = (gpa_t)tdx_vmcall->out_r11 - gpa;
+		else
+			return 1;
+	}
 
 	if (kvm_is_private_gpa(vcpu->kvm, gpa))
 		error_code |= PFERR_GUEST_ENC_MASK;
