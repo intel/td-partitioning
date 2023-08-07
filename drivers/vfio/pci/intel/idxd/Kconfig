@@ -1,0 +1,11 @@
+config VFIO_DEVICE_IDXD
+	tristate "VFIO device driver for Intel IDXD"
+	depends on VFIO && X86_64
+	default n
+	help
+          VFIO based device driver for Intel Accelerator Devices
+          (IDXD) driver. Enabling this will make IDXD devices and
+          workqueues functional inside a virtual machine. Currently
+          only dedicated workqueues are available.
+
+	  If you don't know what to do here, say N.
