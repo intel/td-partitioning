@@ -15,8 +15,75 @@ enum {
 	IDXD_VDEV_TYPE_MAX
 };
 
+static int idxd_vdcm_open(struct vfio_device *vdev)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	struct idxd_device *idxd = vidxd->wq->idxd;
+	ioasid_t pasid = vidxd->pasid;
+	int ret;
+
+	if (!device_user_pasid_enabled(idxd))
+		return -ENODEV;
+
+	mutex_lock(&vidxd->dev_lock);
+	vidxd_init(vidxd);
+	vfio_pci_ims_init(vdev, vidxd->wq->idxd->pdev, (union msi_instance_cookie *)&pasid);
+	ret = vfio_pci_ims_set_emulated(vdev, 0, 1);
+	if (ret < 0)
+		goto err_ims;
+
+	mutex_unlock(&vidxd->dev_lock);
+
+	return 0;
+err_ims:
+	vidxd_shutdown(vidxd);
+	vfio_device_set_pasid(vdev, IOMMU_PASID_INVALID);
+	mutex_unlock(&vidxd->dev_lock);
+
+	return ret;
+}
+
+static int idxd_vdcm_set_irqs(struct vdcm_idxd *vidxd, uint32_t flags,
+			      unsigned int index, unsigned int start,
+			      unsigned int count, void *data)
+{
+	switch (index) {
+	case VFIO_PCI_INTX_IRQ_INDEX:
+	case VFIO_PCI_MSI_IRQ_INDEX:
+		break;
+	case VFIO_PCI_MSIX_IRQ_INDEX:
+		switch (flags & VFIO_IRQ_SET_ACTION_TYPE_MASK) {
+		case VFIO_IRQ_SET_ACTION_MASK:
+		case VFIO_IRQ_SET_ACTION_UNMASK:
+			break;
+		case VFIO_IRQ_SET_ACTION_TRIGGER:
+			return vfio_pci_set_ims_trigger(&vidxd->vdev, index, start,
+							count, flags, data);
+		}
+		break;
+	}
+
+	return -ENOTTY;
+}
+
+static void idxd_vdcm_close(struct vfio_device *vdev)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+
+	mutex_lock(&vidxd->dev_lock);
+	idxd_vdcm_set_irqs(vidxd, VFIO_IRQ_SET_DATA_NONE |
+			   VFIO_IRQ_SET_ACTION_TRIGGER,
+			   VFIO_PCI_MSIX_IRQ_INDEX, 0, 0, NULL);
+	vfio_pci_ims_free(vdev);
+	vidxd_shutdown(vidxd);
+	vfio_device_set_pasid(vdev, IOMMU_PASID_INVALID);
+	mutex_unlock(&vidxd->dev_lock);
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
+	.open_device = idxd_vdcm_open,
+	.close_device = idxd_vdcm_close,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
