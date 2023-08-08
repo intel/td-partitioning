@@ -8,10 +8,119 @@
 #include <linux/vfio.h>
 #include "registers.h"
 #include "idxd.h"
+#include "vidxd.h"
 
 enum {
 	IDXD_VDEV_TYPE_1DWQ = 0,
 	IDXD_VDEV_TYPE_MAX
+};
+
+static const struct vfio_device_ops idxd_vdev_ops = {
+	.name = "vfio-vdev",
+};
+
+static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
+{
+	struct idxd_wq *wq;
+	int i;
+	bool found = false;
+
+	for (i = 0; i < idxd->max_wqs; i++) {
+		wq = idxd->wqs[i];
+
+		mutex_lock(&wq->wq_lock);
+
+		if (wq->type != IDXD_WQT_VDEV) {
+			mutex_unlock(&wq->wq_lock);
+			continue;
+		}
+
+		if (wq->state != IDXD_WQ_ENABLED) {
+			mutex_unlock(&wq->wq_lock);
+			continue;
+		}
+
+		if (type == IDXD_VDEV_TYPE_1DWQ && !idxd_wq_refcount(wq)) {
+			found = true;
+			mutex_unlock(&wq->wq_lock);
+			break;
+		}
+
+		mutex_unlock(&wq->wq_lock);
+	}
+
+	if (found) {
+		idxd_wq_get(wq);
+
+		return wq;
+	}
+
+	return NULL;
+}
+
+static int idxd_vfio_dev_drv_probe(struct idxd_dev *idxd_dev)
+{
+	struct vdcm_idxd *vidxd;
+	struct idxd_device *idxd;
+	struct idxd_wq *wq;
+	int rc;
+
+	idxd = idxd_dev->idxd;
+	wq = find_wq_by_type(idxd, idxd_dev->vdev_type);
+	if (!wq)
+		return -ENODEV;
+
+	vidxd = vfio_alloc_device(vdcm_idxd, vdev, &idxd_dev->conf_dev, &idxd_vdev_ops);
+	if (!vidxd) {
+		rc = -ENOMEM;
+		goto err_vfio_dev;
+	}
+
+	mutex_init(&vidxd->dev_lock);
+	vidxd->wq = wq;
+	vidxd->idxd = wq->idxd;
+	vidxd->parent = idxd_dev;
+
+	rc = vfio_register_emulated_iommu_dev(&vidxd->vdev);
+	if (rc < 0)
+		goto err_vfio_register;
+
+	dev_set_drvdata(&idxd_dev->conf_dev, vidxd);
+
+	return 0;
+
+err_vfio_register:
+	vfio_put_device(&vidxd->vdev);
+err_vfio_dev:
+	mutex_lock(&wq->wq_lock);
+	idxd_wq_put(wq);
+	mutex_unlock(&wq->wq_lock);
+	return rc;
+}
+
+static void idxd_vfio_dev_drv_remove(struct idxd_dev *idxd_dev)
+{
+	struct vdcm_idxd *vidxd = dev_get_drvdata(&idxd_dev->conf_dev);
+	struct vfio_device *vdev = &vidxd->vdev;
+	struct idxd_wq *wq = vidxd->wq;
+
+	vfio_unregister_group_dev(vdev);
+	vfio_put_device(vdev);
+	mutex_lock(&wq->wq_lock);
+	idxd_wq_put(wq);
+	mutex_unlock(&wq->wq_lock);
+}
+
+static enum idxd_dev_type idxd_vfio_dev_types[] = {
+	IDXD_DEV_VDEV,
+	IDXD_DEV_NONE,
+};
+
+static struct idxd_device_driver idxd_vfio_dev_driver = {
+	.probe = idxd_vfio_dev_drv_probe,
+	.remove = idxd_vfio_dev_drv_remove,
+	.name = "idxd_vfio",
+	.type = idxd_vfio_dev_types,
 };
 
 static void idxd_vdev_release(struct device *dev)
@@ -179,11 +288,18 @@ static int __init idxd_vdev_init(void)
 	if (rc < 0)
 		return rc;
 
+	rc = idxd_driver_register(&idxd_vfio_dev_driver);
+	if (rc < 0) {
+		idxd_driver_unregister(&idxd_vdev_driver);
+		return rc;
+	}
+
 	return 0;
 }
 
 static void __exit idxd_vdev_exit(void)
 {
+	idxd_driver_unregister(&idxd_vfio_dev_driver);
 	idxd_driver_unregister(&idxd_vdev_driver);
 }
 
