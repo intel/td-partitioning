@@ -1921,6 +1921,7 @@ static const struct x86_cpu_id intel_uncore_match[] __initconst = {
 	X86_MATCH_INTEL_FAM6_MODEL(METEORLAKE,		&mtl_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(METEORLAKE_L,	&mtl_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(ARROWLAKE,		&mtl_uncore_init),
+	X86_MATCH_INTEL_FAM6_MODEL(ARROWLAKE_H,		&mtl_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(LUNARLAKE_M,		&lnl_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X,	&spr_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(EMERALDRAPIDS_X,	&spr_uncore_init),
