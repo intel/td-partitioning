@@ -199,6 +199,7 @@ int idxd_wq_enable(struct idxd_wq *wq)
 	dev_dbg(dev, "WQ %d enabled\n", wq->id);
 	return 0;
 }
+EXPORT_SYMBOL_NS_GPL(idxd_wq_enable, IDXD);
 
 int idxd_wq_disable(struct idxd_wq *wq, bool reset_config)
 {
@@ -228,6 +229,7 @@ int idxd_wq_disable(struct idxd_wq *wq, bool reset_config)
 	dev_dbg(dev, "WQ %d disabled\n", wq->id);
 	return 0;
 }
+EXPORT_SYMBOL_NS_GPL(idxd_wq_disable, IDXD);
 
 void idxd_wq_drain(struct idxd_wq *wq)
 {
