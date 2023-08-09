@@ -269,3 +269,267 @@ void vidxd_shutdown(struct vdcm_idxd *vidxd)
 		wq->state = IDXD_WQ_LOCKED;
 	}
 }
+
+static void vidxd_set_swerr(struct vdcm_idxd *vidxd, unsigned int error)
+{
+	union sw_err_reg *swerr = (union sw_err_reg *)(vidxd->bar0 + IDXD_SWERR_OFFSET);
+
+	if (!swerr->valid) {
+		memset(swerr, 0, sizeof(*swerr));
+		swerr->valid = 1;
+		swerr->error = error;
+	} else if (!swerr->overflow) {
+		swerr->overflow = 1;
+	}
+}
+
+static inline void send_halt_interrupt(struct vdcm_idxd *vidxd)
+{
+	union genctrl_reg *genctrl = (union genctrl_reg *)(vidxd->bar0 + IDXD_GENCTRL_OFFSET);
+	u32 *intcause = (u32 *)(vidxd->bar0 + IDXD_INTCAUSE_OFFSET);
+
+	if (!genctrl->halt_int_en)
+		return;
+
+	*intcause |= IDXD_INTC_HALT_STATE;
+	vidxd_send_interrupt(vidxd, 0);
+}
+
+static void vidxd_report_pci_error(struct vdcm_idxd *vidxd)
+{
+	union gensts_reg *gensts = (union gensts_reg *)(vidxd->bar0 + IDXD_GENSTATS_OFFSET);
+
+	vidxd_set_swerr(vidxd, DSA_ERR_PCI_CFG);
+	/* set device to halt */
+	gensts->reset_type = IDXD_DEVICE_RESET_FLR;
+	gensts->state = IDXD_DEVICE_STATE_HALT;
+
+	send_halt_interrupt(vidxd);
+}
+
+int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count)
+{
+	u32 offset = pos & 0xfff;
+	struct device *dev = vidxd_dev(vidxd);
+
+	memcpy(buf, &vidxd->cfg[offset], count);
+
+	dev_dbg(dev, "vidxd pci R %d %x %x: %llx\n",
+		vidxd->wq->id, count, offset, get_reg_val(buf, count));
+
+	return 0;
+}
+
+/*
+ * Much of the emulation code has been borrowed from Intel i915 cfg space
+ * emulation code.
+ * drivers/gpu/drm/i915/gvt/cfg_space.c:
+ */
+
+/*
+ * Bitmap for writable bits (RW or RW1C bits, but cannot co-exist in one
+ * byte) byte by byte in standard pci configuration space. (not the full
+ * 256 bytes.)
+ */
+static const u8 pci_cfg_space_rw_bmp[PCI_INTERRUPT_LINE + 4] = {
+	[PCI_COMMAND]		= 0xff, 0x07,
+	[PCI_STATUS]		= 0x00, 0xf9, /* the only one RW1C byte */
+	[PCI_CACHE_LINE_SIZE]	= 0xff,
+	[PCI_BASE_ADDRESS_0 ... PCI_CARDBUS_CIS - 1] = 0xff,
+	[PCI_ROM_ADDRESS]	= 0x01, 0xf8, 0xff, 0xff,
+	[PCI_INTERRUPT_LINE]	= 0xff,
+};
+
+static void _pci_cfg_mem_write(struct vdcm_idxd *vidxd, unsigned int off, u8 *src,
+			       unsigned int bytes)
+{
+	u8 *cfg_base = vidxd->cfg;
+	u8 mask, new, old;
+	int i = 0;
+
+	for (; i < bytes && (off + i < sizeof(pci_cfg_space_rw_bmp)); i++) {
+		mask = pci_cfg_space_rw_bmp[off + i];
+		old = cfg_base[off + i];
+		new = src[i] & mask;
+
+		/**
+		 * The PCI_STATUS high byte has RW1C bits, here
+		 * emulates clear by writing 1 for these bits.
+		 * Writing a 0b to RW1C bits has no effect.
+		 */
+		if (off + i == PCI_STATUS + 1)
+			new = (~new & old) & mask;
+
+		cfg_base[off + i] = (old & ~mask) | new;
+	}
+
+	/* For other configuration space directly copy as it is. */
+	if (i < bytes)
+		memcpy(cfg_base + off + i, src + i, bytes - i);
+}
+
+static inline void _write_pci_bar(struct vdcm_idxd *vidxd, u32 offset, u32 val, bool low)
+{
+	u32 *pval;
+
+	/* BAR offset should be 32 bits algiend */
+	offset = rounddown(offset, 4);
+	pval = (u32 *)(vidxd->cfg + offset);
+
+	if (low) {
+		/*
+		 * only update bit 31 - bit 4,
+		 * leave the bit 3 - bit 0 unchanged.
+		 */
+		*pval = (val & GENMASK(31, 4)) | (*pval & GENMASK(3, 0));
+	} else {
+		*pval = val;
+	}
+}
+
+static int _pci_cfg_bar_write(struct vdcm_idxd *vidxd, unsigned int offset, void *p_data,
+			      unsigned int bytes)
+{
+	u32 new = *(u32 *)(p_data);
+	bool lo = IS_ALIGNED(offset, 8);
+	u64 size;
+	unsigned int bar_id;
+
+	/*
+	 * Power-up software can determine how much address
+	 * space the device requires by writing a value of
+	 * all 1's to the register and then reading the value
+	 * back. The device will return 0's in all don't-care
+	 * address bits.
+	 */
+	if (new == 0xffffffff) {
+		switch (offset) {
+		case PCI_BASE_ADDRESS_0:
+		case PCI_BASE_ADDRESS_1:
+		case PCI_BASE_ADDRESS_2:
+		case PCI_BASE_ADDRESS_3:
+			bar_id = (offset - PCI_BASE_ADDRESS_0) / 8;
+			size = vidxd->bar_size[bar_id];
+			_write_pci_bar(vidxd, offset, size >> (lo ? 0 : 32), lo);
+			break;
+		default:
+			/* Unimplemented BARs */
+			_write_pci_bar(vidxd, offset, 0x0, false);
+		}
+	} else {
+		switch (offset) {
+		case PCI_BASE_ADDRESS_0:
+		case PCI_BASE_ADDRESS_1:
+		case PCI_BASE_ADDRESS_2:
+		case PCI_BASE_ADDRESS_3:
+			_write_pci_bar(vidxd, offset, new, lo);
+			break;
+		default:
+			break;
+		}
+	}
+	return 0;
+}
+
+int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int size)
+{
+	struct device *dev = &vidxd->idxd->pdev->dev;
+	u32 offset = pos & 0xfff;
+	u8 *cfg = vidxd->cfg;
+	u64 val;
+
+	if (size > 4)
+		return -EINVAL;
+
+	if (pos + size > VIDXD_MAX_CFG_SPACE_SZ)
+		return -EINVAL;
+
+	dev_dbg(dev, "vidxd pci W %d %x %x: %llx\n", vidxd->wq->id, size, pos,
+		get_reg_val(buf, size));
+
+	/* First check if it's PCI_COMMAND */
+	if (IS_ALIGNED(pos, 2) && pos == PCI_COMMAND) {
+		bool new_bme;
+		bool bme;
+
+		if (size > 2)
+			return -EINVAL;
+
+		new_bme = !!(get_reg_val(buf, 2) & PCI_COMMAND_MASTER);
+		bme = !!(vidxd->cfg[pos] & PCI_COMMAND_MASTER);
+		_pci_cfg_mem_write(vidxd, pos, buf, size);
+
+		/* Flag error if turning off BME while device is enabled */
+		if ((bme && !new_bme) && vidxd_state(vidxd) == IDXD_DEVICE_STATE_ENABLED)
+			vidxd_report_pci_error(vidxd);
+		return 0;
+	}
+
+	switch (pos) {
+	case PCI_BASE_ADDRESS_0 ... PCI_BASE_ADDRESS_5:
+		if (!IS_ALIGNED(pos, 4))
+			return -EINVAL;
+		return _pci_cfg_bar_write(vidxd, pos, buf, size);
+
+	case VIDXD_ATS_OFFSET + 4:
+		if (size < 4)
+			break;
+		offset += 2;
+		buf = buf + 2;
+		size -= 2;
+		fallthrough;
+
+	case VIDXD_ATS_OFFSET + 6:
+		memcpy(&cfg[offset], buf, size);
+		break;
+
+	case VIDXD_PRS_OFFSET + 4: {
+		u8 old_val, new_val;
+
+		val = get_reg_val(buf, 1);
+		old_val = cfg[VIDXD_PRS_OFFSET + 4];
+		new_val = val & 1;
+
+		cfg[offset] = new_val;
+		if (old_val == 0 && new_val == 1) {
+			/*
+			 * Clear Stopped, Response Failure,
+			 * and Unexpected Response.
+			 */
+			*(u16 *)&cfg[VIDXD_PRS_OFFSET + 6] &= ~(u16)(0x0103);
+		}
+
+		if (size < 4)
+			break;
+
+		offset += 2;
+		buf = (u8 *)buf + 2;
+		size -= 2;
+		fallthrough;
+	}
+
+	case VIDXD_PRS_OFFSET + 6:
+		cfg[offset] &= ~(get_reg_val(buf, 1) & 3);
+		break;
+
+	case VIDXD_PRS_OFFSET + 12 ... VIDXD_PRS_OFFSET + 15:
+		memcpy(&cfg[offset], buf, size);
+		break;
+
+	case VIDXD_PASID_OFFSET + 4:
+		if (size < 4)
+			break;
+		offset += 2;
+		buf = buf + 2;
+		size -= 2;
+		fallthrough;
+
+	case VIDXD_PASID_OFFSET + 6:
+		cfg[offset] = get_reg_val(buf, 1) & 5;
+		break;
+
+	default:
+		_pci_cfg_mem_write(vidxd, pos, buf, size);
+	}
+	return 0;
+}

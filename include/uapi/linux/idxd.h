@@ -138,6 +138,8 @@ enum dsa_completion_status {
 	DSA_COMP_TRANSLATION_FAIL,
 	DSA_COMP_DRAIN_EVL = 0x26,
 	DSA_COMP_BATCH_EVL_ERR,
+	DSA_ERR_PCI_CFG = 0x51,
+	DSA_ERR_CMD_REG,
 };
 
 enum iax_completion_status {

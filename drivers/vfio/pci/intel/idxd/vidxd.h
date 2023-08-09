@@ -34,6 +34,10 @@
 #define VIDXD_MAX_MSIX_ENTRIES		VIDXD_MAX_MSIX_VECS
 #define VIDXD_MAX_WQS			1
 
+#define VIDXD_ATS_OFFSET 0x100
+#define VIDXD_PRS_OFFSET 0x110
+#define VIDXD_PASID_OFFSET 0x120
+
 struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
@@ -63,7 +67,60 @@ static inline struct vdcm_idxd *vdev_to_vidxd(struct vfio_device *vdev)
 	return container_of(vdev, struct vdcm_idxd, vdev);
 }
 
+static inline struct device *vidxd_dev(struct vdcm_idxd *vidxd)
+{
+	return wq_confdev(vidxd->wq);
+}
+
+static inline u64 get_reg_val(void *buf, int size)
+{
+	u64 val = 0;
+
+	switch (size) {
+	case 8:
+		val = *(u64 *)buf;
+		break;
+	case 4:
+		val = *(u32 *)buf;
+		break;
+	case 2:
+		val = *(u16 *)buf;
+		break;
+	case 1:
+		val = *(u8 *)buf;
+		break;
+	}
+
+	return val;
+}
+
+static inline u8 vidxd_state(struct vdcm_idxd *vidxd)
+{
+	union gensts_reg *gensts = (union gensts_reg *)(vidxd->bar0 + IDXD_GENSTATS_OFFSET);
+
+	return gensts->state;
+}
+
 void vidxd_init(struct vdcm_idxd *vidxd);
 void vidxd_shutdown(struct vdcm_idxd *vidxd);
+void vidxd_mmio_init(struct vdcm_idxd *vidxd);
+int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count);
+int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int size);
+
+static inline void vidxd_send_interrupt(struct vdcm_idxd *vidxd, int vector)
+{
+	u8 *bar0 = vidxd->bar0;
+	u8 *msix_entry = &bar0[VIDXD_MSIX_TABLE_OFFSET + vector * 0x10];
+	u64 *pba = (u64 *)(bar0 + VIDXD_MSIX_PBA_OFFSET);
+	u8 ctrl;
+
+	ctrl = msix_entry[MSIX_ENTRY_CTRL_BYTE];
+	if (ctrl & MSIX_ENTRY_MASK_INT)
+		set_bit(vector, (unsigned long *)pba);
+	else
+		vfio_pci_ims_send_signal(&vidxd->vdev, vector);
+}
+
+void vidxd_do_command(struct vdcm_idxd *vidxd, u32 val);
 
 #endif

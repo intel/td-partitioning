@@ -337,6 +337,9 @@ union msix_perm {
 	u32 bits;
 } __packed;
 
+#define MSIX_ENTRY_MASK_INT	0x1
+#define MSIX_ENTRY_CTRL_BYTE	12
+
 union group_flags {
 	struct {
 		u64 tc_a:3;
