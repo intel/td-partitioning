@@ -106,6 +106,7 @@ void vidxd_shutdown(struct vdcm_idxd *vidxd);
 void vidxd_mmio_init(struct vdcm_idxd *vidxd);
 int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count);
 int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int size);
+int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
 
 static inline void vidxd_send_interrupt(struct vdcm_idxd *vidxd, int vector)
 {
