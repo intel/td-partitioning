@@ -130,10 +130,94 @@ static void idxd_vdcm_unbind_iommufd(struct vfio_device *vdev)
 
 	mutex_lock(&vidxd->dev_lock);
 	if (vidxd->idev) {
+		struct vfio_pci_hwpt *hwpt;
+		unsigned long index;
+
+		xa_for_each(&vidxd->pasid_xa, index, hwpt) {
+			iommufd_device_detach(vidxd->idev);
+			kfree(hwpt);
+		}
+		xa_destroy(&vidxd->pasid_xa);
 		iommufd_device_unbind(vidxd->idev);
 		vidxd->idev = NULL;
 	}
 	mutex_unlock(&vidxd->dev_lock);
+}
+
+static int idxd_vdcm_pasid_attach(struct vdcm_idxd *vidxd, ioasid_t pasid, u32 *pt_id)
+{
+	struct vdcm_hwpt *hwpt, *tmp;
+	int ret;
+
+	hwpt = kzalloc(sizeof(*hwpt), GFP_KERNEL);
+	if (!hwpt)
+		return -ENOMEM;
+
+	ret = iommufd_device_attach(vidxd->idev, pt_id);
+	if (ret)
+		goto out_free;
+
+	hwpt->hwpt_id = *pt_id;
+	hwpt->pasid = pasid;
+	tmp = xa_store(&vidxd->pasid_xa, hwpt->pasid, hwpt, GFP_KERNEL);
+	if (IS_ERR(tmp)) {
+		ret = PTR_ERR(tmp);
+		goto out_detach;
+	}
+	return 0;
+out_detach:
+	iommufd_device_detach(vidxd->idev);
+out_free:
+	kfree(hwpt);
+	return ret;
+}
+
+static int idxd_vdcm_attach_ioas(struct vfio_device *vdev,
+				 u32 *pt_id)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	u32 pasid;
+	int rc = 0;
+
+	mutex_lock(&vidxd->dev_lock);
+
+	if (!vidxd->idev) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	pasid = vfio_device_get_pasid(vdev);
+	if (pasid == IOMMU_PASID_INVALID) {
+		rc = -ENODEV;
+		goto out_unlock;
+	}
+
+	if (!pt_id) {
+		struct vfio_pci_hwpt *hwpt;
+
+		hwpt = xa_load(&vidxd->pasid_xa, pasid);
+		if (!hwpt)
+			goto out_unlock;
+		xa_erase(&vidxd->pasid_xa, pasid);
+		kfree(hwpt);
+		iommufd_device_detach(vidxd->idev);
+		goto out_unlock;
+	}
+
+	rc = idxd_vdcm_pasid_attach(vidxd, pasid, pt_id);
+	if (rc)
+		goto out_unlock;
+out_unlock:
+	mutex_unlock(&vidxd->dev_lock);
+	return rc;
+}
+
+static void idxd_vdcm_detach_ioas(struct vfio_device *vdev)
+{
+	/*
+	 * Attached IOAS is automatically detached when the device is
+	 * unbound from iommufd.
+	 */
 }
 
 static const struct vfio_device_ops idxd_vdev_ops = {
@@ -142,6 +226,8 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.close_device = idxd_vdcm_close,
 	.bind_iommufd = idxd_vdcm_bind_iommufd,
 	.unbind_iommufd = idxd_vdcm_unbind_iommufd,
+	.attach_ioas = idxd_vdcm_attach_ioas,
+	.detach_ioas = idxd_vdcm_detach_ioas,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
