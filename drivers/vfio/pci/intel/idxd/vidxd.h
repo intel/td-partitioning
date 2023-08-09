@@ -38,6 +38,7 @@ struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
 	struct idxd_wq *wq;
+	struct iommufd_device *idev;
 
 	u64 bar_val[VIDXD_MAX_BARS];
 	u64 bar_size[VIDXD_MAX_BARS];
@@ -49,6 +50,7 @@ struct vdcm_idxd {
 	struct mutex dev_lock; /* lock for vidxd resources */
 
 	ioasid_t pasid;
+	struct xarray pasid_xa;
 };
 
 static inline struct vdcm_idxd *vdev_to_vidxd(struct vfio_device *vdev)

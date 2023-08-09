@@ -6,9 +6,12 @@
 #include <linux/pci.h>
 #include <linux/device.h>
 #include <linux/vfio.h>
+#include <linux/iommufd.h>
 #include "registers.h"
 #include "idxd.h"
 #include "vidxd.h"
+
+MODULE_IMPORT_NS(IOMMUFD);
 
 enum {
 	IDXD_VDEV_TYPE_1DWQ = 0,
@@ -80,10 +83,65 @@ static void idxd_vdcm_close(struct vfio_device *vdev)
 	mutex_unlock(&vidxd->dev_lock);
 }
 
+static int idxd_vdcm_bind_iommufd(struct vfio_device *vdev,
+				  struct iommufd_ctx *ictx, u32 *out_device_id)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	struct idxd_device *idxd = vidxd->idxd;
+	struct iommufd_device *idev;
+	ioasid_t pasid;
+	int rc = 0;
+
+	mutex_lock(&vidxd->dev_lock);
+
+	/* Allow only one iommufd per vfio_device */
+	if (vidxd->idev) {
+		rc = -EBUSY;
+		goto out;
+	}
+
+	pasid = iommu_alloc_global_pasid(&idxd->pdev->dev);
+	if (pasid == IOMMU_PASID_INVALID) {
+		rc = -ENOSPC;
+		goto out;
+	}
+	vidxd->pasid = pasid;
+	vfio_device_set_pasid(vdev, pasid);
+
+	idev = iommufd_device_bind_pasid(ictx, &idxd->pdev->dev, pasid, out_device_id);
+	if (IS_ERR(idev)) {
+		rc = PTR_ERR(idev);
+		vfio_device_set_pasid(vdev, IOMMU_PASID_INVALID);
+		goto out;
+	}
+
+	vidxd->idev = idev;
+	xa_init_flags(&vidxd->pasid_xa, XA_FLAGS_ALLOC);
+	vdev->iommufd_device = idev;
+out:
+	mutex_unlock(&vidxd->dev_lock);
+
+	return rc;
+}
+
+static void idxd_vdcm_unbind_iommufd(struct vfio_device *vdev)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+
+	mutex_lock(&vidxd->dev_lock);
+	if (vidxd->idev) {
+		iommufd_device_unbind(vidxd->idev);
+		vidxd->idev = NULL;
+	}
+	mutex_unlock(&vidxd->dev_lock);
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
 	.open_device = idxd_vdcm_open,
 	.close_device = idxd_vdcm_close,
+	.bind_iommufd = idxd_vdcm_bind_iommufd,
+	.unbind_iommufd = idxd_vdcm_unbind_iommufd,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
