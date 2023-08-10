@@ -246,6 +246,7 @@ void idxd_wq_drain(struct idxd_wq *wq)
 	operand = BIT(wq->id % 16) | ((wq->id / 16) << 16);
 	idxd_cmd_exec(idxd, IDXD_CMD_DRAIN_WQ, operand, NULL);
 }
+EXPORT_SYMBOL_NS_GPL(idxd_wq_drain, IDXD);
 
 void idxd_wq_reset(struct idxd_wq *wq)
 {
