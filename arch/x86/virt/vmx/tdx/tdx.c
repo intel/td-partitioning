@@ -1382,7 +1382,12 @@ static void tdx_set_debug_level(void)
 	}
 }
 
-static int __tdx_enable(void)
+static int init_tdx_module_via_handoff_data(void)
+{
+	return seamcall(TDH_SYS_UPDATE, 0, 0, 0, 0, NULL, NULL);
+}
+
+static int __tdx_enable(bool live_update)
 {
 	int ret;
 
@@ -1395,13 +1400,15 @@ static int __tdx_enable(void)
 
 	tdx_set_debug_level();
 
-	ret = init_tdx_module();
+	if (live_update)
+		ret = init_tdx_module_via_handoff_data();
+	else
+		ret = init_tdx_module();
 	if (ret)
 		goto out;
 
 	pr_info("module initialized.\n");
 	tdx_module_status = TDX_MODULE_INITIALIZED;
-
 	return 0;
 
 out:
@@ -1445,7 +1452,7 @@ int tdx_enable(void)
 			pr_warn("all present CPUs should be online.\n");
 			ret = -EINVAL;
 		} else {
-			ret = __tdx_enable();
+			ret = __tdx_enable(false);
 		}
 
 		cpu_vmxop_put_all();
@@ -1485,7 +1492,7 @@ static void tdx_cpu_reenable(void *unused)
 	tdx_cpu_enable(raw_smp_processor_id());
 }
 
-int tdx_enable_after_update(void)
+int tdx_enable_after_update(bool live_update)
 {
 	if (sysinfo) {
 		free_page((unsigned long)sysinfo);
@@ -1502,7 +1509,7 @@ int tdx_enable_after_update(void)
 	init_module_global();
 	on_each_cpu(tdx_cpu_reenable, NULL, 1);
 
-	return __tdx_enable();
+	return __tdx_enable(live_update);
 }
 
 /*
