@@ -387,6 +387,60 @@ write_err:
 	return -EFAULT;
 }
 
+static int idxd_vdcm_mmap(struct vfio_device *vdev, struct vm_area_struct *vma)
+{
+	unsigned int wq_idx;
+	unsigned long req_size, pgoff = 0, offset;
+	pgprot_t pg_prot;
+	struct vdcm_idxd *vidxd = container_of(vdev, struct vdcm_idxd, vdev);
+	struct idxd_wq *wq = vidxd->wq;
+	struct idxd_device *idxd = vidxd->idxd;
+	enum idxd_portal_prot virt_portal, phys_portal;
+	phys_addr_t base = pci_resource_start(idxd->pdev, IDXD_WQ_BAR);
+	struct device *dev = vidxd_dev(vidxd);
+
+	if (!(vma->vm_flags & VM_SHARED))
+		return -EINVAL;
+
+	pg_prot = vma->vm_page_prot;
+	req_size = vma->vm_end - vma->vm_start;
+	if (req_size > PAGE_SIZE)
+		return -EINVAL;
+
+	vm_flags_set(vma, VM_DONTCOPY);
+
+	offset = (vma->vm_pgoff << PAGE_SHIFT) &
+		 ((1ULL << VFIO_PCI_OFFSET_SHIFT) - 1);
+
+	wq_idx = offset >> (PAGE_SHIFT + 2);
+	if (wq_idx >= 1) {
+		dev_err(dev, "mapping invalid wq %d off %lx\n",
+			wq_idx, offset);
+		return -EINVAL;
+	}
+
+	/*
+	 * Check and see if the guest wants to map to the limited or unlimited portal.
+	 * The driver will allow mapping to unlimited portal only if the wq is a
+	 * dedicated wq. Otherwise, it goes to limited.
+	 */
+	virt_portal = ((offset >> PAGE_SHIFT) & 0x3) == 1;
+	phys_portal = IDXD_PORTAL_LIMITED;
+	if (virt_portal == IDXD_PORTAL_UNLIMITED)
+		phys_portal = IDXD_PORTAL_UNLIMITED;
+
+	/* We always map IMS portals to the guest */
+	pgoff = (base + idxd_get_wq_portal_offset(wq->id, phys_portal,
+						  IDXD_IRQ_IMS)) >> PAGE_SHIFT;
+
+	dev_dbg(dev, "mmap %lx %lx %lx %lx\n", vma->vm_start, pgoff, req_size,
+		pgprot_val(pg_prot));
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	vma->vm_pgoff = pgoff;
+
+	return remap_pfn_range(vma, vma->vm_start, pgoff, req_size, pg_prot);
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
 	.open_device = idxd_vdcm_open,
@@ -397,6 +451,7 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.detach_ioas = idxd_vdcm_detach_ioas,
 	.read = idxd_vdcm_read,
 	.write = idxd_vdcm_write,
+	.mmap = idxd_vdcm_mmap,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
