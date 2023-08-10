@@ -67,6 +67,8 @@ struct tdmr_info {
  * TDX module metadata identifiers
  */
 #define TDX_MD_FEATURES0			0x0A00000300000008
+#define TDX_FEATURES0_TD_PRES			BIT(1)
+
 
 /*
  * Do not put any hardware-defined TDX structure representations below
@@ -122,5 +124,7 @@ void tdx_module_unlock(void);
 int tdx_enable_after_update(void);
 
 extern struct tdsysinfo_struct *sysinfo;
+extern u64 tdx_features0;
+extern enum tdx_module_status_t tdx_module_status;
 
 #endif
