@@ -7,6 +7,7 @@
 #include <linux/device.h>
 #include <linux/vfio.h>
 #include <linux/iommufd.h>
+#include <linux/eventfd.h>
 #include "registers.h"
 #include "idxd.h"
 #include "vidxd.h"
@@ -62,6 +63,13 @@ static int idxd_vdcm_set_irqs(struct vdcm_idxd *vidxd, uint32_t flags,
 		case VFIO_IRQ_SET_ACTION_TRIGGER:
 			return vfio_pci_set_ims_trigger(&vidxd->vdev, index, start,
 							count, flags, data);
+		}
+		break;
+	case VFIO_PCI_REQ_IRQ_INDEX:
+		switch (flags & VFIO_IRQ_SET_ACTION_TYPE_MASK) {
+		case VFIO_IRQ_SET_ACTION_TRIGGER:
+			return vfio_set_req_trigger(&vidxd->vdev, index, start,
+						    count, flags, data);
 		}
 		break;
 	}
@@ -616,6 +624,8 @@ static int idxd_vdcm_get_irq_count(struct vfio_device *vdev, int type)
 {
 	if (type == VFIO_PCI_MSIX_IRQ_INDEX)
 		return VIDXD_MAX_MSIX_VECS;
+	else if (type == VFIO_PCI_REQ_IRQ_INDEX)
+		return 1;
 
 	return 0;
 }
@@ -740,6 +750,26 @@ static long idxd_vdcm_ioctl(struct vfio_device *vdev, unsigned int cmd, unsigned
 	return -EINVAL;
 }
 
+static void idxd_vdcm_request(struct vfio_device *vdev, unsigned int count)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+
+	mutex_lock(&vidxd->dev_lock);
+
+	if (vidxd->req_trigger) {
+		if (!(count % 10))
+			dev_warn_ratelimited(vdev->dev,
+					     "Relaying device request to user (#%u)\n",
+					     count);
+		eventfd_signal(vidxd->req_trigger, 1);
+	} else if (count == 0) {
+		dev_warn(vdev->dev,
+			 "No device request channel registered, blocked until released by user\n");
+	}
+
+	mutex_unlock(&vidxd->dev_lock);
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
 	.open_device = idxd_vdcm_open,
@@ -752,6 +782,7 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.write = idxd_vdcm_write,
 	.mmap = idxd_vdcm_mmap,
 	.ioctl = idxd_vdcm_ioctl,
+	.request = idxd_vdcm_request,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)

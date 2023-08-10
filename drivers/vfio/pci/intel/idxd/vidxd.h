@@ -60,6 +60,8 @@ struct vdcm_idxd {
 
 	ioasid_t pasid;
 	struct xarray pasid_xa;
+
+	struct eventfd_ctx *req_trigger;
 };
 
 struct vdcm_hwpt {
