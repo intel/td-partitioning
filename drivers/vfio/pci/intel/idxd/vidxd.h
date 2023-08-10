@@ -38,6 +38,11 @@
 #define VIDXD_PRS_OFFSET 0x110
 #define VIDXD_PASID_OFFSET 0x120
 
+enum {
+	IDXD_VDCM_READ = 0,
+	IDXD_VDCM_WRITE,
+};
+
 struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
@@ -107,6 +112,8 @@ void vidxd_mmio_init(struct vdcm_idxd *vidxd);
 int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count);
 int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int size);
 int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
+int vidxd_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
+int vidxd_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
 
 static inline void vidxd_send_interrupt(struct vdcm_idxd *vidxd, int vector)
 {

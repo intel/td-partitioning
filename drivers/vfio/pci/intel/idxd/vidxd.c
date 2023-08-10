@@ -283,6 +283,18 @@ static void vidxd_set_swerr(struct vdcm_idxd *vidxd, unsigned int error)
 	}
 }
 
+static inline void send_swerr_interrupt(struct vdcm_idxd *vidxd)
+{
+	union genctrl_reg *genctrl = (union genctrl_reg *)(vidxd->bar0 + IDXD_GENCTRL_OFFSET);
+	u32 *intcause = (u32 *)(vidxd->bar0 + IDXD_INTCAUSE_OFFSET);
+
+	if (!genctrl->softerr_int_en)
+		return;
+
+	*intcause |= IDXD_INTC_ERR;
+	vidxd_send_interrupt(vidxd, 0);
+}
+
 static inline void send_halt_interrupt(struct vdcm_idxd *vidxd)
 {
 	union genctrl_reg *genctrl = (union genctrl_reg *)(vidxd->bar0 + IDXD_GENCTRL_OFFSET);
@@ -531,5 +543,213 @@ int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsign
 	default:
 		_pci_cfg_mem_write(vidxd, pos, buf, size);
 	}
+	return 0;
+}
+
+static void vidxd_report_swerror(struct vdcm_idxd *vidxd, unsigned int error)
+{
+	vidxd_set_swerr(vidxd, error);
+	send_swerr_interrupt(vidxd);
+}
+
+int vidxd_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size)
+{
+	u32 offset = pos & (vidxd->bar_size[0] - 1);
+	u8 *bar0 = vidxd->bar0;
+	struct device *dev = vidxd_dev(vidxd);
+
+	dev_dbg(dev, "vidxd mmio W %d %x %x: %llx\n", vidxd->wq->id, size,
+		offset, get_reg_val(buf, size));
+
+	if (((size & (size - 1)) != 0) || (offset & (size - 1)) != 0)
+		return -EINVAL;
+
+	/* If we don't limit this, we potentially can write out of bound */
+	if (size > sizeof(u32))
+		return -EINVAL;
+
+	switch (offset) {
+	case IDXD_GENCFG_OFFSET ... IDXD_GENCFG_OFFSET + 3:
+		/* Write only when device is disabled. */
+		if (vidxd_state(vidxd) == IDXD_DEVICE_STATE_DISABLED) {
+			dev_warn(dev, "Guest writes to unsupported GENCFG register\n");
+			memcpy(bar0 + offset, buf, size);
+		}
+		break;
+
+	case IDXD_GENCTRL_OFFSET:
+		memcpy(bar0 + offset, buf, size);
+		break;
+
+	case IDXD_INTCAUSE_OFFSET:
+		*(u32 *)&bar0[offset] &= ~(get_reg_val(buf, 4));
+		break;
+
+	case IDXD_CMD_OFFSET: {
+		u32 *cmdsts = (u32 *)(bar0 + IDXD_CMDSTS_OFFSET);
+		u32 val = get_reg_val(buf, size);
+
+		if (size != sizeof(u32))
+			return -EINVAL;
+
+		/* Check and set command in progress */
+		if (test_and_set_bit(IDXD_CMDS_ACTIVE_BIT, (unsigned long *)cmdsts) == 0)
+			vidxd_do_command(vidxd, val);
+		else
+			vidxd_report_swerror(vidxd, DSA_ERR_CMD_REG);
+		break;
+	}
+
+	case IDXD_SWERR_OFFSET:
+		/* W1C */
+		bar0[offset] &= ~(get_reg_val(buf, 1) & GENMASK(1, 0));
+		break;
+
+	case VIDXD_WQCFG_OFFSET ... VIDXD_WQCFG_OFFSET + VIDXD_WQ_CTRL_SZ - 1: {
+		union wqcfg *wqcfg;
+		int wq_id = (offset - VIDXD_WQCFG_OFFSET) / 0x20;
+		int subreg = offset & 0x1c;
+		u32 new_val;
+
+		if (wq_id >= VIDXD_MAX_WQS)
+			break;
+
+		/* FIXME: Need to sanitize for RO Config WQ mode 1 */
+		wqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET + wq_id * 0x20);
+		if (size >= 4) {
+			new_val = get_reg_val(buf, 4);
+		} else {
+			u32 tmp1, tmp2, shift, mask;
+
+			switch (subreg) {
+			case 4:
+				tmp1 = wqcfg->bits[1];
+				break;
+			case 8:
+				tmp1 = wqcfg->bits[2];
+				break;
+			case 12:
+				tmp1 = wqcfg->bits[3];
+				break;
+			case 16:
+				tmp1 = wqcfg->bits[4];
+				break;
+			case 20:
+				tmp1 = wqcfg->bits[5];
+				break;
+			default:
+				tmp1 = 0;
+			}
+
+			tmp2 = get_reg_val(buf, size);
+			shift = (offset & 0x03U) * 8;
+			mask = ((1U << size * 8) - 1u) << shift;
+			new_val = (tmp1 & ~mask) | (tmp2 << shift);
+		}
+
+		if (subreg == 8) {
+			if (wqcfg->wq_state == 0) {
+				wqcfg->bits[2] &= 0xfe;
+				wqcfg->bits[2] |= new_val & 0xffffff01;
+			}
+		}
+
+		break;
+	} /* WQCFG */
+
+	case VIDXD_GRPCFG_OFFSET ...  VIDXD_GRPCFG_OFFSET + VIDXD_GRP_CTRL_SZ - 1:
+		/* Nothing is written. Should be all RO */
+		break;
+
+	case VIDXD_MSIX_TABLE_OFFSET ...  VIDXD_MSIX_TABLE_OFFSET + VIDXD_MSIX_TBL_SZ - 1: {
+		int index = (offset - VIDXD_MSIX_TABLE_OFFSET) / 0x10;
+		u8 *msix_entry = &bar0[VIDXD_MSIX_TABLE_OFFSET + index * 0x10];
+		u64 *pba = (u64 *)(bar0 + VIDXD_MSIX_PBA_OFFSET);
+		u8 ctrl, new_mask;
+		int ims_index, ims_off;
+		u32 ims_ctrl, ims_mask;
+		struct idxd_device *idxd = vidxd->idxd;
+
+		memcpy(bar0 + offset, buf, size);
+		ctrl = msix_entry[MSIX_ENTRY_CTRL_BYTE];
+
+		new_mask = ctrl & MSIX_ENTRY_MASK_INT;
+		if (!new_mask && test_and_clear_bit(index, (unsigned long *)pba))
+			vidxd_send_interrupt(vidxd, index);
+
+		if (index == 0)
+			break;
+
+// This needs to be reworked and needs to go through IMS core!!! FIXME
+		ims_index = vfio_pci_ims_hwirq(&vidxd->vdev, index);
+		ims_off = idxd->ims_offset + ims_index * 16 + sizeof(u64);
+		ims_ctrl = ioread32(idxd->reg_base + ims_off);
+		ims_mask = ims_ctrl & MSIX_ENTRY_MASK_INT;
+
+		dev_dbg(dev, "%s writing to MSIX: ims_index: %d, ims_mask: 0x%x, new_mask: 0x%x\n",
+			__func__, ims_index, ims_mask, new_mask);
+		if (new_mask == ims_mask)
+			break;
+
+		if (new_mask)
+			ims_ctrl |= MSIX_ENTRY_MASK_INT;
+		else
+			ims_ctrl &= ~MSIX_ENTRY_MASK_INT;
+
+		iowrite32(ims_ctrl, idxd->reg_base + ims_off);
+		/* readback to flush */
+		ims_ctrl = ioread32(idxd->reg_base + ims_off);
+		break;
+	}
+
+	case VIDXD_MSIX_PERM_OFFSET ...  VIDXD_MSIX_PERM_OFFSET + VIDXD_MSIX_PERM_TBL_SZ - 1: {
+#define MSIX_PERM_PASID_EN_MASK		0x8
+#define MSIX_PERM_PASID_MASK		0xfffff000
+#define MSIX_PERM_PASID_SHIFT		12
+
+		struct device *dev = vidxd_dev(vidxd);
+		u32 msix_perm, pasid_en, pasid, gpasid;
+		int index;
+
+		if (size != sizeof(u32) || !IS_ALIGNED(offset, sizeof(u64))) {
+			dev_warn(dev, "XXX unaligned MSIX PERM access\n");
+			break;
+		}
+
+		memcpy(bar0 + offset, buf, size);
+		index = (offset - VIDXD_MSIX_PERM_OFFSET) / 8;
+		msix_perm = get_reg_val(buf, sizeof(u32)) & 0xfffff00d;
+		pasid_en = msix_perm & MSIX_PERM_PASID_EN_MASK;
+		/* May check if guest changes pasid_en bit, then may do sth. */
+		if (pasid_en) {
+			gpasid = (msix_perm & MSIX_PERM_PASID_MASK) >> MSIX_PERM_PASID_SHIFT;
+			vidxd_get_host_pasid(dev, gpasid, &pasid);
+			vfio_device_set_pasid(&vidxd->vdev, pasid);
+			vfio_pci_ims_set_cookie(&vidxd->vdev, index,
+						(union msi_instance_cookie *)&pasid);
+		} else {
+			vfio_device_set_pasid(&vidxd->vdev, vidxd->pasid);
+			vfio_pci_ims_set_cookie(&vidxd->vdev, index,
+						(union msi_instance_cookie *)&vidxd->pasid);
+		}
+
+		dev_dbg(dev, "%s writing to MSIX_PERM: %#x offset %#x index: %u, pasid: %d, gpasid: %d\n",
+			__func__, msix_perm, offset, index, pasid, gpasid);
+		break;
+	}
+	}
+
+	return 0;
+}
+
+int vidxd_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size)
+{
+	u32 offset = pos & (vidxd->bar_size[0] - 1);
+	struct device *dev = vidxd_dev(vidxd);
+
+	memcpy(buf, vidxd->bar0 + offset, size);
+
+	dev_dbg(dev, "vidxd mmio R %d %x %x: %llx\n",
+		vidxd->wq->id, size, offset, get_reg_val(buf, size));
 	return 0;
 }

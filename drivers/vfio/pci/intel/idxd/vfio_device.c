@@ -220,6 +220,173 @@ static void idxd_vdcm_detach_ioas(struct vfio_device *vdev)
 	 */
 }
 
+static ssize_t idxd_vdcm_rw(struct vfio_device *vdev, char *buf, size_t count,
+			    loff_t *ppos, int mode)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	unsigned int index = VFIO_PCI_OFFSET_TO_INDEX(*ppos);
+	u64 pos = *ppos & VFIO_PCI_OFFSET_MASK;
+	struct device *dev = vdev->dev;
+	int rc = -EINVAL;
+
+	if (index >= VFIO_PCI_NUM_REGIONS) {
+		dev_err(dev, "invalid index: %u\n", index);
+		return -EINVAL;
+	}
+
+	switch (index) {
+	case VFIO_PCI_CONFIG_REGION_INDEX:
+		if (mode == IDXD_VDCM_WRITE)
+			rc = vidxd_cfg_write(vidxd, pos, buf, count);
+		else
+			rc = vidxd_cfg_read(vidxd, pos, buf, count);
+		break;
+	case VFIO_PCI_BAR0_REGION_INDEX:
+	case VFIO_PCI_BAR1_REGION_INDEX:
+		if (mode == IDXD_VDCM_WRITE)
+			rc = vidxd_mmio_write(vidxd, vidxd->bar_val[0] + pos, buf, count);
+		else
+			rc = vidxd_mmio_read(vidxd, vidxd->bar_val[0] + pos, buf, count);
+		break;
+	case VFIO_PCI_BAR2_REGION_INDEX:
+	case VFIO_PCI_BAR3_REGION_INDEX:
+	case VFIO_PCI_BAR4_REGION_INDEX:
+	case VFIO_PCI_BAR5_REGION_INDEX:
+	case VFIO_PCI_VGA_REGION_INDEX:
+	case VFIO_PCI_ROM_REGION_INDEX:
+	default:
+		dev_err(dev, "unsupported region: %u\n", index);
+	}
+
+	return rc == 0 ? count : rc;
+}
+
+static ssize_t idxd_vdcm_read(struct vfio_device *vdev, char __user *buf, size_t count,
+			      loff_t *ppos)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	unsigned int done = 0;
+	int rc;
+
+	mutex_lock(&vidxd->dev_lock);
+	while (count) {
+		size_t filled;
+
+		if (count >= 4 && !(*ppos % 4)) {
+			u32 val;
+
+			rc = idxd_vdcm_rw(vdev, (char *)&val, sizeof(val),
+					  ppos, IDXD_VDCM_READ);
+			if (rc <= 0)
+				goto read_err;
+
+			if (copy_to_user(buf, &val, sizeof(val)))
+				goto read_err;
+
+			filled = 4;
+		} else if (count >= 2 && !(*ppos % 2)) {
+			u16 val;
+
+			rc = idxd_vdcm_rw(vdev, (char *)&val, sizeof(val),
+					  ppos, IDXD_VDCM_READ);
+			if (rc <= 0)
+				goto read_err;
+
+			if (copy_to_user(buf, &val, sizeof(val)))
+				goto read_err;
+
+			filled = 2;
+		} else {
+			u8 val;
+
+			rc = idxd_vdcm_rw(vdev, &val, sizeof(val), ppos,
+					  IDXD_VDCM_READ);
+			if (rc <= 0)
+				goto read_err;
+
+			if (copy_to_user(buf, &val, sizeof(val)))
+				goto read_err;
+
+			filled = 1;
+		}
+
+		count -= filled;
+		done += filled;
+		*ppos += filled;
+		buf += filled;
+	}
+
+	mutex_unlock(&vidxd->dev_lock);
+	return done;
+
+ read_err:
+	mutex_unlock(&vidxd->dev_lock);
+	return -EFAULT;
+}
+
+static ssize_t idxd_vdcm_write(struct vfio_device *vdev, const char __user *buf,
+			       size_t count, loff_t *ppos)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	unsigned int done = 0;
+	int rc;
+
+	mutex_lock(&vidxd->dev_lock);
+	while (count) {
+		size_t filled;
+
+		if (count >= 4 && !(*ppos % 4)) {
+			u32 val;
+
+			if (copy_from_user(&val, buf, sizeof(val)))
+				goto write_err;
+
+			rc = idxd_vdcm_rw(vdev, (char *)&val, sizeof(val),
+					  ppos, IDXD_VDCM_WRITE);
+			if (rc <= 0)
+				goto write_err;
+
+			filled = 4;
+		} else if (count >= 2 && !(*ppos % 2)) {
+			u16 val;
+
+			if (copy_from_user(&val, buf, sizeof(val)))
+				goto write_err;
+
+			rc = idxd_vdcm_rw(vdev, (char *)&val,
+					  sizeof(val), ppos, IDXD_VDCM_WRITE);
+			if (rc <= 0)
+				goto write_err;
+
+			filled = 2;
+		} else {
+			u8 val;
+
+			if (copy_from_user(&val, buf, sizeof(val)))
+				goto write_err;
+
+			rc = idxd_vdcm_rw(vdev, &val, sizeof(val),
+					  ppos, IDXD_VDCM_WRITE);
+			if (rc <= 0)
+				goto write_err;
+
+			filled = 1;
+		}
+
+		count -= filled;
+		done += filled;
+		*ppos += filled;
+		buf += filled;
+	}
+
+	mutex_unlock(&vidxd->dev_lock);
+	return done;
+
+write_err:
+	mutex_unlock(&vidxd->dev_lock);
+	return -EFAULT;
+}
+
 static const struct vfio_device_ops idxd_vdev_ops = {
 	.name = "vfio-vdev",
 	.open_device = idxd_vdcm_open,
@@ -228,6 +395,8 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.unbind_iommufd = idxd_vdcm_unbind_iommufd,
 	.attach_ioas = idxd_vdcm_attach_ioas,
 	.detach_ioas = idxd_vdcm_detach_ioas,
+	.read = idxd_vdcm_read,
+	.write = idxd_vdcm_write,
 };
 
 static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)

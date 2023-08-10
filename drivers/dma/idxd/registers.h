@@ -216,6 +216,7 @@ union cmdsts_reg {
 	};
 	u32 bits;
 } __packed;
+#define IDXD_CMDS_ACTIVE_BIT		31
 #define IDXD_CMDSTS_ACTIVE		0x80000000
 #define IDXD_CMDSTS_ERR_MASK		0xff
 #define IDXD_CMDSTS_RES_SHIFT		8
