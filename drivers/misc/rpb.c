@@ -11,6 +11,11 @@
 #include <linux/dma-mapping.h>
 #include <linux/delay.h>
 
+static bool autotest;
+module_param(autotest, bool, 0644);
+static uint autotest_loops = 1;
+module_param(autotest_loops, uint, 0644);
+
 static int force_upper_vector = 1;
 module_param(force_upper_vector, int, 0644);
 
@@ -1973,6 +1978,63 @@ static int rpb_map_bars(struct rpb_device *rdev)
 	return 0;
 }
 
+static long rpb_autotest_run(struct rpb_device *rdev,
+			     unsigned int mem_op,
+			     unsigned int mem_attr,
+			     unsigned int mem_size)
+{
+	long failure_cnt = 0;
+	unsigned long i;
+
+	for (i = 0; i < autotest_loops; i++) {
+		rdev->mem_op = mem_op;
+		rdev->mem_attr = mem_attr;
+		rdev->mem_size = mem_size;
+		if (rpb_start_mem_test(rdev))
+			failure_cnt++;
+	}
+
+	return failure_cnt;
+}
+
+static void rpb_autotest(struct rpb_device *rdev)
+{
+	/* Failure cases counter */
+	unsigned long ret, priv_wr = 0, priv_rd = 0, shared_wr = 0, shared_rd = 0;
+
+	if (rdev->pdev->dev.authorized == MODE_SECURE) {
+		/* Private Memory Write Test */
+		priv_wr = rpb_autotest_run(rdev, RPB_MEM_OP_WRITE,
+					   RPB_MEM_ATTR_DEFAULT, 4096);
+
+		/* Private Memory Read Test */
+		priv_rd = rpb_autotest_run(rdev, RPB_MEM_OP_READ,
+					   RPB_MEM_ATTR_DEFAULT, 4096);
+	}
+
+	/* Shared Memory Write Test */
+	shared_wr = rpb_autotest_run(rdev, RPB_MEM_OP_WRITE,
+				     RPB_MEM_ATTR_SHARED, 4096);
+
+	/* Shared Memory Read Test */
+	shared_rd = rpb_autotest_run(rdev, RPB_MEM_OP_READ,
+				     RPB_MEM_ATTR_SHARED, 4096);
+
+	ret = priv_wr + priv_rd + shared_wr + shared_rd;
+	if (rdev->pdev->dev.authorized == MODE_SECURE)
+		dev_info(&rdev->pdev->dev, "Autotest result: %s    Priv Mem WR[%lu/%u] Priv Mem RD[%lu/%u] Shared Mem WR[%lu/%u] Shared Mem RD[%lu/%u]\n",
+			 ret ? "Fail" : "Pass",
+			 autotest_loops - priv_wr, autotest_loops,
+			 autotest_loops - priv_rd, autotest_loops,
+			 autotest_loops - shared_wr, autotest_loops,
+			 autotest_loops - shared_rd, autotest_loops);
+	else
+		dev_info(&rdev->pdev->dev, "Autotest result: %s    Shared Mem WR[%lu/%u] Shared Mem RD[%lu/%u]\n",
+			 ret ? "Fail" : "Pass",
+			 autotest_loops - shared_wr, autotest_loops,
+			 autotest_loops - shared_rd, autotest_loops);
+}
+
 static int rpb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	struct rpb_device *rdev;
@@ -2011,6 +2073,9 @@ static int rpb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return ret;
 
 	pci_set_drvdata(pdev, rdev);
+
+	if (autotest)
+		rpb_autotest(rdev);
 
 	return ret;
 }
