@@ -70,7 +70,9 @@ struct tdmr_info {
  */
 #define TDX_MD_FEATURES0			0x0A00000300000008
 #define TDX_FEATURES0_TD_PRES			BIT(1)
-
+#define TDX_MD_MODULE_HV			0x8900000100000000
+#define TDX_MD_MIN_UPDATE_HV			0x8900000100000001
+#define TDX_MD_NO_DOWNGRADE			0x8900000000000002
 
 /*
  * Do not put any hardware-defined TDX structure representations below
@@ -121,10 +123,12 @@ struct tdmr_info_list {
 #define TDX_METADATA_CPUID_LEAVES_NAME		"9900000300000400"
 #define TDX_METADATA_CPUID_VALUES_NAME		"9900000300000500"
 
+struct seam_sigstruct;
+
 void tdx_module_lock(void);
 void tdx_module_unlock(void);
 int tdx_enable_after_update(bool live_update);
-int tdx_prepare_handoff_data(u16 req_hv);
+int tdx_prepare_handoff_data(struct seam_sigstruct *sig);
 
 extern struct tdsysinfo_struct *sysinfo;
 extern u64 tdx_features0;
