@@ -107,6 +107,9 @@ struct lbr_desc {
 
 	/* True if LBRs are marked as not intercepted in the MSR bitmap */
 	bool msr_passthrough;
+
+	/* True if LBR is frozen on PMI */
+	bool freeze_on_pmi;
 };
 
 /*
