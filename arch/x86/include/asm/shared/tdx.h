@@ -29,6 +29,8 @@
 #define TDVMCALL_REPORT_FATAL_ERROR	0x10003
 #define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
 
+#define TDVMCALL_STATUS_RETRY		1
+
 /*
  * Bitmasks of exposed registers (with VMM).
  */
