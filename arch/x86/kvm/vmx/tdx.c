@@ -18,6 +18,8 @@
 #include <trace/events/kvm.h>
 #include "trace.h"
 
+static struct kvm_firmware *tdx_module;
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -5528,23 +5530,30 @@ static int tdx_update_notifier(struct notifier_block *nb,
 	switch (event) {
 	case TDX_UPDATE_START:
 		if (atomic_add_return(bias, &nr_configured_hkid) != bias) {
-			atomic_sub(bias, &nr_configured_hkid);
-			ret = -EBUSY;
+			if ((unsigned long)data == 0) {
+				atomic_sub(bias, &nr_configured_hkid);
+				ret = -EBUSY;
+				break;
+			}
 		}
+		kvm_start_update_fw(tdx_module);
 		break;
 
 	case TDX_UPDATE_ABORT:
 		atomic_sub(bias, &nr_configured_hkid);
+		kvm_end_update_fw(tdx_module);
 		break;
 
 	case TDX_UPDATE_SUCCESS:
 		tdx_module_not_available = !!tdx_module_setup();
 		atomic_sub(bias, &nr_configured_hkid);
+		kvm_end_update_fw(tdx_module);
 		break;
 
 	case TDX_UPDATE_FAIL:
 		tdx_module_not_available = true;
 		atomic_sub(bias, &nr_configured_hkid);
+		kvm_end_update_fw(tdx_module);
 		break;
 
 	default:
@@ -5631,6 +5640,12 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	if (r)
 		goto out;
 
+	tdx_module = kvm_register_fw(KVM_FIRMWARE_TDX_MODULE);
+	if (IS_ERR(tdx_module)) {
+		r = PTR_ERR(tdx_module);
+		goto unregister;
+	}
+
 	x86_ops->link_private_spt = tdx_sept_link_private_spt;
 	x86_ops->free_private_spt = tdx_sept_free_private_spt;
 	x86_ops->split_private_spt = tdx_sept_split_private_spt;
@@ -5649,6 +5664,8 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	intel_reserve_lbr_buffers();
 	return 0;
 
+unregister:
+	unregister_tdx_update_notifier(&tdx_update_nb);
 out:
 	/* kfree() accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
@@ -5666,6 +5683,7 @@ void tdx_hardware_unsetup(void)
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 	kvm_set_tdx_guest_pmi_handler(NULL);
 	unregister_tdx_update_notifier(&tdx_update_nb);
+	kvm_unregister_fw(tdx_module);
 }
 
 int tdx_offline_cpu(void)

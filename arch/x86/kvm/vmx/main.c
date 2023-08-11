@@ -1048,6 +1048,19 @@ int vt_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	return tdx_vm_move_enc_context_from(kvm, source_fd);
 }
 
+static bool is_tdx_module(struct kvm_firmware *fw)
+{
+	return fw->id == KVM_FIRMWARE_TDX_MODULE;
+}
+
+bool vt_match_fw(struct kvm *kvm, struct kvm_firmware *fw)
+{
+	if (is_td(kvm) && is_tdx_module(fw))
+		return true;
+
+	return false;
+}
+
 int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))

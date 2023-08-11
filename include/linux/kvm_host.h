@@ -2454,6 +2454,7 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 static inline void kvm_arch_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end) { }
 #endif /* CONFIG_KVM_PRIVATE_MEM */
 
+#define KVM_FIRMWARE_TDX_MODULE		0
 struct kvm_firmware {
 	int id;				/* Identity of the firmware */
 
@@ -2476,6 +2477,7 @@ void kvm_end_update_fw(struct kvm_firmware *fw);
 void kvm_arch_start_update_fw(struct kvm *kvm);
 void kvm_arch_end_update_fw(struct kvm *kvm);
 int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update);
+void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu);
 #else
 static inline struct kvm_firmware *kvm_register_fw(int fw_id) { return NULL; }
 static inline int kvm_unregister_fw(struct kvm_firmware *kvm_fw) { return 0; }
@@ -2485,6 +2487,7 @@ static inline void kvm_end_update_fw(struct kvm_firmware *fw) {}
 static inline void kvm_arch_start_update_fw(struct kvm *kvm) {}
 static inline void kvm_arch_end_update_fw(struct kvm *kvm) {}
 static inline int kvm_arch_update_fw(struct kvm_firmware *fw, bool live_update) { return -EOPNOTSUPP; }
+static inline void kvm_vcpu_fw_update(struct kvm_vcpu *vcpu) {}
 #endif
 
 #endif

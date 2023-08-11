@@ -448,5 +448,6 @@ int vt_mem_enc_ioctl(struct kvm *kvm, void __user *argp);
 int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
 
 int vt_move_enc_context_from(struct kvm *kvm, unsigned int source_fd);
+bool vt_match_fw(struct kvm *kvm, struct kvm_firmware *fw);
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

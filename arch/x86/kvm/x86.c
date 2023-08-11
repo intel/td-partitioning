@@ -10764,6 +10764,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		if (kvm_check_request(KVM_REQ_UPDATE_CPU_DIRTY_LOGGING, vcpu))
 			static_call(kvm_x86_update_cpu_dirty_logging)(vcpu);
+		if (kvm_check_request(KVM_REQ_FW_UPDATE, vcpu))
+			kvm_vcpu_fw_update(vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
@@ -14006,6 +14008,18 @@ void post_move_enc_context_from(struct kvm *dst_kvm, struct kvm *src_kvm,
 				     src_migration_in_progress);
 }
 EXPORT_SYMBOL_GPL(post_move_enc_context_from);
+
+#ifdef CONFIG_HAVE_KVM_FIRMWARE
+void kvm_arch_start_update_fw(struct kvm *kvm)
+{
+	kvm_make_all_cpus_request(kvm, KVM_REQ_FW_UPDATE);
+}
+
+bool kvm_arch_match_fw(struct kvm *kvm, struct kvm_firmware *fw)
+{
+	return static_call(kvm_x86_match_fw)(kvm, fw);
+}
+#endif
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
