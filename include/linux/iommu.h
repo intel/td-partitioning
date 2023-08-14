@@ -14,6 +14,7 @@
 #include <linux/err.h>
 #include <linux/of.h>
 #include <uapi/linux/iommufd.h>
+#include <linux/ioasid_def.h>
 
 #define IOMMU_READ	(1 << 0)
 #define IOMMU_WRITE	(1 << 1)
@@ -288,12 +289,6 @@ enum iommu_dev_features {
 #define IOMMU_FIRST_GLOBAL_PASID	(1U) /*starting range for allocation */
 #define IOMMU_PASID_INVALID	((ioasid_t)-1)
 typedef unsigned int ioasid_t;
-#define INVALID_IOASID ((ioasid_t)-1)
-
-static inline bool pasid_valid(ioasid_t ioasid)
-{
-	return ioasid != INVALID_IOASID;
-}
 
 #ifdef CONFIG_IOMMU_API
 

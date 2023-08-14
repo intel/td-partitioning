@@ -1635,7 +1635,7 @@ int idxd_device_drv_probe(struct idxd_dev *idxd_dev)
 	 * need to re-enable user interrupts for kernel work queue completion
 	 * IRQ to function.
 	 */
-	if (idxd->pasid != IOMMU_PASID_INVALID)
+	if (idxd->pasid != INVALID_IOASID)
 		idxd_set_user_intr(idxd, 1);
 
 	rc = idxd_device_evl_setup(idxd);

@@ -32,13 +32,13 @@
 #include <trace/events/iommu.h>
 #include <linux/sched/mm.h>
 #include <linux/msi.h>
+#include <linux/ioasid.h>
 
 #include "dma-iommu.h"
 #include "iommu-priv.h"
 
 static struct kset *iommu_group_kset;
 static DEFINE_IDA(iommu_group_ida);
-static DEFINE_IDA(iommu_global_pasid_ida);
 
 static unsigned int iommu_def_domain_type __read_mostly;
 static bool iommu_dma_strict __read_mostly = IS_ENABLED(CONFIG_IOMMU_DEFAULT_DMA_STRICT);
@@ -3491,8 +3491,7 @@ ioasid_t iommu_alloc_global_pasid(struct device *dev)
 	 * max_pasids is set up by vendor driver based on number of PASID bits
 	 * supported but the IDA allocation is inclusive.
 	 */
-	ret = ida_alloc_range(&iommu_global_pasid_ida, IOMMU_FIRST_GLOBAL_PASID,
-			      dev->iommu->max_pasids - 1, GFP_ATOMIC);
+	ret = ioasid_alloc(NULL, 1, dev->iommu->max_pasids, dev, 0);
 	return ret < 0 ? IOMMU_PASID_INVALID : ret;
 }
 EXPORT_SYMBOL_GPL(iommu_alloc_global_pasid);
@@ -3502,6 +3501,6 @@ void iommu_free_global_pasid(ioasid_t pasid)
 	if (WARN_ON(pasid == IOMMU_PASID_INVALID))
 		return;
 
-	ida_free(&iommu_global_pasid_ida, pasid);
+	__ioasid_put(pasid);
 }
 EXPORT_SYMBOL_GPL(iommu_free_global_pasid);

@@ -9,6 +9,7 @@
 #include <linux/msi.h>
 #include <linux/pci.h>
 #include <linux/iommu.h>
+#include <linux/ioasid_def.h>
 
 #include <linux/irqchip/irq-pci-intel-idxd.h>
 

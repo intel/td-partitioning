@@ -11,8 +11,6 @@
 
 static DEFINE_MUTEX(iommu_sva_lock);
 
-static DECLARE_IOASID_SET(iommu_sva_pasid);
-
 /* Allocate a PASID for the mm within range (inclusive) */
 static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
 {
@@ -30,7 +28,7 @@ static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
 		goto out;
 	}
 
-	pasid = ioasid_alloc(&iommu_sva_pasid, 0, dev->iommu->max_pasids, mm);
+	pasid = ioasid_alloc(NULL, 0, dev->iommu->max_pasids, mm, 0);
 	if (!pasid_valid(pasid)) {
 		ret = -ENOSPC;
 		goto out;
@@ -210,7 +208,7 @@ void mm_pasid_drop(struct mm_struct *mm)
 	if (likely(!mm_valid_pasid(mm)))
 		return;
 
-	ioasid_free(mm->pasid);
+	__ioasid_put(mm->pasid);
 	mm->pasid = INVALID_IOASID;
 }
 

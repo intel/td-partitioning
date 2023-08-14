@@ -108,7 +108,8 @@ static int idxd_vdcm_bind_iommufd(struct vfio_device *vdev,
 		goto out;
 	}
 
-	pasid = iommu_alloc_global_pasid(&idxd->pdev->dev);
+	pasid = ioasid_alloc(NULL, 1, idxd->pdev->dev.iommu->max_pasids, vidxd, 0);
+	//pasid = iommu_alloc_global_pasid(&idxd->pdev->dev);
 	if (pasid == IOMMU_PASID_INVALID) {
 		rc = -ENOSPC;
 		goto out;
@@ -145,6 +146,7 @@ static void idxd_vdcm_unbind_iommufd(struct vfio_device *vdev)
 			iommufd_device_detach(vidxd->idev);
 			kfree(hwpt);
 		}
+		ioasid_put(NULL, vidxd->pasid);
 		xa_destroy(&vidxd->pasid_xa);
 		iommufd_device_unbind(vidxd->idev);
 		vidxd->idev = NULL;
