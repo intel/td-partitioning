@@ -7,8 +7,11 @@
 #include <linux/sched/mm.h>
 #include <linux/iommu.h>
 #include <linux/mm_types.h>
+#include <linux/ioasid.h>
 
 static DEFINE_MUTEX(iommu_sva_lock);
+
+static DECLARE_IOASID_SET(iommu_sva_pasid);
 
 /* Allocate a PASID for the mm within range (inclusive) */
 static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
@@ -27,8 +30,8 @@ static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
 		goto out;
 	}
 
-	pasid = iommu_alloc_global_pasid(dev);
-	if (pasid == IOMMU_PASID_INVALID) {
+	pasid = ioasid_alloc(&iommu_sva_pasid, 0, dev->iommu->max_pasids, mm);
+	if (!pasid_valid(pasid)) {
 		ret = -ENOSPC;
 		goto out;
 	}
@@ -207,7 +210,8 @@ void mm_pasid_drop(struct mm_struct *mm)
 	if (likely(!mm_valid_pasid(mm)))
 		return;
 
-	iommu_free_global_pasid(mm->pasid);
+	ioasid_free(mm->pasid);
+	mm->pasid = INVALID_IOASID;
 }
 
 static int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
