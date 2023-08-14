@@ -3492,7 +3492,7 @@ ioasid_t iommu_alloc_global_pasid(struct device *dev)
 	 * supported but the IDA allocation is inclusive.
 	 */
 	ret = ida_alloc_range(&iommu_global_pasid_ida, IOMMU_FIRST_GLOBAL_PASID,
-			      dev->iommu->max_pasids - 1, GFP_KERNEL);
+			      dev->iommu->max_pasids - 1, GFP_ATOMIC);
 	return ret < 0 ? IOMMU_PASID_INVALID : ret;
 }
 EXPORT_SYMBOL_GPL(iommu_alloc_global_pasid);

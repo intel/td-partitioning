@@ -286,7 +286,7 @@ enum iommu_dev_features {
 
 #define IOMMU_NO_PASID	(0U) /* Reserved for DMA w/o PASID */
 #define IOMMU_FIRST_GLOBAL_PASID	(1U) /*starting range for allocation */
-#define IOMMU_PASID_INVALID	(-1U)
+#define IOMMU_PASID_INVALID	((ioasid_t)-1)
 typedef unsigned int ioasid_t;
 #define INVALID_IOASID ((ioasid_t)-1)
 
