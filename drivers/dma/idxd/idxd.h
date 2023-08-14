@@ -10,6 +10,7 @@
 #include <linux/cdev.h>
 #include <linux/idr.h>
 #include <linux/pci.h>
+#include <linux/ioasid.h>
 #include <linux/bitmap.h>
 #include <linux/perf_event.h>
 #include <linux/iommu.h>
