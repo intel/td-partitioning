@@ -264,7 +264,7 @@ static int pasid_to_svm_sdev(struct device *dev, unsigned int pasid,
 	struct intel_svm_dev *sdev = NULL;
 	struct intel_svm *svm;
 
-	if (pasid == IOMMU_PASID_INVALID || pasid >= PASID_MAX)
+	if (pasid == INVALID_IOASID || pasid >= PASID_MAX)
 		return -EINVAL;
 
 	svm = pasid_private_find(pasid);

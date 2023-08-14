@@ -879,7 +879,7 @@ void dmar_fault_dump_ptes(struct intel_iommu *iommu, u16 source_id,
 		return;
 	}
 	/* For request-without-pasid, get the pasid from context entry */
-	if (intel_iommu_sm && pasid == IOMMU_PASID_INVALID)
+	if (intel_iommu_sm && pasid == INVALID_IOASID)
 		pasid = IOMMU_NO_PASID;
 
 	dir_index = pasid >> PASID_PDE_SHIFT;

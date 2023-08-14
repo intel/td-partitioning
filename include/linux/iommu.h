@@ -288,6 +288,12 @@ enum iommu_dev_features {
 #define IOMMU_FIRST_GLOBAL_PASID	(1U) /*starting range for allocation */
 #define IOMMU_PASID_INVALID	(-1U)
 typedef unsigned int ioasid_t;
+#define INVALID_IOASID ((ioasid_t)-1)
+
+static inline bool pasid_valid(ioasid_t ioasid)
+{
+	return ioasid != INVALID_IOASID;
+}
 
 #ifdef CONFIG_IOMMU_API
 
@@ -1316,7 +1322,7 @@ static inline bool tegra_dev_iommu_get_stream_id(struct device *dev, u32 *stream
 #ifdef CONFIG_IOMMU_SVA
 static inline void mm_pasid_init(struct mm_struct *mm)
 {
-	mm->pasid = IOMMU_PASID_INVALID;
+	mm->pasid = INVALID_IOASID;
 }
 static inline bool mm_valid_pasid(struct mm_struct *mm)
 {
