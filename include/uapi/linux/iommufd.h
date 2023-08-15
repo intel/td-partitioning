@@ -49,6 +49,8 @@ enum {
 	IOMMUFD_CMD_GET_HW_INFO,
 	IOMMUFD_CMD_RESV_IOVA_RANGES,
 	IOMMUFD_CMD_HWPT_INVALIDATE,
+	IOMMUFD_CMD_ALLOC_PASID,
+	IOMMUFD_CMD_FREE_PASID,
 	IOMMUFD_CMD_SET_DEV_DATA,
 	IOMMUFD_CMD_UNSET_DEV_DATA,
 };
@@ -733,6 +735,42 @@ struct iommu_hwpt_invalidate {
 	__aligned_u64 data_uptr;
 };
 #define IOMMU_HWPT_INVALIDATE _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_INVALIDATE)
+
+/*
+ * struct iommu_alloc_pasid - ioctl(IOMMU_ALLOC_PASID)
+ * @size: sizeof(struct iommu_alloc_pasid)
+ * @flags: optional flags.
+ * @min: min pasid
+ * @max: max pasid
+ * @pasid: input a user pasid and output the allocated host pasid
+ *
+ * Allocate a host pasid within [@min, @max]
+ */
+struct iommu_alloc_pasid {
+	__u32 size;
+	__u32 flags;
+#define IOMMU_ALLOC_PASID_IDENTICAL (1 << 0)
+	struct {
+		__u32   min;
+		__u32   max;
+	} range;
+	__u32 pasid;
+};
+#define IOMMU_ALLOC_PASID _IO(IOMMUFD_TYPE, IOMMUFD_CMD_ALLOC_PASID)
+
+/*
+ * struct iommu_free_pasid - ioctl(IOMMU_FREE_PASID)
+ * @size: sizeof(struct iommu_free_pasid)
+ * @flags: must be 0
+ * @pasid: the pasid to be freed
+ *
+ */
+struct iommu_free_pasid {
+	__u32 size;
+	__u32 flags;
+	__u32 pasid;
+};
+#define IOMMU_FREE_PASID _IO(IOMMUFD_TYPE, IOMMUFD_CMD_FREE_PASID)
 
 /**
  * struct iommu_dev_data_arm_smmuv3 - ARM SMMUv3 specific device data
