@@ -4045,11 +4045,20 @@ static void dmar_remove_one_dev_info(struct device *dev)
 	struct dmar_domain *domain = info->domain;
 	struct intel_iommu *iommu = info->iommu;
 	unsigned long flags;
+	struct dev_pasid_info *dev_pasid;
 
 	if (!dev_is_real_dma_subdevice(info->dev)) {
-		if (dev_is_pci(info->dev) && sm_supported(iommu))
+		if (dev_is_pci(info->dev) && sm_supported(iommu)) {
 			intel_pasid_tear_down_entry(iommu, info->dev,
 					IOMMU_NO_PASID, false);
+
+			/* TODO: intel_pasid_free_table is called after this func.
+			 * Not sure if this tear down is required.
+			 */
+			list_for_each_entry(dev_pasid, &domain->dev_pasids, link_domain)
+				intel_pasid_tear_down_entry(iommu, info->dev,
+						dev_pasid->pasid, false);
+		}
 
 		iommu_disable_pci_caps(info);
 		domain_context_clear(info);
