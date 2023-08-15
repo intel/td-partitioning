@@ -17,6 +17,8 @@
 #include <linux/bug.h>
 #include <uapi/linux/iommufd.h>
 #include <linux/iommufd.h>
+#include <linux/sched/mm.h>
+#include <linux/ioasid.h>
 #include "../iommu-priv.h"
 
 #include "io_pagetable.h"
@@ -272,6 +274,8 @@ out_put:
 static int iommufd_fops_open(struct inode *inode, struct file *filp)
 {
 	struct iommufd_ctx *ictx;
+	struct mm_struct *mm;
+	int ret = 0;
 
 	ictx = kzalloc(sizeof(*ictx), GFP_KERNEL_ACCOUNT);
 	if (!ictx)
@@ -291,7 +295,20 @@ static int iommufd_fops_open(struct inode *inode, struct file *filp)
 	xa_init(&ictx->groups);
 	ictx->file = filp;
 	filp->private_data = ictx;
-	return 0;
+
+	mm = get_task_mm(current);
+	/* REVISIT: IOASID set quota must be enforced at per mm level, but
+	 * users should be able to open iommufd multiple times. For now we
+	 * just prevent multi-open. TODO: find a more explicit token
+	 * than mm.
+	 */
+	ictx->pasid_set = ioasid_set_alloc_with_mm(mm, 1000);
+	/* IOASID core will mmgrab to ensure life time alignment */
+	if (IS_ERR(ictx->pasid_set))
+		ret = -EBUSY;
+	mmput(mm);
+
+	return ret;
 }
 
 static int iommufd_fops_release(struct inode *inode, struct file *filp)
@@ -325,6 +342,13 @@ static int iommufd_fops_release(struct inode *inode, struct file *filp)
 			break;
 	}
 	WARN_ON(!xa_empty(&ictx->groups));
+
+	ioasid_put_all_in_set(ictx->pasid_set);
+	/* There could be PASID refs held on the set, if so the set will not be
+	 * freed until reference to all its PASIDs are dropped.
+	 */
+	ioasid_set_destroy(ictx->pasid_set);
+
 	kfree(ictx);
 	return 0;
 }
@@ -450,6 +474,8 @@ union ucmd_buffer {
 	struct iommu_set_dev_data set_dev_data;
 	struct iommu_unset_dev_data unset_dev_data;
 	struct iommu_vfio_ioas vfio_ioas;
+	struct iommu_alloc_pasid alloc_pasid;
+	struct iommu_free_pasid free_pasid;
 #ifdef CONFIG_IOMMUFD_TEST
 	struct iommu_test_cmd test;
 #endif
@@ -486,6 +512,10 @@ static const struct iommufd_ioctl_op iommufd_ioctl_ops[] = {
 		 data_uptr),
 	IOCTL_OP(IOMMU_HWPT_INVALIDATE, iommufd_hwpt_invalidate,
 		 struct iommu_hwpt_invalidate, data_uptr),
+	IOCTL_OP(IOMMU_ALLOC_PASID, iommufd_alloc_pasid, struct iommu_alloc_pasid,
+		 pasid),
+	IOCTL_OP(IOMMU_FREE_PASID, iommufd_free_pasid, struct iommu_free_pasid,
+		 pasid),
 	IOCTL_OP(IOMMU_IOAS_ALLOC, iommufd_ioas_alloc_ioctl,
 		 struct iommu_ioas_alloc, out_ioas_id),
 	IOCTL_OP(IOMMU_IOAS_ALLOW_IOVAS, iommufd_ioas_allow_iovas,

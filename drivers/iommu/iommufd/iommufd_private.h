@@ -20,6 +20,7 @@ struct iommufd_ctx {
 	struct xarray objects;
 	struct xarray groups;
 
+	struct ioasid_set *pasid_set;
 	u8 account_mode;
 	/* Compatibility with VFIO no iommu */
 	u8 no_iommu_mode;
@@ -342,6 +343,9 @@ void iopt_remove_access(struct io_pagetable *iopt,
 			struct iommufd_access *access,
 			u32 iopt_access_list_id);
 void iommufd_access_destroy_object(struct iommufd_object *obj);
+
+int iommufd_alloc_pasid(struct iommufd_ucmd *ucmd);
+int iommufd_free_pasid(struct iommufd_ucmd *ucmd);
 
 #ifdef CONFIG_IOMMUFD_TEST
 int iommufd_test(struct iommufd_ucmd *ucmd);

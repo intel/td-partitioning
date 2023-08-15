@@ -3,10 +3,13 @@
  */
 #include <linux/iommufd.h>
 #include <linux/iommu.h>
+#include <linux/ioasid.h>
 #include "../iommu-priv.h"
 
 #include "iommufd_private.h"
 #include "iommufd_test.h"
+
+#define IOASID_BITS 20
 
 static int __iommufd_device_pasid_do_attach(struct iommufd_device *idev,
 					    u32 pasid,
@@ -164,3 +167,53 @@ void iommufd_device_pasid_detach(struct iommufd_device *idev, u32 pasid)
 	iommufd_hw_pagetable_put(idev->ictx, hwpt);
 }
 EXPORT_SYMBOL_NS_GPL(iommufd_device_pasid_detach, IOMMUFD);
+
+int iommufd_alloc_pasid(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_alloc_pasid *cmd = ucmd->cmd;
+	ioasid_t pasid;
+	int rc;
+
+	if (cmd->flags & ~IOMMU_ALLOC_PASID_IDENTICAL)
+		return -EOPNOTSUPP;
+
+	if (cmd->range.min > cmd->range.max ||
+	    cmd->range.min >= (1 << IOASID_BITS) ||
+	    cmd->range.max >= (1 << IOASID_BITS))
+		return -EINVAL;
+
+	pasid = ioasid_alloc(ucmd->ictx->pasid_set,
+			     cmd->range.min, cmd->range.max,
+			     NULL, cmd->pasid);
+
+	if (!pasid_valid(pasid))
+		return -ENODEV;
+
+	if (cmd->flags & IOMMU_ALLOC_PASID_IDENTICAL)
+		ioasid_attach_spid(pasid, pasid);
+
+	cmd->pasid = pasid;
+	rc = iommufd_ucmd_respond(ucmd, sizeof(*cmd));
+	if (rc)
+		goto out_free_pasid;
+
+	return 0;
+out_free_pasid:
+	ioasid_put(ucmd->ictx->pasid_set, pasid);
+	return rc;
+}
+
+int iommufd_free_pasid(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_free_pasid *cmd = ucmd->cmd;
+
+	if (cmd->flags)
+		return -EOPNOTSUPP;
+
+	if (!pasid_valid(cmd->pasid))
+		return -EINVAL;
+
+	ioasid_put(ucmd->ictx->pasid_set, cmd->pasid);
+
+	return 0;
+}
