@@ -244,8 +244,8 @@ static void iopf_handler(struct work_struct *work)
 		if (status == IOMMU_PAGE_RESP_SUCCESS)
 			status = iommu_sva_handle_iopf(&iopf->fault, group->data);
 	}
-
-	iopf_complete_group(group->dev, &group->last_fault, status);
+	if (status != IOMMU_PAGE_RESP_ASYNC)
+		iopf_complete_group(group->dev, &group->last_fault, status);
 	iopf_free_group(group);
 }
 
