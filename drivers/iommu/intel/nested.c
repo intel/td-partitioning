@@ -141,7 +141,6 @@ static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
 	u64 nr_uptr = inv_info->entry_nr_uptr;
 	struct device_domain_info *info;
 	u32 entry_nr, index;
-	unsigned long flags;
 	int ret = 0;
 
 	if (get_user(entry_nr, (uint32_t __user *)u64_to_user_ptr(nr_uptr)))
@@ -162,11 +161,9 @@ static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
 			break;
 		}
 
-		spin_lock_irqsave(&dmar_domain->lock, flags);
 		list_for_each_entry(info, &dmar_domain->devices, link)
 			intel_nested_invalidate(info->dev, dmar_domain,
 						req->addr, req->npages);
-		spin_unlock_irqrestore(&dmar_domain->lock, flags);
 	}
 
 	if (put_user(index, (uint32_t __user *)u64_to_user_ptr(nr_uptr)))
