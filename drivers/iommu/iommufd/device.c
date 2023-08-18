@@ -660,8 +660,7 @@ iommufd_device_do_replace_pasid(struct iommufd_device *idev,
 	if (rc)
 		return ERR_PTR(rc);
 
-	// FIXME: need a pasid replace API
-	rc = iommu_attach_device_pasid(hwpt->domain, idev->dev,	pasid);
+	rc = iommu_replace_device_pasid(hwpt->domain, idev->dev, pasid);
 	if (rc)
 		goto err_undo_attach;
 
