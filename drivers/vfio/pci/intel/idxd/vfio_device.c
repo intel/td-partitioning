@@ -139,11 +139,14 @@ static void idxd_vdcm_unbind_iommufd(struct vfio_device *vdev)
 
 	mutex_lock(&vidxd->dev_lock);
 	if (vidxd->idev) {
-		struct vfio_pci_hwpt *hwpt;
+		struct vdcm_hwpt *hwpt;
 		unsigned long index;
 
-		xa_for_each(&vidxd->pasid_xa, index, hwpt) {
-			iommufd_device_detach(vidxd->idev);
+		xa_for_each (&vidxd->pasid_xa, index, hwpt) {
+			if (!pasid_valid(hwpt->pasid)) {
+				continue;
+			}
+			iommufd_device_pasid_detach(vidxd->idev, hwpt->pasid);
 			kfree(hwpt);
 		}
 		ioasid_put(NULL, vidxd->pasid);
