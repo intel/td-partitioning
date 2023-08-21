@@ -138,10 +138,17 @@ void pci_tdi_uinit_and_free(struct pci_tdi *tdi)
 }
 EXPORT_SYMBOL_GPL(pci_tdi_uinit_and_free);
 
+static inline struct pci_tdisp_dev *to_tdisp_dev(struct pci_dev *pdev)
+{
+	struct pci_dev *phys_pdev = pci_physfn(pdev);
+
+	return phys_pdev->tdisp_dev;
+}
+
 struct pci_tdi *pci_tdi_alloc_and_init(struct pci_dev *pdev,
 				       struct pci_tdi_parm parm)
 {
-	struct pci_tdisp_dev *tdev = pdev->tdisp_dev;
+	struct pci_tdisp_dev *tdev = to_tdisp_dev(pdev);
 	struct pci_tdi *tdi;
 
 	/*
@@ -293,15 +300,18 @@ static void pci_tdisp_dev_uinit(struct pci_dev *pdev)
  */
 struct pci_tdi *pci_tdi_init(struct pci_dev *pdev, struct pci_tdi_parm parm)
 {
+	struct pci_dev *phys_pdev = pci_physfn(pdev);
 	struct pci_tdi *tdi;
 	int ret;
 
 	/*
 	 * 1. Generic initialization for TEE-IO device which hosts TDIs
 	 */
-	ret = pci_tdisp_dev_init(pdev, parm.dparm);
-	if (ret)
-		return ERR_PTR(ret);
+	if (!phys_pdev->tdisp_dev) {
+		ret = pci_tdisp_dev_init(phys_pdev, parm.dparm);
+		if (ret)
+			return ERR_PTR(ret);
+	}
 
 	/*
 	 * 2. Per TDI initialization
@@ -327,7 +337,7 @@ struct pci_tdi *pci_tdi_init(struct pci_dev *pdev, struct pci_tdi_parm parm)
 exit_uinit_free:
 	pci_tdi_uinit_and_free(tdi);
 exit_tdisp_uinit:
-	pci_tdisp_dev_uinit(pdev);
+	pci_tdisp_dev_uinit(phys_pdev);
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(pci_tdi_init);
