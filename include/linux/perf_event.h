@@ -1067,6 +1067,11 @@ perf_cgroup_from_task(struct task_struct *task, struct perf_event_context *ctx)
 }
 #endif /* CONFIG_CGROUP_PERF */
 
+struct td_metrics {
+	u64	slots;
+	u64	metric;
+};
+
 #ifdef CONFIG_PERF_EVENTS
 
 extern struct perf_event_context *perf_cpu_task_ctx(void);
@@ -1732,6 +1737,8 @@ extern void perf_event_task_tick(void);
 extern int perf_event_account_interrupt(struct perf_event *event);
 extern int perf_event_period(struct perf_event *event, u64 value);
 extern u64 perf_event_pause(struct perf_event *event, bool reset);
+extern int perf_event_topdown_metrics(struct perf_event *event,
+				      struct td_metrics *value);
 #else /* !CONFIG_PERF_EVENTS: */
 static inline void *
 perf_aux_output_begin(struct perf_output_handle *handle,
@@ -1815,6 +1822,12 @@ static inline int perf_event_period(struct perf_event *event, u64 value)
 	return -EINVAL;
 }
 static inline u64 perf_event_pause(struct perf_event *event, bool reset)
+{
+	return 0;
+}
+
+static inline int perf_event_topdown_metrics(struct perf_event *event,
+					     struct td_metrics *value)
 {
 	return 0;
 }

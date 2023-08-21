@@ -5776,6 +5776,68 @@ int perf_event_period(struct perf_event *event, u64 value)
 }
 EXPORT_SYMBOL_GPL(perf_event_period);
 
+static void __perf_event_topdown_metrics(struct perf_event *event,
+					 struct perf_cpu_context *cpuctx,
+					 struct perf_event_context *ctx,
+					 void *info)
+{
+	struct td_metrics *td_metrics = (struct td_metrics *)info;
+	bool active;
+
+	active = (event->state == PERF_EVENT_STATE_ACTIVE);
+	if (active) {
+		perf_pmu_disable(event->pmu);
+		/*
+		 * We could be throttled; unthrottle now to avoid the tick
+		 * trying to unthrottle while we already re-started the event.
+		 */
+		if (event->hw.interrupts == MAX_INTERRUPTS) {
+			event->hw.interrupts = 0;
+			perf_log_throttle(event, 1);
+		}
+		event->pmu->stop(event, PERF_EF_UPDATE);
+	}
+
+	event->hw.saved_slots = td_metrics->slots;
+	event->hw.saved_metric = td_metrics->metric;
+
+	if (active) {
+		event->pmu->start(event, PERF_EF_RELOAD);
+		perf_pmu_enable(event->pmu);
+	}
+}
+
+static int _perf_event_topdown_metrics(struct perf_event *event,
+				       struct td_metrics *value)
+{
+	/*
+	 * Slots event in topdown metrics scenario
+	 * must be non-sampling event.
+	 */
+	if (is_sampling_event(event))
+		return -EINVAL;
+
+	if (!value)
+		return -EINVAL;
+
+	event_function_call(event, __perf_event_topdown_metrics, value);
+
+	return 0;
+}
+
+int perf_event_topdown_metrics(struct perf_event *event, struct td_metrics *value)
+{
+	struct perf_event_context *ctx;
+	int ret;
+
+	ctx = perf_event_ctx_lock(event);
+	ret = _perf_event_topdown_metrics(event, value);
+	perf_event_ctx_unlock(event, ctx);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(perf_event_topdown_metrics);
+
 static const struct file_operations perf_fops;
 
 static inline int perf_fget_light(int fd, struct fd *p)
