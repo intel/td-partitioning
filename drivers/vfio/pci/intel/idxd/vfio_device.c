@@ -159,24 +159,31 @@ static int idxd_vdcm_pasid_attach(struct vdcm_idxd *vidxd, ioasid_t pasid, u32 *
 	struct vdcm_hwpt *hwpt, *tmp;
 	int ret;
 
-	hwpt = kzalloc(sizeof(*hwpt), GFP_KERNEL);
-	if (!hwpt)
-		return -ENOMEM;
+	hwpt = xa_load(&vidxd->pasid_xa, pasid);
+	if (!hwpt) {
+		hwpt = kzalloc(sizeof(*hwpt), GFP_KERNEL);
+		if (!hwpt)
+			return -ENOMEM;
 
-	ret = iommufd_device_attach(vidxd->idev, pt_id);
-	if (ret)
-		goto out_free;
+		ret = iommufd_device_pasid_attach(vidxd->idev, pasid, *pt_id);
+		if (ret)
+			goto out_free;
+
+		hwpt->pasid = pasid;
+		tmp = xa_store(&vidxd->pasid_xa, hwpt->pasid, hwpt, GFP_KERNEL);
+		if (IS_ERR(tmp)) {
+			ret = PTR_ERR(tmp);
+			goto out_detach;
+		}
+	} else {
+		ret = iommufd_device_pasid_replace(vidxd->idev, pasid, *pt_id);
+		return ret;
+	}
 
 	hwpt->hwpt_id = *pt_id;
-	hwpt->pasid = pasid;
-	tmp = xa_store(&vidxd->pasid_xa, hwpt->pasid, hwpt, GFP_KERNEL);
-	if (IS_ERR(tmp)) {
-		ret = PTR_ERR(tmp);
-		goto out_detach;
-	}
 	return 0;
 out_detach:
-	iommufd_device_detach(vidxd->idev);
+	iommufd_device_pasid_detach(vidxd->idev, pasid);
 out_free:
 	kfree(hwpt);
 	return ret;
