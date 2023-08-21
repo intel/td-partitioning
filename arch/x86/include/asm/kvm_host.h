@@ -490,12 +490,12 @@ enum pmc_type {
 struct kvm_pmc {
 	enum pmc_type type;
 	u8 idx;
+	u8 max_nr_events;
 	bool is_paused;
 	bool intr;
 	u64 counter;
 	u64 prev_counter;
 	u64 eventsel;
-	struct perf_event *perf_event;
 	struct kvm_vcpu *vcpu;
 	/*
 	 * only for creating or reusing perf_event,
@@ -503,6 +503,15 @@ struct kvm_pmc {
 	 * ctrl value for fixed counters.
 	 */
 	u64 current_config;
+	/*
+	 * Non-leader events may need some extra information,
+	 * this field can be used to store this information.
+	 */
+	u64 extra_config;
+	union {
+		struct perf_event *perf_event;
+		DECLARE_FLEX_ARRAY(struct perf_event *, perf_events);
+	};
 };
 
 /* More counters may conflict with other existing Architectural MSRs */

@@ -187,7 +187,7 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 				 bool intr)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
-	struct perf_event *event;
+	struct perf_event *event, *group_leader;
 	struct perf_event_attr attr = {
 		.type = type,
 		.size = sizeof(attr),
@@ -199,6 +199,7 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 		.config = config,
 	};
 	bool pebs = test_bit(pmc->idx, (unsigned long *)&pmu->pebs_enable);
+	unsigned int i, j;
 
 	attr.sample_period = get_sample_period(pmc, pmc->counter);
 
@@ -221,36 +222,73 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 		attr.precise_ip = pmc_get_pebs_precise_level(pmc);
 	}
 
-	event = perf_event_create_kernel_counter(&attr, -1, current, NULL,
-						 kvm_perf_overflow, pmc);
-	if (IS_ERR(event)) {
-		pr_debug_ratelimited("kvm_pmu: event creation failed %ld for pmc->idx = %d\n",
-			    PTR_ERR(event), pmc->idx);
-		return PTR_ERR(event);
+	/*
+	 * To create grouped events, the first created perf_event doesn't
+	 * know it will be the group_leader and may move to an unexpected
+	 * enabling path, thus delay all enablement until after creation,
+	 * not affecting non-grouped events to save one perf interface call.
+	 */
+	if (pmc->max_nr_events > 1)
+		attr.disabled = 1;
+
+	for (i = 0; i < pmc->max_nr_events; i++) {
+		group_leader = i ? pmc->perf_event : NULL;
+		event = perf_event_create_kernel_counter(&attr, -1,
+							 current, group_leader,
+							 kvm_perf_overflow, pmc);
+		if (IS_ERR(event)) {
+			pr_err_ratelimited("kvm_pmu: event %u of pmc %u creation failed %ld\n",
+					   i, pmc->idx, PTR_ERR(event));
+
+			for (j = 0; j < i; j++) {
+				perf_event_release_kernel(pmc->perf_events[j]);
+				pmc->perf_events[j] = NULL;
+				pmc_to_pmu(pmc)->event_count--;
+			}
+
+			return PTR_ERR(event);
+		}
+
+		pmc->perf_events[i] = event;
+		pmc_to_pmu(pmc)->event_count++;
 	}
 
-	pmc->perf_event = event;
-	pmc_to_pmu(pmc)->event_count++;
 	pmc->is_paused = false;
 	pmc->intr = intr || pebs;
+
+	if (!attr.disabled)
+		return 0;
+
+	for (i = 0; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
+		perf_event_enable(pmc->perf_events[i]);
+
 	return 0;
 }
 
 static void pmc_pause_counter(struct kvm_pmc *pmc)
 {
 	u64 counter = pmc->counter;
+	unsigned int i;
 
 	if (!pmc->perf_event || pmc->is_paused)
 		return;
 
-	/* update counter, reset event value to avoid redundant accumulation */
+	/*
+	 * Update counter, reset event value to avoid redundant
+	 * accumulation. Disable group leader event firstly and
+	 * then disable non-group leader events.
+	 */
 	counter += perf_event_pause(pmc->perf_event, true);
+	for (i = 1; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
+		perf_event_pause(pmc->perf_events[i], true);
 	pmc->counter = counter & pmc_bitmask(pmc);
 	pmc->is_paused = true;
 }
 
 static bool pmc_resume_counter(struct kvm_pmc *pmc)
 {
+	unsigned int i;
+
 	if (!pmc->perf_event)
 		return false;
 
@@ -264,8 +302,8 @@ static bool pmc_resume_counter(struct kvm_pmc *pmc)
 	    (!!pmc->perf_event->attr.precise_ip))
 		return false;
 
-	/* reuse perf_event to serve as pmc_reprogram_counter() does*/
-	perf_event_enable(pmc->perf_event);
+	for (i = 0; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
+		perf_event_enable(pmc->perf_events[i]);
 	pmc->is_paused = false;
 
 	return true;
@@ -432,7 +470,7 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 	if (pmc->current_config == new_config && pmc_resume_counter(pmc))
 		goto reprogram_complete;
 
-	pmc_release_perf_event(pmc);
+	pmc_release_perf_event(pmc, false);
 
 	pmc->current_config = new_config;
 

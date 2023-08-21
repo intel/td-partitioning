@@ -744,6 +744,8 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->gp_counters[i].vcpu = vcpu;
 		pmu->gp_counters[i].idx = i;
 		pmu->gp_counters[i].current_config = 0;
+		pmu->gp_counters[i].extra_config = 0;
+		pmu->gp_counters[i].max_nr_events = 1;
 	}
 
 	for (i = 0; i < KVM_PMC_MAX_FIXED; i++) {
@@ -751,6 +753,8 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->fixed_counters[i].vcpu = vcpu;
 		pmu->fixed_counters[i].idx = i + INTEL_PMC_IDX_FIXED;
 		pmu->fixed_counters[i].current_config = 0;
+		pmu->fixed_counters[i].extra_config = 0;
+		pmu->fixed_counters[i].max_nr_events = 1;
 	}
 
 	lbr_desc->records.nr = 0;

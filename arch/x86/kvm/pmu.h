@@ -74,13 +74,23 @@ static inline u64 pmc_read_counter(struct kvm_pmc *pmc)
 	return counter & pmc_bitmask(pmc);
 }
 
-static inline void pmc_release_perf_event(struct kvm_pmc *pmc)
+static inline void pmc_release_perf_event(struct kvm_pmc *pmc, bool reset)
 {
-	if (pmc->perf_event) {
-		perf_event_release_kernel(pmc->perf_event);
-		pmc->perf_event = NULL;
-		pmc->current_config = 0;
+	unsigned int i;
+
+	if (!pmc->perf_event)
+		return;
+
+	for (i = 0; pmc->perf_events[i] && i < pmc->max_nr_events; i++) {
+		perf_event_release_kernel(pmc->perf_events[i]);
+		pmc->perf_events[i] = NULL;
 		pmc_to_pmu(pmc)->event_count--;
+	}
+
+	if (reset) {
+		pmc->current_config = 0;
+		pmc->extra_config = 0;
+		pmc->max_nr_events = 1;
 	}
 }
 
@@ -88,7 +98,7 @@ static inline void pmc_stop_counter(struct kvm_pmc *pmc)
 {
 	if (pmc->perf_event) {
 		pmc->counter = pmc_read_counter(pmc);
-		pmc_release_perf_event(pmc);
+		pmc_release_perf_event(pmc, true);
 	}
 }
 

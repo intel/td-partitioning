@@ -229,6 +229,8 @@ static void amd_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->gp_counters[i].vcpu = vcpu;
 		pmu->gp_counters[i].idx = i;
 		pmu->gp_counters[i].current_config = 0;
+		pmu->gp_counters[i].extra_config = 0;
+		pmu->gp_counters[i].max_nr_events = 1;
 	}
 }
 
