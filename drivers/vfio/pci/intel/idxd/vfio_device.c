@@ -209,18 +209,6 @@ static int idxd_vdcm_attach_ioas(struct vfio_device *vdev,
 		goto out_unlock;
 	}
 
-	if (!pt_id) {
-		struct vfio_pci_hwpt *hwpt;
-
-		hwpt = xa_load(&vidxd->pasid_xa, pasid);
-		if (!hwpt)
-			goto out_unlock;
-		xa_erase(&vidxd->pasid_xa, pasid);
-		kfree(hwpt);
-		iommufd_device_detach(vidxd->idev);
-		goto out_unlock;
-	}
-
 	rc = idxd_vdcm_pasid_attach(vidxd, pasid, pt_id);
 	if (rc)
 		goto out_unlock;
@@ -231,10 +219,33 @@ out_unlock:
 
 static void idxd_vdcm_detach_ioas(struct vfio_device *vdev)
 {
-	/*
-	 * Attached IOAS is automatically detached when the device is
-	 * unbound from iommufd.
-	 */
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	struct vdcm_hwpt *hwpt;
+	u32 pasid;
+
+	mutex_lock(&vidxd->dev_lock);
+
+	if (!vidxd->idev) {
+		goto out_unlock;
+	}
+
+	pasid = vfio_device_get_pasid(vdev);
+	if (!pasid_valid(pasid)) {
+		goto out_unlock;
+	}
+
+	hwpt = xa_load(&vidxd->pasid_xa, pasid);
+	if (!hwpt) {
+		goto out_unlock;
+	}
+
+	xa_erase(&vidxd->pasid_xa, pasid);
+	kfree(hwpt);
+	iommufd_device_pasid_detach(vidxd->idev, pasid);
+
+out_unlock:
+	mutex_unlock(&vidxd->dev_lock);
+	return;
 }
 
 static ssize_t idxd_vdcm_rw(struct vfio_device *vdev, char *buf, size_t count,
