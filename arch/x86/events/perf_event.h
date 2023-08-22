@@ -105,9 +105,16 @@ static inline bool is_slots_event(struct perf_event *event)
 	return (event->attr.config & INTEL_ARCH_EVENT_MASK) == INTEL_TD_SLOTS;
 }
 
+static inline bool is_vmetrics_event(struct perf_event *event)
+{
+	return (event->attr.config & INTEL_ARCH_EVENT_MASK) ==
+			INTEL_FIXED_VMETRICS_EVENT;
+}
+
 static inline bool is_topdown_event(struct perf_event *event)
 {
-	return is_metric_event(event) || is_slots_event(event);
+	return is_metric_event(event) || is_slots_event(event) ||
+			is_vmetrics_event(event);
 }
 
 struct amd_nb {
