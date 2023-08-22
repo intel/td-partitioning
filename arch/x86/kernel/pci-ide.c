@@ -845,19 +845,31 @@ static int get_mem_range(struct pci_dev *pdev, resource_size_t *start, resource_
 		}
 	}
 
-	*start = s;
-	*end = e;
+	*start = min_t(resource_size_t, s, *start);
+	*end = max_t(resource_size_t, e, *end);
 
+	return 0;
+}
+
+static int match_pci_dev_by_devid(struct device *dev, const void *data)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	if (*(const unsigned int *)data == pci_dev_id(pdev))
+		return 1;
 	return 0;
 }
 
 static int tdx_ide_stream_create(struct pci_dev *pdev, struct pci_ide_stream *stm)
 {
 	struct intel_ide_stream *istm = pci_ide_stream_get_private(stm);
+	resource_size_t start = ULLONG_MAX, end = 0;
 	struct stream_create_param param = { 0 };
 	struct tdisp_mgr *tmgr = stm->sess->priv;
-	resource_size_t start, end;
+	struct pci_dev *pf = pci_physfn(pdev);
+	u32 vf_cnt = pci_num_vf(pf);
 	u64 ret;
+	int i;
 
 	param.stream_exinfo = istm->exinfo_pa;
 
@@ -869,13 +881,35 @@ static int tdx_ide_stream_create(struct pci_dev *pdev, struct pci_ide_stream *st
 	if (stm->type == PCI_IDE_STREAM_TYPE_SEL) {
 		param.ide_stream_ctrl = FIELD_PREP(PCI_IDE_SEL_CTRL_ALGO, stm->algo) |
 					FIELD_PREP(PCI_IDE_SEL_CTRL_STREAM_ID, stm->stream_id);
+		if (vf_cnt)
+			param.rid_assoc1 = FIELD_PREP(PCI_IDE_RID_ASSOC1_LIMIT,
+						      PCI_DEVID(pci_iov_virtfn_bus(pf, vf_cnt),
+								pci_iov_virtfn_devfn(pf, vf_cnt)));
+		else
+			param.rid_assoc1 = FIELD_PREP(PCI_IDE_RID_ASSOC1_LIMIT,
+						      pci_dev_id(pdev) + 1);
 
-		param.rid_assoc1 = FIELD_PREP(PCI_IDE_RID_ASSOC1_LIMIT, pci_dev_id(pdev) + 1);
 		param.rid_assoc2 = FIELD_PREP(PCI_IDE_RID_ASSOC2_VALID, 1) |
 				   FIELD_PREP(PCI_IDE_RID_ASSOC2_BASE, pci_dev_id(pdev));
 
 		get_mem_range(pdev, &start, &end);
 		//end = round_up(end, 0x100000);
+
+		for (i = 0; i < vf_cnt; i++) {
+			struct device *dev;
+			struct pci_dev *vf;
+			u32 vf_devid;
+
+			vf_devid = PCI_DEVID(pci_iov_virtfn_bus(pf, i),
+					     pci_iov_virtfn_devfn(pf, i));
+			dev = bus_find_device(&pci_bus_type, NULL, &vf_devid,
+					      match_pci_dev_by_devid);
+			if (dev) {
+				vf = to_pci_dev(dev);
+				get_mem_range(vf, &start, &end);
+				put_device(dev);
+			}
+		}
 
 		param.addr_assoc1 = FIELD_PREP(PCI_IDE_ADDR_ASSOC1_VALID, 1) |
 				    FIELD_PREP(PCI_IDE_ADDR_ASSOC1_MEM_BASE_LOWER,
