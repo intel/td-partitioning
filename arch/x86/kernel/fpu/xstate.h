@@ -10,6 +10,8 @@
 DECLARE_PER_CPU(u64, xfd_state);
 #endif
 
+extern u64 fpu_kernel_dynamic_xfeatures;
+
 static inline void xstate_init_xcomp_bv(struct xregs_state *xsave, u64 mask)
 {
 	/*
