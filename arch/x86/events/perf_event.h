@@ -781,8 +781,10 @@ static __always_inline u32 x86_get_core_native_id(void)
 
 #define X86_HYBRID_PMU_ATOM_IDX		0
 #define X86_HYBRID_PMU_CORE_IDX		1
+#define X86_HYBRID_PMU_SOC_ATOM_IDX	2
 
 #define X86_HYBRID_NUM_PMUS		2
+#define X86_HYBRID_SOC_NUM_PMUS		3
 
 /*
  * struct x86_pmu - generic x86 pmu
@@ -1704,6 +1706,8 @@ void intel_pmu_pebs_data_source_adl(void);
 void intel_pmu_pebs_data_source_grt(void);
 
 void intel_pmu_pebs_data_source_mtl(void);
+
+void intel_pmu_pebs_data_source_arl_h(void);
 
 void intel_pmu_pebs_data_source_cmt(void);
 
