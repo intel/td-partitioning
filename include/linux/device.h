@@ -603,7 +603,7 @@ struct device_physical_location {
 };
 
 #define MODE_UNAUTHORIZED	0
-#define MODE_SHARED		1
+#define MODE_AUTH_SHARED	1
 #define MODE_SECURE		2
 
 /**

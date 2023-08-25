@@ -64,15 +64,15 @@ static bool no_dev_attest;
  * and use it.
  */
 struct pci_device_id pci_allow_ids[] = {
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_NET, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_BLOCK, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_CONSOLE, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_9P, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_NET, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_BLOCK, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_CONSOLE, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_9P, MODE_SHARED) },
-	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_VSOCK, MODE_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_NET, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_BLOCK, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_CONSOLE, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO_TRANS_ID_9P, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_NET, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_BLOCK, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_CONSOLE, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_9P, MODE_AUTH_SHARED) },
+	{ PCI_DEVICE_DATA2(PCI_VENDOR_ID_REDHAT_QUMRANET, VIRTIO1_ID_VSOCK, MODE_AUTH_SHARED) },
 	{ 0, },
 };
 
@@ -582,7 +582,7 @@ static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
 				  &nonce0, &nonce1, &nonce2, &nonce3);
 	if (ret) {
 		if (enum_mode != MODE_SECURE)
-			return MODE_SHARED;
+			return MODE_AUTH_SHARED;
 
 		dev_err(dev, "failed to get dev context\n");
 		return result;
@@ -590,10 +590,10 @@ static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
 
 	/* If invalid handle, means this pci_dev is a non-TDISP device */
 	if (!func_id) {
-		if (enum_mode == MODE_SHARED || enum_mode == MODE_UNAUTHORIZED) {
+		if (enum_mode == MODE_AUTH_SHARED || enum_mode == MODE_UNAUTHORIZED) {
 			pdev->untrusted = true;
 			dev_info(dev, "return MODE SHARED\n");
-			return MODE_SHARED;
+			return MODE_AUTH_SHARED;
 		}
 
 		dev_info(dev, "no func_id but require PRIVATE Mode return UNAUTHORIZED\n");
@@ -601,7 +601,7 @@ static int tdx_guest_dev_attest(struct pci_dev *pdev, unsigned int enum_mode)
 	}
 
 	/* uses TDI in shared mode is not possible as TDI may be locked already */
-	if (enum_mode == MODE_SHARED)
+	if (enum_mode == MODE_AUTH_SHARED)
 		return result;
 
 	/*
@@ -711,7 +711,7 @@ static int authorized_node_match(struct device *dev,
 
 	/* If bus matches "ALL" and dev_list is NULL, return true */
 	if (!strcmp(node->bus, "ALL") && !node->dev_list)
-		return MODE_SHARED;
+		return MODE_AUTH_SHARED;
 
 	/*
 	 * Since next step involves bus specific comparison, make
@@ -723,7 +723,7 @@ static int authorized_node_match(struct device *dev,
 
 	/* If dev_list is NULL, allow all and return true */
 	if (!node->dev_list)
-		return MODE_SHARED;
+		return MODE_AUTH_SHARED;
 
 	/*
 	 * Do bus specific device ID match. Currently only PCI
@@ -735,8 +735,8 @@ static int authorized_node_match(struct device *dev,
 		int status;
 
 		id = pci_match_id((struct pci_device_id *)node->dev_list, pdev);
-		if (id && (id->driver_data == MODE_SHARED))
-			status = MODE_SHARED;
+		if (id && (id->driver_data == MODE_AUTH_SHARED))
+			status = MODE_AUTH_SHARED;
 		else if (id)
 			status = tdx_guest_dev_attest(pdev, id->driver_data);
 		else
@@ -759,13 +759,13 @@ static int authorized_node_match(struct device *dev,
 		for (i = 0; i < ARRAY_SIZE(acpi_allow_hids); i++) {
 			if (!strncmp(acpi_allow_hids[i], dev_name(dev),
 						strlen(acpi_allow_hids[i])))
-				return MODE_SHARED;
+				return MODE_AUTH_SHARED;
 		}
 	} else if (dev_is_platform(dev)) {
 		for (i = 0; i < ARRAY_SIZE(platform_allow_hids); i++) {
 			if (!strncmp(platform_allow_hids[i], dev_name(dev),
 						strlen(platform_allow_hids[i])))
-				return MODE_SHARED;
+				return MODE_AUTH_SHARED;
 		}
 	}
 
@@ -858,7 +858,7 @@ int dev_authorized_init(void)
 			cc_filter_enabled())
 		return MODE_UNAUTHORIZED;
 
-	return MODE_SHARED;
+	return MODE_AUTH_SHARED;
 }
 
 int arch_dev_authorized(struct device *dev)
@@ -866,10 +866,10 @@ int arch_dev_authorized(struct device *dev)
 	int i, authorized;
 
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
-		return MODE_SHARED;
+		return MODE_AUTH_SHARED;
 
 	if (!cc_filter_enabled())
-		return MODE_SHARED;
+		return MODE_AUTH_SHARED;
 
 	if (!dev->bus)
 		return dev->authorized;
