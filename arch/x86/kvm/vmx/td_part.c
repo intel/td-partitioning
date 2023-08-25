@@ -1275,5 +1275,6 @@ __init int td_part_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	allow_smaller_maxphyaddr = true;
 
+	pr_info("TD Partitioning support detected\n");
 	return 0;
 }
