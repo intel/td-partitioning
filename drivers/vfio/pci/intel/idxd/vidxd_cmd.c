@@ -271,11 +271,28 @@ static void vidxd_release_int_handle(struct vdcm_idxd *vidxd, int operand)
 
 int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid)
 {
+	struct ioasid_set *ioasid_set;
 	struct mm_struct *mm;
 
 	mm = get_task_mm(current);
 	if (!mm) {
 		dev_warn(dev, "%s no mm!\n", __func__);
+
+		return -ENXIO;
+	}
+
+	ioasid_set = ioasid_find_mm_set(mm);
+	if (!ioasid_set) {
+		mmput(mm);
+		dev_warn(dev, "%s no ioasid_set!\n", __func__);
+
+		return -ENXIO;
+	}
+
+	*pasid = ioasid_find_by_spid(ioasid_set, gpasid, true);
+	mmput(mm);
+	if (*pasid == INVALID_IOASID) {
+		dev_warn(dev, "%s invalid ioasid by spid!\n", __func__);
 
 		return -ENXIO;
 	}
