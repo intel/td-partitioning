@@ -251,6 +251,72 @@ out_unlock:
 	return;
 }
 
+static ioasid_t idxd_vdcm_get_pasid(struct vdcm_idxd *vidxd,
+                                    ioasid_t pasid)
+{
+	if (pasid_valid(pasid))
+		return pasid;
+
+	return vidxd->pasid;
+}
+
+static int idxd_vdcm_pasid_attach_ioas(struct vfio_device *vdev,
+				       u32 pasid, u32 pt_id)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	int rc = 0;
+
+	mutex_lock(&vidxd->dev_lock);
+
+	if (!vidxd->idev) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	pasid = idxd_vdcm_get_pasid(vidxd, pasid);
+	if (!pasid_valid(pasid)) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	rc = idxd_vdcm_pasid_attach(vidxd, pasid, &pt_id);
+	if (rc)
+		goto out_unlock;
+out_unlock:
+	mutex_unlock(&vidxd->dev_lock);
+	return rc;
+}
+
+static void idxd_vdcm_pasid_detach_ioas(struct vfio_device *vdev, u32 pasid)
+{
+	struct vdcm_idxd *vidxd = vdev_to_vidxd(vdev);
+	struct vdcm_hwpt *hwpt;
+
+	mutex_lock(&vidxd->dev_lock);
+
+	if (!vidxd->idev) {
+		goto out_unlock;
+	}
+
+	pasid = idxd_vdcm_get_pasid(vidxd, pasid);
+	if (!pasid_valid(pasid)) {
+		goto out_unlock;
+	}
+
+	hwpt = xa_load(&vidxd->pasid_xa, pasid);
+	if (!hwpt) {
+		goto out_unlock;
+	}
+
+	xa_erase(&vidxd->pasid_xa, pasid);
+	kfree(hwpt);
+	iommufd_device_pasid_detach(vidxd->idev, pasid);
+
+out_unlock:
+	mutex_unlock(&vidxd->dev_lock);
+	return;
+}
+
 static ssize_t idxd_vdcm_rw(struct vfio_device *vdev, char *buf, size_t count,
 			    loff_t *ppos, int mode)
 {
@@ -801,6 +867,8 @@ static const struct vfio_device_ops idxd_vdev_ops = {
 	.unbind_iommufd = idxd_vdcm_unbind_iommufd,
 	.attach_ioas = idxd_vdcm_attach_ioas,
 	.detach_ioas = idxd_vdcm_detach_ioas,
+	.pasid_attach_ioas = idxd_vdcm_pasid_attach_ioas,
+	.pasid_detach_ioas = idxd_vdcm_pasid_detach_ioas,
 	.read = idxd_vdcm_read,
 	.write = idxd_vdcm_write,
 	.mmap = idxd_vdcm_mmap,
