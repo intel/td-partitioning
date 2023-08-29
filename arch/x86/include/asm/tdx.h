@@ -121,6 +121,7 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 #ifdef CONFIG_INTEL_TDX_HOST
 u64 __seamcall(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
+u64 __seamcall_saved(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);
 
 #define DEBUGCONFIG_TRACE_ALL		0
@@ -212,6 +213,7 @@ bool tdx_io_support(void);
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
 static inline u64 __seamcall_ret(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
+static inline u64 __seamcall_saved(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
 static inline u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
 
 struct tdsysinfo_struct;

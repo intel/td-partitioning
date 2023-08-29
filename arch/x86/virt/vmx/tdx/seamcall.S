@@ -45,6 +45,25 @@ SYM_FUNC_END(__seamcall_ret)
 EXPORT_SYMBOL_GPL(__seamcall_ret)
 
 /*
+ * __seamcall_saved() - Host-side interface functions to SEAM software
+ * (the P-SEAMLDR or the TDX module)。
+ *
+ * __seamcall_saved() function ABI:
+ *
+ * @fn   (RDI)  - SEAMCALL Leaf number, moved to RAX
+ * @args (RSI)  - struct tdx_module_args for input and output
+ *
+ * All registers in @args are used as input registers.
+ *
+ * Return (via RAX) TDX_SEAMCALL_VMFAILINVALID if the SEAMCALL itself
+ * fails, or the completion status of the SEAMCALL leaf function.
+ */
+SYM_FUNC_START(__seamcall_saved)
+	TDX_MODULE_CALL host=1 saved=1
+SYM_FUNC_END(__seamcall_saved)
+EXPORT_SYMBOL_GPL(__seamcall_saved)
+
+/*
  * __seamcall_saved_ret() - Host-side interface functions to SEAM software
  * (the P-SEAMLDR or the TDX module), with saving output registers to the
  * 'struct tdx_module_args' used as input.
