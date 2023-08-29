@@ -637,8 +637,8 @@ int x86_pmu_hw_config(struct perf_event *event)
 		event->hw.config |= ARCH_PERFMON_EVENTSEL_OS;
 
 	if (event->attr.type == event->pmu->type) {
-		if (hybrid(event->pmu, z_bit))
-			raw_config_mask |= ARCH_PERFMON_EVENTSEL_Z;
+		if (hybrid(event->pmu, eq))
+			raw_config_mask |= ARCH_PERFMON_EVENTSEL_EQ;
 		if (hybrid(event->pmu, umask2))
 			raw_config_mask |= ARCH_PERFMON_EVENTSEL_UMASK2;
 		event->hw.config |= event->attr.config & raw_config_mask;

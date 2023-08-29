@@ -33,7 +33,7 @@
 #define ARCH_PERFMON_EVENTSEL_INV			(1ULL << 23)
 #define ARCH_PERFMON_EVENTSEL_CMASK			0xFF000000ULL
 #define ARCH_PERFMON_EVENTSEL_LBR_LOG			(1ULL << 35)
-#define ARCH_PERFMON_EVENTSEL_Z				(1ULL << 36)
+#define ARCH_PERFMON_EVENTSEL_EQ			(1ULL << 36)
 #define ARCH_PERFMON_EVENTSEL_UMASK2			(0xFFULL << 40)
 
 #define INTEL_FIXED_BITS_MASK				0xFULL
@@ -192,7 +192,7 @@ union cpuid10_edx {
 #define ARCH_PERFMON_EVENTS_MAP_LEAF		0x3
 
 #define ARCH_PERFMON_BIT_UMASK2			BIT(0)
-#define ARCH_PERFMON_BIT_Z			BIT(1)
+#define ARCH_PERFMON_BIT_EQ			BIT(1)
 
 /*
  * Intel Architectural LBR CPUID detection/enumeration details:

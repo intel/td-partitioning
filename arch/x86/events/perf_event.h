@@ -687,7 +687,7 @@ struct x86_hybrid_pmu {
 	 * Intel Arch Perfmon v6
 	 */
 	unsigned int                    umask2;
-	unsigned int			z_bit;
+	unsigned int			eq;
 	union {
 		u64 cnt_bitmapl;
 		DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);
@@ -881,7 +881,7 @@ struct x86_pmu {
 	 * Intel Arch Perfmon v6
 	 */
 	unsigned int    umask2;
-	unsigned int	z_bit;
+	unsigned int	eq;
 	union {
 		u64 cnt_bitmapl;
 		DECLARE_BITMAP(cnt_bitmap, X86_PMC_IDX_MAX);

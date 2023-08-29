@@ -4566,7 +4566,7 @@ PMU_FORMAT_ATTR(inv,	"config:23"	);
 PMU_FORMAT_ATTR(cmask,	"config:24-31"	);
 PMU_FORMAT_ATTR(in_tx,  "config:32"	);
 PMU_FORMAT_ATTR(in_tx_cp, "config:33"	);
-PMU_FORMAT_ATTR(z,	"config:36"	); /* v6 + */
+PMU_FORMAT_ATTR(eq,	"config:36"	); /* v6 + */
 
 static struct attribute *intel_arch_formats_attr[] = {
 	&format_attr_event.attr,
@@ -4596,7 +4596,7 @@ static struct attribute *intel_zbit_formats_attr[] = {
 	&format_attr_pc.attr,
 	&format_attr_inv.attr,
 	&format_attr_cmask.attr,
-	&format_attr_z.attr,
+	&format_attr_eq.attr,
 	NULL,
 };
 
@@ -4608,7 +4608,7 @@ static struct attribute *intel_arch6_formats_attr[] = {
 	&format_attr_pc.attr,
 	&format_attr_inv.attr,
 	&format_attr_cmask.attr,
-	&format_attr_z.attr,
+	&format_attr_eq.attr,
 	NULL,
 };
 
@@ -4616,7 +4616,7 @@ static struct attribute **intel_get_arch_formats_attr(struct pmu *pmu)
 {
 	struct attribute **format_attrs = hybrid(pmu, format_attrs);
 	unsigned int has_umask2 = hybrid(pmu, umask2);
-	unsigned int has_zbit = hybrid(pmu, z_bit);
+	unsigned int has_zbit = hybrid(pmu, eq);
 	union perf_capabilities intel_cap = hybrid(pmu, intel_cap);
 
 	if (has_umask2 && has_zbit)
@@ -4742,7 +4742,7 @@ static void update_pmu_cap(struct x86_hybrid_pmu *hy_pmu)
 
 	cpuid(ARCH_PERFMON_EXT_LEAF, &eax, &ebx, &ecx, &edx);
 	hybrid(pmu, umask2) = !!(ebx & ARCH_PERFMON_BIT_UMASK2);
-	hybrid(pmu, z_bit) = !!(ebx & ARCH_PERFMON_BIT_Z);
+	hybrid(pmu, eq) = !!(ebx & ARCH_PERFMON_BIT_EQ);
 	hybrid(pmu, format_attrs) = intel_get_arch_formats_attr(pmu);
 
 	sub_bitmaps = eax;
