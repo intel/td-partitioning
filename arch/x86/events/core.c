@@ -2066,21 +2066,28 @@ static void _x86_pmu_read(struct perf_event *event)
 	static_call(x86_pmu_update)(event);
 }
 
-void x86_pmu_show_pmu_cap(int num_counters, int num_counters_fixed,
-		u64 cnt_bitmapl, u64 intel_ctrl)
+void x86_pmu_show_pmu_cap(struct pmu *pmu)
 {
-	u32 gp_bitmap = x86_get_gp_cnt_bitmap(cnt_bitmapl);
-	u32 fixed_bitmap = x86_get_fixed_cnt_bitmap(cnt_bitmapl);
+	u64 events_bitmap;
+	u32 gp_bitmap = x86_get_gp_cnt_bitmap(hybrid(pmu, cnt_bitmapl));
+	u32 fixed_bitmap = x86_get_fixed_cnt_bitmap(hybrid(pmu, cnt_bitmapl));
+
+	if (hybrid(pmu, events_ext_maskl))
+		events_bitmap = hybrid(pmu, events_ext_maskl);
+	else
+		events_bitmap = (BIT_ULL(x86_pmu.events_mask_len) - 1) &
+				~x86_pmu.events_maskl;
 
 	pr_info("... version:                	%d\n", x86_pmu.version);
 	pr_info("... bit width:              	%d\n", x86_pmu.cntval_bits);
-	pr_info("... generic registers:      	%d\n", num_counters);
+	pr_info("... generic counters:      	%d\n", hybrid(pmu, num_counters));
 	pr_info("... generic bitmap:		%016x\n", gp_bitmap);
+	pr_info("... fixed-purpose counters:   	%u\n", hybrid(pmu, num_counters_fixed));
+	pr_info("... fixed-purpose bitmap:	%016x\n", fixed_bitmap);
 	pr_info("... value mask:             	%016Lx\n", x86_pmu.cntval_mask);
 	pr_info("... max period:             	%016Lx\n", x86_pmu.max_period);
-	pr_info("... fixed-purpose events:   	%u\n", num_counters_fixed);
-	pr_info("... fixed-purpose bitmap:	%016x\n", fixed_bitmap);
-	pr_info("... event mask:             	%016Lx\n", intel_ctrl);
+	pr_info("... global_ctrl mask:		%016Lx\n", hybrid(pmu, intel_ctrl));
+	pr_info("... events bitmap:		%016Lx\n", events_bitmap);
 }
 
 static int __init init_hw_perf_events(void)
@@ -2146,12 +2153,8 @@ static int __init init_hw_perf_events(void)
 
 	pmu.attr_update = x86_pmu.attr_update;
 
-	if (!is_hybrid()) {
-		x86_pmu_show_pmu_cap(x86_pmu.num_counters,
-				     x86_pmu.num_counters_fixed,
-				     x86_pmu.cnt_bitmapl,
-				     x86_pmu.intel_ctrl);
-	}
+	if (!is_hybrid())
+		x86_pmu_show_pmu_cap(NULL);
 
 	if (!x86_pmu.read)
 		x86_pmu.read = _x86_pmu_read;
