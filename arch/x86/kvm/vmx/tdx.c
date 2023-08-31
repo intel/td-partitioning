@@ -611,8 +611,9 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 		pr_err("tdh_mng_key_freeid failed. HKID %d is leaked.\n",
 			kvm_tdx->hkid);
 		return;
-	} else
-		atomic_dec(&nr_configured_hkid);
+	} else {
+		WARN_ON_ONCE(atomic_dec_return(&nr_configured_hkid) < 0);
+	}
 
 free_hkid:
 	tdx_hkid_free(kvm_tdx);
@@ -4067,6 +4068,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		goto free_tdcs;
 	}
 	cpus_read_lock();
+	atomic_inc(&nr_configured_hkid);
+
 	/*
 	 * Need at least one CPU of the package to be online in order to
 	 * program all packages for host key id.  Check it.
@@ -4134,8 +4137,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		if (ret)
 			break;
 	}
-	if (!ret)
-		atomic_inc(&nr_configured_hkid);
+	if (ret)
+		atomic_dec(&nr_configured_hkid);
 	cpus_read_unlock();
 	free_cpumask_var(packages);
 	if (ret) {
@@ -4200,6 +4203,7 @@ teardown:
 	return ret;
 
 free_packages:
+	WARN_ON_ONCE(atomic_dec_return(&nr_configured_hkid) < 0);
 	cpus_read_unlock();
 	free_cpumask_var(packages);
 free_tdcs:
