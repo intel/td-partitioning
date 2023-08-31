@@ -80,6 +80,16 @@ static struct tdx_info tdx_info;
 static DEFINE_MUTEX(tdx_lock);
 static struct mutex *tdx_mng_key_config_lock;
 static atomic_t nr_configured_hkid;
+/*
+ * Set when updates failed and led to no working TDX module. This should be
+ * rare but not impossible. Keep enable_tdx intact so that the cleanup
+ * routines conditional on enable_tdx can be done when KVM is unloaded.
+ * Alternatively, we can clean up all TDX stuffs when TDX module becomes
+ * not available. But this effectively requires KVM to toggle TDX supports at
+ * runtime, this adds more complexity. For simplicity, add a flag indicating
+ * this rare situation and prevent TD creation if the flag is set.
+ */
+static bool tdx_module_not_available;
 
 /*
  * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
@@ -4068,7 +4078,18 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		goto free_tdcs;
 	}
 	cpus_read_lock();
-	atomic_inc(&nr_configured_hkid);
+	/*
+	 * nr_configured_hkid is negative during module updates, see
+	 * tdx_update_notifier()
+	 */
+	ret = atomic_inc_unless_negative(&nr_configured_hkid) ? 0 : -EBUSY;
+	if (ret)
+		goto cpus_unlock;
+
+	if (tdx_module_not_available) {
+		ret = -EIO;
+		goto free_packages;
+	}
 
 	/*
 	 * Need at least one CPU of the package to be online in order to
@@ -4204,6 +4225,7 @@ teardown:
 
 free_packages:
 	WARN_ON_ONCE(atomic_dec_return(&nr_configured_hkid) < 0);
+cpus_unlock:
 	cpus_read_unlock();
 	free_cpumask_var(packages);
 free_tdcs:
@@ -5070,7 +5092,7 @@ static struct notifier_block tdx_mce_nb = {
 	.priority = MCE_PRIO_CEC,
 };
 
-static int __init tdx_module_setup(void)
+static int tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
 	struct tdx_module_args out;
@@ -5497,6 +5519,47 @@ static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memo
 	return ret;
 }
 
+static int tdx_update_notifier(struct notifier_block *nb,
+			       unsigned long event, void *data)
+{
+	int bias = INT_MIN;
+	int ret = 0;
+
+	switch (event) {
+	case TDX_UPDATE_START:
+		if (atomic_add_return(bias, &nr_configured_hkid) != bias) {
+			atomic_sub(bias, &nr_configured_hkid);
+			ret = -EBUSY;
+		}
+		break;
+
+	case TDX_UPDATE_ABORT:
+		atomic_sub(bias, &nr_configured_hkid);
+		break;
+
+	case TDX_UPDATE_SUCCESS:
+		tdx_module_not_available = !!tdx_module_setup();
+		atomic_sub(bias, &nr_configured_hkid);
+		break;
+
+	case TDX_UPDATE_FAIL:
+		tdx_module_not_available = true;
+		atomic_sub(bias, &nr_configured_hkid);
+		break;
+
+	default:
+		pr_err_once("unknown TDX module update event %lx\n", event);
+		ret = -EINVAL;
+		break;
+	}
+
+	return notifier_from_errno(ret);
+}
+
+static struct notifier_block tdx_update_nb = {
+	.notifier_call = tdx_update_notifier,
+};
+
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	int max_pkgs;
@@ -5564,6 +5627,10 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	if (r)
 		goto out;
 
+	r = register_tdx_update_notifier(&tdx_update_nb);
+	if (r)
+		goto out;
+
 	x86_ops->link_private_spt = tdx_sept_link_private_spt;
 	x86_ops->free_private_spt = tdx_sept_free_private_spt;
 	x86_ops->split_private_spt = tdx_sept_split_private_spt;
@@ -5598,6 +5665,7 @@ void tdx_hardware_unsetup(void)
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 	kvm_set_tdx_guest_pmi_handler(NULL);
+	unregister_tdx_update_notifier(&tdx_update_nb);
 }
 
 int tdx_offline_cpu(void)
@@ -5608,7 +5676,7 @@ int tdx_offline_cpu(void)
 	int i;
 
 	/* No TD is running.  Allow any cpu to be offline. */
-	if (!atomic_read(&nr_configured_hkid))
+	if (atomic_read(&nr_configured_hkid) > 0)
 		return 0;
 
 	/*
