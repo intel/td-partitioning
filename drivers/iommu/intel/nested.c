@@ -34,6 +34,14 @@ static int intel_nested_attach_dev(struct iommu_domain *domain,
 		return -ENODEV;
 	}
 
+	info->domain = dmar_domain;
+
+	ret = intel_iommu_enable_pasid(iommu, dev);
+	if (ret) {
+		dev_err_ratelimited(dev, "Failed to enable PASID capability, return %d\n", ret);
+		return ret;
+	}
+
 	/* Is s2_domain compatible with this IOMMU? */
 	ret = prepare_domain_attach_device(&dmar_domain->s2_domain->domain, dev);
 	if (ret) {
@@ -55,7 +63,6 @@ static int intel_nested_attach_dev(struct iommu_domain *domain,
 		return ret;
 	}
 
-	info->domain = dmar_domain;
 	spin_lock_irqsave(&dmar_domain->lock, flags);
 	list_add(&info->link, &dmar_domain->devices);
 	spin_unlock_irqrestore(&dmar_domain->lock, flags);

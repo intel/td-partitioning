@@ -4649,6 +4649,58 @@ static void intel_iommu_get_resv_regions(struct device *device,
 	list_add_tail(&reg->list, head);
 }
 
+int intel_iommu_enable_pasid(struct intel_iommu *iommu, struct device *dev)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct context_entry *context;
+	struct dmar_domain *domain;
+	unsigned long flags;
+	u64 ctx_lo;
+	int ret;
+
+	domain = info->domain;
+	if (!domain)
+		return -EINVAL;
+
+	spin_lock(&iommu->lock);
+
+	ret = -EINVAL;
+	if (!info->pasid_supported)
+		goto out;
+
+	spin_lock_irqsave(&domain->lock, flags);
+	context = iommu_context_addr(iommu, info->bus, info->devfn, 0);
+	if (WARN_ON(!context))
+		goto out;
+
+	ctx_lo = context[0].lo;
+
+	if (!(ctx_lo & CONTEXT_PASIDE)) {
+		u16 did = context_domain_id(context);
+
+		ctx_lo |= CONTEXT_PASIDE;
+		context[0].lo = ctx_lo;
+		wmb();
+		iommu->flush.flush_context(iommu,
+					   did,
+					   PCI_DEVID(info->bus, info->devfn),
+					   DMA_CCMD_MASK_NOBIT,
+					   DMA_CCMD_DEVICE_INVL);
+	}
+	spin_unlock_irqrestore(&domain->lock, flags);
+
+	/* Enable PASID support in the device, if it wasn't already */
+	if (!info->pasid_enabled)
+		iommu_enable_pci_caps(info);
+
+	ret = 0;
+
+ out:
+	spin_unlock(&iommu->lock);
+
+	return ret;
+}
+
 static struct iommu_group *intel_iommu_device_group(struct device *dev)
 {
 	if (dev_is_pci(dev))
