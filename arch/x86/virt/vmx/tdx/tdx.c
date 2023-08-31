@@ -1042,20 +1042,35 @@ static int construct_tdmrs(struct list_head *tmb_list,
 {
 	int ret;
 
-	ret = fill_out_tdmrs(tmb_list, tdmr_list);
+	ret = build_tdx_memlist(tmb_list);
 	if (ret)
 		return ret;
+
+	/* Allocate enough space for constructing TDMRs */
+	ret = alloc_tdmr_list(tdmr_list, sysinfo);
+	if (ret)
+		return ret;
+
+	ret = fill_out_tdmrs(tmb_list, tdmr_list);
+	if (ret)
+		goto free_tdmrs;
 
 	ret = tdmrs_set_up_pamt_all(tdmr_list, tmb_list,
 			sysinfo->pamt_entry_size);
 	if (ret)
-		return ret;
+		goto free_tdmrs;
 
 	ret = tdmrs_populate_rsvd_areas_all(tdmr_list, tmb_list,
 			sysinfo->max_reserved_per_tdmr);
 	if (ret)
-		tdmrs_free_pamt_all(tdmr_list);
+		goto free_pamts;
 
+	return 0;
+
+free_pamts:
+	tdmrs_free_pamt_all(tdmr_list);
+free_tdmrs:
+	free_tdmr_list(tdmr_list);
 	return ret;
 }
 
@@ -1238,19 +1253,10 @@ static int init_tdx_module(void)
 	 */
 	get_online_mems();
 
-	ret = build_tdx_memlist(&tdx_memlist);
-	if (ret)
-		goto out_put_tdxmem;
-
-	/* Allocate enough space for constructing TDMRs */
-	ret = alloc_tdmr_list(&tdx_tdmr_list, sysinfo);
-	if (ret)
-		goto out_free_tdxmem;
-
 	/* Cover all TDX-usable memory regions in TDMRs */
 	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, sysinfo);
 	if (ret)
-		goto out_free_tdmrs;
+		goto out_put_tdxmem;
 
 	/* Pass the TDMRs and the global KeyID to the TDX module */
 	ret = config_tdx_module(&tdx_tdmr_list, tdx_global_keyid);
@@ -1325,9 +1331,7 @@ out_reset_pamts:
 	atomic_dec_return(&tdx_may_has_private_mem);
 out_free_pamts:
 	tdmrs_free_pamt_all(&tdx_tdmr_list);
-out_free_tdmrs:
 	free_tdmr_list(&tdx_tdmr_list);
-out_free_tdxmem:
 	free_tdx_memlist(&tdx_memlist);
 out_put_tdxmem:
 	put_online_mems();
