@@ -119,5 +119,6 @@ struct tdmr_info_list {
 
 void tdx_module_lock(void);
 void tdx_module_unlock(void);
+int tdx_enable_after_update(void);
 
 #endif

@@ -1454,6 +1454,12 @@ int tdx_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
 
+int tdx_enable_after_update(void)
+{
+	/* Reset all global status and initialize the TDX module */
+	return 0;
+}
+
 /*
  * Convert TDX private pages back to normal on platforms with
  * "partial write machine check" erratum.
