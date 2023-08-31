@@ -329,7 +329,7 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 	return 0;
 }
 
-static struct tdsysinfo_struct *sysinfo;
+struct tdsysinfo_struct *sysinfo;
 
 const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 {

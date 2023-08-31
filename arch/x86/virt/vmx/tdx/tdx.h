@@ -121,4 +121,6 @@ void tdx_module_lock(void);
 void tdx_module_unlock(void);
 int tdx_enable_after_update(void);
 
+extern struct tdsysinfo_struct *sysinfo;
+
 #endif
