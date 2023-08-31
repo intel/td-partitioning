@@ -1944,7 +1944,7 @@ static int tdx_sysfs_init(void)
 {
 	int ret;
 
-	if (!sysinfo)
+	if (!sysinfo || tdx_kobj)
 		return 0;
 
 	tdx_kobj = kobject_create_and_add("tdx", firmware_kobj);
