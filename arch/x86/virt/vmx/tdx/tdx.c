@@ -36,6 +36,7 @@
 #include <asm/set_memory.h>
 #include <asm/vmx.h>
 #include "tdx.h"
+#include "seamldr.h"
 
 #ifdef CONFIG_SYSFS
 static int tdx_sysfs_init(void);
@@ -266,6 +267,11 @@ static int tdx_cpu_enable(unsigned int cpu)
 		__this_cpu_write(tdx_lp_initialized, true);
 
 	return ret;
+}
+
+static int tdx_cpu_disable(unsigned int cpu)
+{
+	return seamldr_flush_vmcs();
 }
 
 static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
@@ -1785,7 +1791,7 @@ int __init tdx_init(void)
 	}
 
 	err = cpuhp_setup_state_nocalls(CPUHP_AP_X86_INTEL_TDX_ONLINE,
-			"x86/tdx:online", tdx_cpu_enable, NULL);
+			"x86/tdx:online", tdx_cpu_enable, tdx_cpu_disable);
 	if (err)
 		pr_err("Failed to register CPU hotplug callback: %d\n", err);
 
