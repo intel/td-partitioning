@@ -67,7 +67,7 @@ struct tdx_info {
 };
 
 /* Info about the TDX module. */
-static struct tdx_info tdx_info __ro_after_init;
+static struct tdx_info tdx_info;
 
 /*
  * Some TDX SEAMCALLs (TDH.MNG.CREATE, TDH.PHYMEM.CACHE.WB,
