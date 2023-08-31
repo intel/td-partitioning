@@ -1208,10 +1208,9 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
-static int init_tdx_module(void)
+static int get_sysinfo(void)
 {
 	struct cmr_info *cmr_array;
-	int ret;
 
 	/*
 	 * Get the TDSYSINFO_STRUCT and CMRs from the TDX module.
@@ -1229,9 +1228,12 @@ static int init_tdx_module(void)
 	BUILD_BUG_ON(PAGE_SIZE / 2 < TDSYSINFO_STRUCT_SIZE);
 	BUILD_BUG_ON(PAGE_SIZE / 2 < sizeof(struct cmr_info) * MAX_CMRS);
 
-	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
-	if (ret)
-		goto out;
+	return __tdx_get_sysinfo(sysinfo, cmr_array);
+}
+
+static int init_tdx_module(void)
+{
+	int ret;
 
 	/* TDX seamcall trace is supported only with debug build. */
 	if (sysinfo->attributes & TDSYSINFO_ATTRIBUTES_DEBUG) {
@@ -1335,7 +1337,6 @@ out_free_pamts:
 	free_tdx_memlist(&tdx_memlist);
 out_put_tdxmem:
 	put_online_mems();
-out:
 	free_page((unsigned long)sysinfo);
 	sysinfo = NULL;
 	return ret;
@@ -1362,17 +1363,23 @@ static int __tdx_enable(void)
 	if (unlikely(!verify_all_cpus_enabled_tdx()))
 		return -ENODEV;
 
+	ret = get_sysinfo();
+	if (ret)
+		goto out;
+
 	ret = init_tdx_module();
-	if (ret) {
-		pr_err("module initialization failed (%d)\n", ret);
-		tdx_module_status = TDX_MODULE_ERROR;
-		return ret;
-	}
+	if (ret)
+		goto out;
 
 	pr_info("module initialized.\n");
 	tdx_module_status = TDX_MODULE_INITIALIZED;
 
 	return 0;
+
+out:
+	pr_err("module initialization failed (%d)\n", ret);
+	tdx_module_status = TDX_MODULE_ERROR;
+	return ret;
 }
 
 /**
