@@ -117,4 +117,7 @@ struct tdmr_info_list {
 #define TDX_METADATA_CPUID_LEAVES_NAME		"9900000300000400"
 #define TDX_METADATA_CPUID_VALUES_NAME		"9900000300000500"
 
+void tdx_module_lock(void);
+void tdx_module_unlock(void);
+
 #endif

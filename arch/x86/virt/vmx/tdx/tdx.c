@@ -53,7 +53,17 @@ static bool tdx_global_initialized;
 static DEFINE_PER_CPU(bool, tdx_lp_initialized);
 
 static enum tdx_module_status_t tdx_module_status;
-static DEFINE_MUTEX(tdx_module_lock);
+static DEFINE_MUTEX(module_lock);
+
+void tdx_module_lock(void)
+{
+	mutex_lock(&module_lock);
+}
+
+void tdx_module_unlock(void)
+{
+	mutex_unlock(&module_lock);
+}
 
 /* All TDX-usable memory regions.  Protected by mem_hotplug_lock. */
 static LIST_HEAD(tdx_memlist);
@@ -325,10 +335,10 @@ const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 {
 	const struct tdsysinfo_struct *r = NULL;
 
-	mutex_lock(&tdx_module_lock);
+	tdx_module_lock();
 	if (tdx_module_status == TDX_MODULE_INITIALIZED)
 		r = sysinfo;
-	mutex_unlock(&tdx_module_lock);
+	tdx_module_unlock();
 	return r;
 }
 EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
@@ -1404,7 +1414,7 @@ int tdx_enable(void)
 	if (!platform_tdx_enabled())
 		return -ENODEV;
 
-	mutex_lock(&tdx_module_lock);
+	tdx_module_lock();
 
 	switch (tdx_module_status) {
 	case TDX_MODULE_UNKNOWN:
@@ -1438,7 +1448,7 @@ int tdx_enable(void)
 		break;
 	}
 
-	mutex_unlock(&tdx_module_lock);
+	tdx_module_unlock();
 
 	return ret;
 }
@@ -1784,10 +1794,10 @@ static ssize_t tdx_module_status_show(struct kobject *kobj, struct kobj_attribut
 	};
 	const char *status = "unknown";
 
-	mutex_lock(&tdx_module_lock);
+	tdx_module_lock();
 	if (tdx_module_status < ARRAY_SIZE(names))
 		status = names[tdx_module_status];
-	mutex_unlock(&tdx_module_lock);
+	tdx_module_unlock();
 
 	return sprintf(buf, "%s", status);
 }
