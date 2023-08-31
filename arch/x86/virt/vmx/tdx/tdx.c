@@ -1052,6 +1052,13 @@ static int construct_tdmrs(struct list_head *tmb_list,
 {
 	int ret;
 
+	/*
+	 * Skip TDMR construction if it is already done. e.g., TDMRs can be
+	 * used when initializing newly installed TDX modules.
+	 */
+	if (!list_empty(tmb_list))
+		return 0;
+
 	ret = build_tdx_memlist(tmb_list);
 	if (ret)
 		return ret;
@@ -1454,10 +1461,30 @@ int tdx_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
 
+static void tdx_cpu_reenable(void *unused)
+{
+	__this_cpu_write(tdx_lp_initialized, false);
+	tdx_cpu_enable(raw_smp_processor_id());
+}
+
 int tdx_enable_after_update(void)
 {
-	/* Reset all global status and initialize the TDX module */
-	return 0;
+	if (sysinfo) {
+		free_page((unsigned long)sysinfo);
+		sysinfo = NULL;
+	}
+
+	/*
+	 * Reset flags used to track TDX module status and global (and per-CPU
+	 * in tdx_cpu_reenable()) initialization status.
+	 */
+	tdx_module_status = TDX_MODULE_UNKNOWN;
+	tdx_global_initialized = false;
+
+	init_module_global();
+	on_each_cpu(tdx_cpu_reenable, NULL, 1);
+
+	return __tdx_enable();
 }
 
 /*
