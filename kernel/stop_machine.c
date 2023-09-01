@@ -23,6 +23,10 @@
 #include <linux/nmi.h>
 #include <linux/sched/wake_q.h>
 
+#ifndef arch_stop_machine
+#define arch_stop_machine()    do { } while (0)
+#endif
+
 /*
  * Structure to determine completion condition and record errors.  May
  * be shared by works on different cpus.
@@ -236,8 +240,10 @@ static int multi_cpu_stop(void *data)
 				hard_irq_disable();
 				break;
 			case MULTI_STOP_RUN:
-				if (is_active)
+				if (is_active) {
+					arch_stop_machine();
 					err = msdata->fn(msdata->data);
+				}
 				break;
 			default:
 				break;
