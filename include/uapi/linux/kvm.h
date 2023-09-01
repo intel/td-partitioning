@@ -810,7 +810,7 @@ struct kvm_guest_debug {
 struct kvm_bind_pasid {
 	__u32 spid;
 	__u32 id;
-	bool bind;
+	int bind;
 };
 
 enum {
