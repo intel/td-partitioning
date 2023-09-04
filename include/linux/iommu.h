@@ -239,6 +239,9 @@ struct iommu_iotlb_gather {
  * include/uapi/linux/iommufd.h.
  */
 union iommu_domain_user_data {
+#ifdef CONFIG_IOMMUFD_TEST
+	__u64 test[2];
+#endif
 };
 
 /**
