@@ -84,6 +84,8 @@ static unsigned int xstate_sizes[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 static unsigned int xstate_flags[XFEATURE_MAX] __ro_after_init;
 
+u64 fpu_kernel_dynamic_xfeatures __ro_after_init;
+
 #define XSTATE_FLAG_SUPERVISOR	BIT(0)
 #define XSTATE_FLAG_ALIGNED64	BIT(1)
 
@@ -740,6 +742,23 @@ static void __init fpu__init_disable_system_xstate(unsigned int legacy_size)
 	fpstate_reset(&current->thread.fpu);
 }
 
+static unsigned short xsave_kernel_dynamic_xfeatures[] = {
+	[XFEATURE_CET_KERNEL]	= X86_FEATURE_SHSTK,
+};
+
+static void __init init_kernel_dynamic_xfeatures(void)
+{
+	unsigned short cid;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(xsave_kernel_dynamic_xfeatures); i++) {
+		cid = xsave_kernel_dynamic_xfeatures[i];
+
+		if (cid && boot_cpu_has(cid))
+			fpu_kernel_dynamic_xfeatures |= BIT_ULL(i);
+	}
+}
+
 /*
  * Enable and initialize the xsave feature.
  * Called once per system bootup.
@@ -808,6 +827,8 @@ void __init fpu__init_system_xstate(unsigned int legacy_size)
 	 */
 	if (boot_cpu_has(X86_FEATURE_SHSTK) || boot_cpu_has(X86_FEATURE_IBT))
 		fpu_kernel_cfg.max_features |= BIT_ULL(XFEATURE_CET_USER);
+
+	init_kernel_dynamic_xfeatures();
 
 	if (!cpu_feature_enabled(X86_FEATURE_XFD))
 		fpu_kernel_cfg.max_features &= ~XFEATURE_MASK_USER_DYNAMIC;
