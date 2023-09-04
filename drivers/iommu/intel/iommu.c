@@ -4656,7 +4656,7 @@ int intel_iommu_enable_pasid(struct intel_iommu *iommu, struct device *dev)
 	struct dmar_domain *domain;
 	unsigned long flags;
 	u64 ctx_lo;
-	int ret;
+	int ret = 0;
 
 	domain = info->domain;
 	if (!domain)
@@ -4664,9 +4664,10 @@ int intel_iommu_enable_pasid(struct intel_iommu *iommu, struct device *dev)
 
 	spin_lock(&iommu->lock);
 
-	ret = -EINVAL;
 	if (!info->pasid_supported)
 		goto out;
+
+	ret = -EINVAL;
 
 	spin_lock_irqsave(&domain->lock, flags);
 	context = iommu_context_addr(iommu, info->bus, info->devfn, 0);
