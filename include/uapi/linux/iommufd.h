@@ -47,6 +47,7 @@ enum {
 	IOMMUFD_CMD_VFIO_IOAS,
 	IOMMUFD_CMD_HWPT_ALLOC,
 	IOMMUFD_CMD_GET_HW_INFO,
+	IOMMUFD_CMD_RESV_IOVA_RANGES,
 };
 
 /**
@@ -449,4 +450,49 @@ struct iommu_hw_info {
 	__u32 __reserved;
 };
 #define IOMMU_GET_HW_INFO _IO(IOMMUFD_TYPE, IOMMUFD_CMD_GET_HW_INFO)
+
+/**
+ * struct iommu_resv_iova_range - ioctl(IOMMU_RESV_IOVA_RANGE)
+ * @start: First IOVA
+ * @last: Inclusive last IOVA
+ *
+ * An interval in IOVA space.
+ */
+struct iommu_resv_iova_range {
+	__aligned_u64 start;
+	__aligned_u64 last;
+};
+
+/**
+ * struct iommu_resv_iova_ranges - ioctl(IOMMU_RESV_IOVA_RANGES)
+ * @size: sizeof(struct iommu_resv_iova_ranges)
+ * @dev_id: device to read resv iova ranges for
+ * @num_iovas: Input/Output total number of resv ranges for the device
+ * @__reserved: Must be 0
+ * @resv_iovas: Pointer to the output array of struct iommu_resv_iova_range
+ *
+ * Query a device for ranges of reserved IOVAs. num_iovas will be set to the
+ * total number of iovas and the resv_iovas[] will be filled in as space
+ * permits.
+ *
+ * On input num_iovas is the length of the resv_iovas array. On output it is
+ * the total number of iovas filled in. The ioctl will return -EMSGSIZE and
+ * set num_iovas to the required value if num_iovas is too small. In this
+ * case the caller should allocate a larger output array and re-issue the
+ * ioctl.
+ *
+ * Under nested translation, userspace should query the reserved IOVAs for a
+ * given device, and report it to the stage-1 I/O page table owner to exclude
+ * the reserved IOVAs. The reserved IOVAs can also be used to figure out the
+ * allowed IOVA ranges for the IOAS that the device is attached to. For detail
+ * see ioctl IOMMU_IOAS_IOVA_RANGES.
+ */
+struct iommu_resv_iova_ranges {
+	__u32 size;
+	__u32 dev_id;
+	__u32 num_iovas;
+	__u32 __reserved;
+	__aligned_u64 resv_iovas;
+};
+#define IOMMU_RESV_IOVA_RANGES _IO(IOMMUFD_TYPE, IOMMUFD_CMD_RESV_IOVA_RANGES)
 #endif

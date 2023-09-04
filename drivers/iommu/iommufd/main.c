@@ -217,6 +217,57 @@ static int iommufd_destroy(struct iommufd_ucmd *ucmd)
 	return 0;
 }
 
+static int iommufd_resv_iova_ranges(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_resv_iova_ranges *cmd = ucmd->cmd;
+	struct iommu_resv_iova_range __user *ranges;
+	struct iommu_resv_region *resv;
+	struct iommufd_device *idev;
+	LIST_HEAD(resv_regions);
+	u32 max_iovas;
+	int rc;
+
+	if (cmd->__reserved)
+		return -EOPNOTSUPP;
+
+	idev = iommufd_get_device(ucmd, cmd->dev_id);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
+
+	max_iovas = cmd->num_iovas;
+	ranges = u64_to_user_ptr(cmd->resv_iovas);
+	cmd->num_iovas = 0;
+
+	iommu_get_resv_regions(idev->dev, &resv_regions);
+
+	list_for_each_entry(resv, &resv_regions, list) {
+		if (resv->type == IOMMU_RESV_DIRECT_RELAXABLE)
+			continue;
+		if (cmd->num_iovas < max_iovas) {
+			struct iommu_resv_iova_range elm = {
+				.start = resv->start,
+				.last = resv->length - 1 + resv->start,
+			};
+
+			if (copy_to_user(&ranges[cmd->num_iovas], &elm,
+					 sizeof(elm))) {
+				rc = -EFAULT;
+				goto out_put;
+			}
+		}
+		cmd->num_iovas++;
+	}
+	rc = iommufd_ucmd_respond(ucmd, sizeof(*cmd));
+	if (rc)
+		goto out_put;
+	if (cmd->num_iovas > max_iovas)
+		rc = -EMSGSIZE;
+out_put:
+	iommu_put_resv_regions(idev->dev, &resv_regions);
+	iommufd_put_object(&idev->obj);
+	return rc;
+}
+
 static int iommufd_fops_open(struct inode *inode, struct file *filp)
 {
 	struct iommufd_ctx *ictx;
@@ -314,6 +365,7 @@ union ucmd_buffer {
 	struct iommu_ioas_map map;
 	struct iommu_ioas_unmap unmap;
 	struct iommu_option option;
+	struct iommu_resv_iova_ranges resv_ranges;
 	struct iommu_vfio_ioas vfio_ioas;
 #ifdef CONFIG_IOMMUFD_TEST
 	struct iommu_test_cmd test;
@@ -356,6 +408,8 @@ static const struct iommufd_ioctl_op iommufd_ioctl_ops[] = {
 		 length),
 	IOCTL_OP(IOMMU_OPTION, iommufd_option, struct iommu_option,
 		 val64),
+	IOCTL_OP(IOMMU_RESV_IOVA_RANGES, iommufd_resv_iova_ranges,
+		 struct iommu_resv_iova_ranges, resv_iovas),
 	IOCTL_OP(IOMMU_VFIO_IOAS, iommufd_vfio_ioas, struct iommu_vfio_ioas,
 		 __reserved),
 #ifdef CONFIG_IOMMUFD_TEST
