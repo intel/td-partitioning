@@ -96,6 +96,8 @@ enum selftest_obj_type {
 
 struct mock_dev {
 	struct device dev;
+	struct rw_semaphore reserved_rwsem;
+	struct rb_root_cached reserved_itree;
 };
 
 struct selftest_obj {
@@ -380,6 +382,10 @@ static struct mock_dev *mock_dev_create(void)
 	if (rc)
 		goto err_put;
 
+	/* Reserve range related fields */
+	init_rwsem(&mdev->reserved_rwsem);
+	mdev->reserved_itree = RB_ROOT_CACHED;
+
 	rc = device_add(&mdev->dev);
 	if (rc)
 		goto err_put;
@@ -390,8 +396,20 @@ err_put:
 	return ERR_PTR(rc);
 }
 
+static void mock_dev_remove_reserved_iovas(struct mock_dev *mdev)
+{
+	struct interval_tree_node *node;
+
+	while ((node = interval_tree_iter_first(&mdev->reserved_itree, 0,
+						ULONG_MAX))) {
+		interval_tree_remove(node, &mdev->reserved_itree);
+		kfree(node);
+	}
+}
+
 static void mock_dev_destroy(struct mock_dev *mdev)
 {
+	mock_dev_remove_reserved_iovas(mdev);
 	device_unregister(&mdev->dev);
 }
 
@@ -518,6 +536,64 @@ static int iommufd_test_add_reserved(struct iommufd_ucmd *ucmd,
 	up_write(&ioas->iopt.iova_rwsem);
 	iommufd_put_object(&ioas->obj);
 	return rc;
+}
+
+static int mock_dev_add_reserved_iova(struct mock_dev *mdev,
+				      unsigned long start, unsigned long last)
+{
+	struct interval_tree_node *reserved;
+
+	if (interval_tree_iter_first(&mdev->reserved_itree, start, last))
+		return -EADDRINUSE;
+
+	reserved = kzalloc(sizeof(*reserved), GFP_KERNEL_ACCOUNT);
+	if (!reserved)
+		return -ENOMEM;
+	reserved->start = start;
+	reserved->last = last;
+	interval_tree_insert(reserved, &mdev->reserved_itree);
+	return 0;
+}
+
+/* Add a reserved IOVA region to a device */
+static int iommufd_test_dev_add_reserved(struct iommufd_ucmd *ucmd,
+					 unsigned int device_id,
+					 unsigned long start, size_t length)
+{
+	struct selftest_obj *sobj;
+	struct mock_dev *mdev;
+	int rc;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, device_id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	mdev = sobj->idev.mock_dev;
+	down_write(&mdev->reserved_rwsem);
+	rc = mock_dev_add_reserved_iova(sobj->idev.mock_dev,
+					start, start + length - 1);
+	up_write(&mdev->reserved_rwsem);
+	iommufd_put_object(&sobj->obj);
+	return rc;
+}
+
+/* Remove all reserved IOVA regions of a device */
+static int iommufd_test_dev_del_reserved(struct iommufd_ucmd *ucmd,
+					 unsigned int device_id)
+{
+	struct selftest_obj *sobj;
+	struct mock_dev *mdev;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, device_id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	mdev = sobj->idev.mock_dev;
+	down_write(&mdev->reserved_rwsem);
+	mock_dev_remove_reserved_iovas(mdev);
+	up_write(&mdev->reserved_rwsem);
+	iommufd_put_object(&sobj->obj);
+	return 0;
 }
 
 /* Check that every pfn under each iova matches the pfn under a user VA */
@@ -1009,6 +1085,12 @@ int iommufd_test(struct iommufd_ucmd *ucmd)
 		return iommufd_test_add_reserved(ucmd, cmd->id,
 						 cmd->add_reserved.start,
 						 cmd->add_reserved.length);
+	case IOMMU_TEST_OP_DEV_ADD_RESERVED:
+		return iommufd_test_dev_add_reserved(ucmd, cmd->id,
+						     cmd->add_dev_reserved.start,
+						     cmd->add_dev_reserved.length);
+	case IOMMU_TEST_OP_DEV_DEL_RESERVED:
+		return iommufd_test_dev_del_reserved(ucmd, cmd->id);
 	case IOMMU_TEST_OP_MOCK_DOMAIN:
 		return iommufd_test_mock_domain(ucmd, cmd);
 	case IOMMU_TEST_OP_MOCK_DOMAIN_REPLACE:

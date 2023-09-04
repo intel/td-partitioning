@@ -19,6 +19,8 @@ enum {
 	IOMMU_TEST_OP_SET_TEMP_MEMORY_LIMIT,
 	IOMMU_TEST_OP_MOCK_DOMAIN_REPLACE,
 	IOMMU_TEST_OP_ACCESS_REPLACE_IOAS,
+	IOMMU_TEST_OP_DEV_ADD_RESERVED,
+	IOMMU_TEST_OP_DEV_DEL_RESERVED,
 };
 
 enum {
@@ -50,6 +52,10 @@ struct iommu_test_cmd {
 			__aligned_u64 start;
 			__aligned_u64 length;
 		} add_reserved;
+		struct {
+			__aligned_u64 start;
+			__aligned_u64 length;
+		} add_dev_reserved;
 		struct {
 			__u32 out_stdev_id;
 			__u32 out_hwpt_id;
