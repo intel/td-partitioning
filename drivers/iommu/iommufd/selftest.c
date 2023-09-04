@@ -304,12 +304,39 @@ static struct iommu_device *mock_probe_device(struct device *dev)
 	return &mock_iommu_device;
 }
 
+static void iommufd_test_get_resv_regions(struct device *dev,
+					  struct list_head *head)
+{
+	struct mock_dev *mdev = container_of(dev, struct mock_dev, dev);
+	struct interval_tree_node *reserved, *next;
+
+	down_read(&mdev->reserved_rwsem);
+	for (reserved = interval_tree_iter_first(&mdev->reserved_itree, 0, ULONG_MAX);
+	     reserved; reserved = next) {
+		struct iommu_resv_region *resv;
+
+		next = interval_tree_iter_next(reserved, 0, ULONG_MAX);
+		/* Only adds IOMMU_RESV_DIRECT so far */
+		resv = iommu_alloc_resv_region(reserved->start,
+					       reserved->last + 1 - reserved->start,
+					       IOMMU_READ | IOMMU_WRITE,
+					       IOMMU_RESV_DIRECT,
+					       GFP_ATOMIC);
+		if (!resv)
+			break;
+
+		list_add_tail(&resv->list, head);
+	}
+	up_read(&mdev->reserved_rwsem);
+}
+
 static const struct iommu_ops mock_ops = {
 	.owner = THIS_MODULE,
 	.pgsize_bitmap = MOCK_IO_PAGE_SIZE,
 	.hw_info = mock_domain_hw_info,
 	.domain_alloc = mock_domain_alloc,
 	.capable = mock_domain_capable,
+	.get_resv_regions = iommufd_test_get_resv_regions,
 	.set_platform_dma_ops = mock_domain_set_plaform_dma_ops,
 	.device_group = generic_device_group,
 	.probe_device = mock_probe_device,
