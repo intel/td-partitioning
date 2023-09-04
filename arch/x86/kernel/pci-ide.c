@@ -1346,7 +1346,7 @@ err_clear_key_config:
 	return ret;
 }
 
-void pci_arch_ide_stream_remove(struct pci_ide_stream *stm)
+int pci_arch_ide_stream_remove(struct pci_ide_stream *stm)
 {
 	cancel_delayed_work_sync(&stm->keyrefresh_dwork);
 
@@ -1358,8 +1358,9 @@ void pci_arch_ide_stream_remove(struct pci_ide_stream *stm)
 		     __func__, stm->stream_id, dev_name(&stm->rp_dev->dev),
 		     dev_name(&stm->dev->dev));
 		/* Skip ide_key_config_cleanup() when releasing stream failed */
-		return;
+		return -EBUSY;
 	}
 
 	ide_key_config_cleanup(stm);
+	return 0;
 }

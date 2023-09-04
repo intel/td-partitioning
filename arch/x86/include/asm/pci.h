@@ -153,6 +153,6 @@ int pci_arch_ide_dev_tee_enter(struct pci_dev *dev);
 int pci_arch_ide_dev_tee_exit(struct pci_dev *dev);
 /* per stream IDE operation */
 int pci_arch_ide_stream_setup(struct pci_ide_stream *stm);
-void pci_arch_ide_stream_remove(struct pci_ide_stream *stm);
+int pci_arch_ide_stream_remove(struct pci_ide_stream *stm);
 
 #endif /* _ASM_X86_PCI_H */

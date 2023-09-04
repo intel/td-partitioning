@@ -231,8 +231,8 @@ void pci_ide_stream_remove(struct pci_ide_stream *stm)
 	struct pci_dev *rp_dev = stm->rp_dev;
 	struct pci_dev *dev = stm->dev;
 
-	pci_arch_ide_stream_remove(stm);
-	pci_ide_stream_free(stm);
+	if (!pci_arch_ide_stream_remove(stm))
+		pci_ide_stream_free(stm);
 
 	pci_ide_dev_put(dev);
 	pci_ide_dev_put(rp_dev);
