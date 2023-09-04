@@ -14,6 +14,7 @@
 #include <linux/err.h>
 #include <linux/of.h>
 #include <uapi/linux/iommu.h>
+#include <uapi/linux/iommufd.h>
 
 #define IOMMU_READ	(1 << 0)
 #define IOMMU_WRITE	(1 << 1)
@@ -227,6 +228,15 @@ struct iommu_iotlb_gather {
 	bool			queued;
 };
 
+/*
+ * The user data to allocate a specific type user iommu domain
+ *
+ * This includes the corresponding driver data structures in
+ * include/uapi/linux/iommufd.h.
+ */
+union iommu_domain_user_data {
+};
+
 /**
  * struct iommu_ops - iommu ops and capabilities
  * @capable: check capability
@@ -235,6 +245,13 @@ struct iommu_iotlb_gather {
  *           use. The information type is one of enum iommu_hw_info_type defined
  *           in include/uapi/linux/iommufd.h.
  * @domain_alloc: allocate iommu domain
+ * @domain_alloc_user: allocate a user iommu domain corresponding to the input
+ *                     @hwpt_type that is defined as enum iommu_hwpt_type in the
+ *                     include/uapi/linux/iommufd.h. A returning domain will be
+ *                     set to an IOMMU_DOMAIN_NESTED type, upon valid @user_data
+ *                     and @parent that is a kernel-managed domain. Otherwise,
+ *                     it will be set to an IOMMU_DOMAIN_UNMANAGED type. Return
+ *                     ERR_PTR on allocation failure.
  * @probe_device: Add device to iommu driver handling
  * @release_device: Remove device from iommu driver handling
  * @probe_finalize: Do final setup work after the device is added to an IOMMU
@@ -267,6 +284,10 @@ struct iommu_ops {
 
 	/* Domain allocation and freeing by the iommu driver */
 	struct iommu_domain *(*domain_alloc)(unsigned iommu_domain_type);
+	struct iommu_domain *(*domain_alloc_user)(struct device *dev,
+						  enum iommu_hwpt_type hwpt_type,
+						  struct iommu_domain *parent,
+						  const union iommu_domain_user_data *user_data);
 
 	struct iommu_device *(*probe_device)(struct device *dev);
 	void (*release_device)(struct device *dev);
