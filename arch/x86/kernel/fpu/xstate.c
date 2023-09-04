@@ -1636,9 +1636,17 @@ static int __xstate_request_perm(u64 permitted, u64 requested, bool guest)
 
 	/* Calculate the resulting kernel state size */
 	mask = permitted | requested;
-	/* Take supervisor states into account on the host */
+	/*
+	 * Take supervisor states into account on the host. And add
+	 * kernel dynamic xfeatures to guest since guest kernel may
+	 * enable corresponding CPU feaures and the xstate registers
+	 * need to be saved/restored properly.
+	 */
 	if (!guest)
 		mask |= xfeatures_mask_supervisor();
+	else
+		mask |= fpu_kernel_dynamic_xfeatures;
+
 	ksize = xstate_calculate_size(mask, compacted);
 
 	/* Calculate the resulting user state size */
