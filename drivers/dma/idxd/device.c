@@ -1337,7 +1337,7 @@ int idxd_device_load_config(struct idxd_device *idxd)
 	return 0;
 }
 
-void idxd_flush_pending_descs(struct idxd_irq_entry *ie)
+static void idxd_flush_pending_descs(struct idxd_irq_entry *ie)
 {
 	struct idxd_desc *desc, *itr;
 	struct llist_node *head;
