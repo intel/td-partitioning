@@ -432,6 +432,8 @@ out_put_idev:
 	return rc;
 }
 
+MODULE_IMPORT_NS(IOMMUFD_INTERNAL);
+
 int iommufd_hwpt_invalidate(struct iommufd_ucmd *ucmd)
 {
 	struct iommu_hwpt_invalidate *cmd = ucmd->cmd;
