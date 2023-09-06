@@ -4709,6 +4709,27 @@ static struct iommu_group *intel_iommu_device_group(struct device *dev)
 	return generic_device_group(dev);
 }
 
+static int intel_iommu_enable_only_pasid(struct device *dev)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct intel_iommu *iommu;
+
+	if (!info || dmar_disabled)
+		return -EINVAL;
+
+	iommu = info->iommu;
+	if (!iommu)
+		return -EINVAL;
+
+	if (intel_iommu_enable_pasid(iommu, dev))
+		return -ENODEV;
+
+	if (!info->pasid_enabled)
+		return -EINVAL;
+
+	return 0;
+}
+
 static int intel_iommu_enable_sva(struct device *dev)
 {
 	struct device_domain_info *info = dev_iommu_priv_get(dev);
@@ -4821,6 +4842,9 @@ intel_iommu_dev_enable_feat(struct device *dev, enum iommu_dev_features feat)
 
 	case IOMMU_DEV_FEAT_SVA:
 		return intel_iommu_enable_sva(dev);
+
+	case IOMMU_DEV_FEAT_PASID:
+		return intel_iommu_enable_only_pasid(dev);
 
 	default:
 		return -ENODEV;
