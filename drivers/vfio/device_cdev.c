@@ -240,7 +240,7 @@ int vfio_df_ioctl_pasid_detach_pt(struct vfio_device_file *df,
 	struct vfio_device_pasid_detach_iommufd_pt detach;
 	unsigned long minsz;
 
-	minsz = offsetofend(struct vfio_device_pasid_detach_iommufd_pt, flags);
+	minsz = offsetofend(struct vfio_device_pasid_detach_iommufd_pt, pasid);
 
 	if (copy_from_user(&detach, arg, minsz))
 		return -EFAULT;
@@ -249,7 +249,7 @@ int vfio_df_ioctl_pasid_detach_pt(struct vfio_device_file *df,
 		return -EINVAL;
 
 	mutex_lock(&device->dev_set->lock);
-	device->ops->detach_ioas(device);
+	device->ops->pasid_detach_ioas(device, detach.pasid);
 	mutex_unlock(&device->dev_set->lock);
 
 	return 0;
