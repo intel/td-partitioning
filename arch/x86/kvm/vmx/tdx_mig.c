@@ -202,7 +202,6 @@ struct tdx_mig_capabilities {
 
 static struct tdx_mig_capabilities tdx_mig_caps;
 
-static void tdx_reclaim_td_page(unsigned long td_page_pa);
 static void tdx_track(struct kvm *kvm);
 static int tdx_td_post_init(struct kvm_tdx *kvm_tdx);
 static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu);
