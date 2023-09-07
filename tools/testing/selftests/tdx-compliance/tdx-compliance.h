@@ -21,6 +21,9 @@
 #define MSR_IA32_INT_SSP_TAB		0x000006a8
 /****** END of Backport ******/
 
+#define VER1_0 1
+#define VER1_5 2
+
 struct cpuid_reg {
 	u32 val;
 	u32 expect;
@@ -39,7 +42,9 @@ struct test_cpuid {
 	u32 leaf;
 	u32 subleaf;
 	int ret;
+	int version;
 	struct cpuid_regs_ext regs;
+	struct list_head list;
 };
 
 struct cr_reg {
@@ -55,6 +60,7 @@ struct excp {
 
 struct test_cr {
 	char *name;		/* The name of the case */
+	int version;
 	int ret;		/* The result of the test, 1 for pass */
 	struct cr_reg reg;
 	struct excp excp;	/* The test's predicted and actual trap number */
@@ -75,6 +81,7 @@ struct test_msr {
 	int size;
 	int ret;
 	struct excp excp;
+	int version;
 
 	int (*run_msr_rw)(struct test_msr *p_test_msr);
 	void (*pre_condition)(struct test_msr *p_test_msr);
@@ -90,4 +97,5 @@ static int write_msr_native(struct test_msr *c);
 static int read_msr_native(struct test_msr *c);
 
 u64 cur_cr4, cur_cr0;
+extern struct list_head cpuid_list;
 #endif

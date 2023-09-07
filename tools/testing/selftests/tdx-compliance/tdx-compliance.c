@@ -2,6 +2,7 @@
 #include <linux/debugfs.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/list.h>
 
 #include "asm/trapnr.h"
 
@@ -29,8 +30,11 @@ MODULE_AUTHOR("Yi Sun");
  */
 int stat_total, stat_pass, stat_fail, cnt_log;
 int operation;
+int spec_version;
+char *version_name;
 char *buf_ret, *str_input;
 static struct dentry *f_tdx_tests, *d_tdx;
+LIST_HEAD(cpuid_list);
 
 #define SIZE_BUF		(PAGE_SIZE << 3)
 #define pr_buf(fmt, ...)				\
@@ -70,6 +74,17 @@ static char *result_str(int ret)
 	}
 
 	return "UNKNOWN";
+}
+
+char *get_version(int version) {
+	if (version == 1)
+		return "_1.0";
+	else if (version == 2)
+		return "_1.5";
+	else if (version == 3)
+		return "_generic";
+	else
+		return "none";
 }
 
 static int check_results_msr(struct test_msr *t)
@@ -172,6 +187,8 @@ static int run_all_msr(void)
 		if (operation & 0x8000 && strcmp(str_input, t->name) != 0)
 			continue;
 
+		if (!(spec_version & t->version)) continue;
+
 		if (t->pre_condition)
 			t->pre_condition(t);
 		if (t->run_msr_rw)
@@ -180,7 +197,8 @@ static int run_all_msr(void)
 		t->ret = check_results_msr(t);
 		t->ret == 1 ? stat_pass++ : stat_fail++;
 
-		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name,
+		version_name = get_version(t->version);
+		pr_buf("%d: %s%s:\t %s\n", ++stat_total, t->name, version_name,
 		       result_str(t->ret));
 	}
 	return 0;
@@ -202,7 +220,8 @@ static int check_results_cpuid(struct test_cpuid *t)
 	 * Show the detail that resutls in the failure,
 	 * CPUID here focus on the fixed bit, not actual cpuid val.
 	 */
-	pr_buf("CPUID: %s\n", t->name);
+	version_name = get_version(t->version);
+	pr_buf("CPUID: %s%s\n", t->name, version_name);
 	pr_buf("CPUID	 :" CPUID_DUMP_PATTERN,
 	       (t->regs.eax.val & t->regs.eax.mask), (t->regs.ebx.val & t->regs.ebx.mask),
 	       (t->regs.ecx.val & t->regs.ecx.mask), (t->regs.edx.val & t->regs.edx.mask));
@@ -231,13 +250,15 @@ int check_results_cr(struct test_cr *t)
 
 static int run_all_cpuid(void)
 {
-	struct test_cpuid *t = cpuid_cases;
-	int i = 0;
+	struct test_cpuid *t;
 
 	pr_tdx_tests("Testing CPUID...\n");
-	for (i = 0; i < ARRAY_SIZE(cpuid_cases) - 1; i++, t++) {
+	list_for_each_entry(t, &cpuid_list, list) {
+
 		if (operation & 0x8000 && strcmp(str_input, t->name) != 0)
 			continue;
+
+		if (!(spec_version & t->version)) continue;
 
 		run_cpuid(t);
 
@@ -247,7 +268,8 @@ static int run_all_cpuid(void)
 		else if (t->ret == -1)
 			stat_fail++;
 
-		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name, result_str(t->ret));
+		version_name = get_version(t->version);
+		pr_buf("%d: %s%s:\t %s\n", ++stat_total, t->name, version_name, result_str(t->ret));
 	}
 	return 0;
 }
@@ -308,6 +330,8 @@ static int run_all_cr(void)
 		if (operation & 0x8000 && strcmp(str_input, t->name) != 0)
 			continue;
 
+		if (!(spec_version & t->version)) continue;
+
 		if (t->run_cr_get)
 			t->reg.val = t->run_cr_get();
 
@@ -326,7 +350,8 @@ static int run_all_cr(void)
 		t->ret = check_results_cr(t);
 		t->ret == 1 ? stat_pass++ : stat_fail++;
 
-		pr_buf("%d: %s:\t %s\n", ++stat_total, t->name,
+		version_name = get_version(t->version);
+		pr_buf("%d: %s%s:\t %s\n", ++stat_total, t->name, version_name,
 		       result_str(t->ret));
 	}
 	return 0;
@@ -336,7 +361,7 @@ static ssize_t
 tdx_tests_proc_read(struct file *file, char __user *buffer,
 		    size_t count, loff_t *ppos)
 {
-	return simple_read_from_buffer(buffer, count, ppos, buf_ret, SIZE_BUF);
+	return simple_read_from_buffer(buffer, count, ppos, buf_ret, cnt_log);
 }
 
 static ssize_t
@@ -356,6 +381,13 @@ tdx_tests_proc_write(struct file *file,
 
 	if (*(str_input + strlen(str_input) - 1) == '\n')
 		*(str_input + strlen(str_input) - 1) = '\0';
+
+	if (strstr(str_input, "1.0"))
+		spec_version = VER1_0;
+	else if (strstr(str_input, "1.5"))
+		spec_version = VER1_5;
+	else
+		spec_version = (VER1_0 | VER1_5);
 
 	if (strstr(str_input, "cpuid"))
 		operation |= OPMASK_CPUID;
@@ -426,6 +458,12 @@ static int __init tdx_tests_init(void)
 
 static void __exit tdx_tests_exit(void)
 {
+	struct test_cpuid *t, *tmp;
+
+	list_for_each_entry_safe(t, tmp, &cpuid_list, list) {
+		list_del(&t->list);
+		kfree(t);
+	}
 	kfree(buf_ret);
 	debugfs_remove_recursive(d_tdx);
 }
