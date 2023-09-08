@@ -1046,17 +1046,6 @@ struct x86_perf_task_context_arch_lbr {
 	struct lbr_entry entries[];
 };
 
-
-static inline u64 x86_get_gp_cnt_bitmap(u64 cnt_bitmapl)
-{
-	return cnt_bitmapl & INTEL_PMC_GP_BITMASK;
-}
-
-static inline u64 x86_get_fixed_cnt_bitmap(u64 cnt_bitmapl)
-{
-	return cnt_bitmapl >> INTEL_PMC_IDX_FIXED;
-}
-
 /*
  * Add padding to guarantee the 64-byte alignment of the state buffer.
  *

@@ -662,4 +662,14 @@ static __always_inline void perf_lopwr_cb(bool lopwr_in)
 
 #define arch_perf_out_copy_user copy_from_user_nmi
 
+static inline u64 x86_get_gp_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl & INTEL_PMC_GP_BITMASK;
+}
+
+static inline u64 x86_get_fixed_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl >> INTEL_PMC_IDX_FIXED;
+}
+
 #endif /* _ASM_X86_PERF_EVENT_H */
