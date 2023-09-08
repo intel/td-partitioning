@@ -261,7 +261,11 @@ struct x86_pmu_capability {
 	int		bit_width_fixed;
 	unsigned int	events_mask;
 	int		events_mask_len;
-	unsigned int	pebs_ept	:1;
+	unsigned int	events_ext_mask;
+	int		events_ext_mask_len;
+	unsigned int	pebs_ept	:1,
+			umask2		:1,
+			eq		:1;
 };
 
 /*

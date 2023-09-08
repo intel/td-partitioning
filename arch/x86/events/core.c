@@ -3031,7 +3031,11 @@ void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap)
 	cap->bit_width_fixed	= x86_pmu.cntval_bits;
 	cap->events_mask	= (unsigned int)x86_pmu.events_maskl;
 	cap->events_mask_len	= x86_pmu.events_mask_len;
+	cap->events_ext_mask	= x86_pmu.events_ext_maskl;
+	cap->events_ext_mask_len = x86_pmu.events_ext_mask_len;
 	cap->pebs_ept		= x86_pmu.pebs_ept;
+	cap->umask2		= x86_pmu.umask2;
+	cap->eq			= x86_pmu.eq;
 }
 EXPORT_SYMBOL_GPL(perf_get_x86_pmu_capability);
 
