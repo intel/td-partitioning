@@ -5003,6 +5003,7 @@ static void *intel_iommu_hw_info(struct device *dev, u32 *length, u32 *type)
 	struct device_domain_info *info = dev_iommu_priv_get(dev);
 	struct intel_iommu *iommu = info->iommu;
 	struct iommu_hw_info_vtd *vtd;
+	u64 addr_width, cap_addr_mask;
 
 	vtd = kzalloc(sizeof(*vtd), GFP_KERNEL);
 	if (!vtd)
@@ -5013,6 +5014,20 @@ static void *intel_iommu_hw_info(struct device *dev, u32 *length, u32 *type)
 	vtd->ecap_reg = iommu->ecap;
 	*length = sizeof(*vtd);
 	*type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
+
+	/* check if this iommu agaw is sufficient for max mapped address */
+	addr_width = agaw_to_width(iommu->agaw);
+	if (addr_width > cap_mgaw(iommu->cap))
+		addr_width = cap_mgaw(iommu->cap);
+
+	if (!cpu_feature_enabled(X86_FEATURE_LA57) &&
+	    addr_width == ADDR_WIDTH_5LEVEL)
+		addr_width = ADDR_WIDTH_4LEVEL;
+
+	cap_addr_mask = (0x3fULL << 16);
+	vtd->cap_reg &= ~cap_addr_mask;
+	vtd->cap_reg |= ((addr_width & 0x3fULL) << 16);
+
 	return vtd;
 }
 
