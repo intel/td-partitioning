@@ -2788,11 +2788,11 @@ int kvm_tdp_mmu_import_private_pages(struct kvm_vcpu *vcpu,
 			continue;
 
 		gfn = gfns[i];
+		sptep = kvm_tdp_mmu_fast_get_last_sptep(vcpu, true, gfn, &old_spte);
 		if (sptes[i])
-			new_spte = sptes[i] | SPTE_MMU_PRESENT_MASK;
+			new_spte = sptes[i] | sp_mmu_present_mask(sptep_to_sp(sptep));
 		else
 			new_spte = 0;
-		sptep = kvm_tdp_mmu_fast_get_last_sptep(vcpu, true, gfn, &old_spte);
 
 		/* The spte has been freezon */
 		if (is_removed_spte(old_spte)) {
