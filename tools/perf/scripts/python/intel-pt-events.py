@@ -228,6 +228,20 @@ def print_iflag(raw_buf):
 		s = "non"
 	print("IFLAG: %u->%u %s branch" % (old_iflag, iflag, s), end=' ')
 
+def print_trig(raw_buf):
+	data = struct.unpack_from("<III", raw_buf)
+	flags = data[0]
+	inst = flags & 0x10 != 0
+	mult = flags & 0x20 != 0
+	icntv = flags & 0x40 != 0
+	ip = flags & 0x80 != 0
+	trbv = data[1]
+	icnt = data[2]
+	if icntv:
+		print(" IP:%d ICNTV:%d MULT:%d INST:%d TRBV:0x%x ICNT:%d" % (ip, icntv, mult, inst, trbv, icnt), end=' ');
+	else:
+		print(" IP:%d ICNTV:%d MULT:%d INST:%d TRBV:0x%x" % (ip, icntv, mult, inst, trbv), end=' ');
+
 def common_start_str(comm, sample):
 	ts = sample["time"]
 	cpu = sample["cpu"]
@@ -406,6 +420,10 @@ def do_process_event(param_dict):
 	elif name == "iflag":
 		print_common_start(comm, sample, name)
 		print_iflag(raw_buf)
+		print_common_ip(param_dict, sample, symbol, dso)
+	elif name == "trig":
+		print_common_start(comm, sample, name)
+		print_trig(raw_buf)
 		print_common_ip(param_dict, sample, symbol, dso)
 	else:
 		print_common_start(comm, sample, name)
