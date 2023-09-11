@@ -206,7 +206,7 @@ static int idxd_vdcm_attach_ioas(struct vfio_device *vdev,
 		goto out_unlock;
 	}
 
-	pasid = vfio_device_get_pasid(vdev);
+	pasid = vidxd->pasid;
 	if (pasid == IOMMU_PASID_INVALID) {
 		rc = -ENODEV;
 		goto out_unlock;
@@ -232,7 +232,7 @@ static void idxd_vdcm_detach_ioas(struct vfio_device *vdev)
 		goto out_unlock;
 	}
 
-	pasid = vfio_device_get_pasid(vdev);
+	pasid = vidxd->pasid;
 	if (!pasid_valid(pasid)) {
 		goto out_unlock;
 	}
