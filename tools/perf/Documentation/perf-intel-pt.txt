@@ -551,20 +551,26 @@ Support for this feature is indicated by:
 which contains "1" if the feature is supported and
 "0" otherwise.
 
+*start_paused*::
+Start Trigger Tracing with tracing paused, refer to the
+section <<_trigger_tracing,Trigger Tracing>>
+
 
 config terms on other events
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Some Intel PT features work with other events, features such as AUX area sampling
-and PEBS-via-PT.  In those cases, the other events can have config terms below:
+Some Intel PT features work with other events, features such as AUX area sampling,
+PEBS-via-PT and Trigger Tracing.  In those cases, the other events can have
+config terms below:
 
 *aux-sample-size*::
 		Used to set the AUX area sample size, refer to the section
 		<<_aux_area_sampling_option,AUX area sampling option>>
 
 *aux-output*::
-		Used to select PEBS-via-PT, refer to the
-		section <<_pebs_via_intel_pt,PEBS via Intel PT>>
+		Used to select PEBS-via-PT or Trigger Tracing, refer to the
+		sections <<_pebs_via_intel_pt,PEBS via Intel PT>>
+		and <<_trigger_tracing,Trigger Tracing>>
 
 
 AUX area sampling option
@@ -958,10 +964,11 @@ The letters are:
 	b	synthesize "branches" events
 	x	synthesize "transactions" events
 	w	synthesize "ptwrite" events
-	p	synthesize "power" events (incl. PSB events)
+	p	synthesize "power" events (incl. PSB events) and also
+		TRIG packet events
 	c	synthesize branches events (calls only)
 	r	synthesize branches events (returns only)
-	o	synthesize PEBS-via-PT events
+	o	synthesize PEBS-via-PT events or Trigger Tracing events
 	I	synthesize Event Trace events
 	e	synthesize tracing error events
 	d	create a debug log
@@ -1909,6 +1916,176 @@ and queuing up the auxtrace buffers in advance.
 
 For pipe mode, the order of events and timestamps can presumably
 be messed up.
+
+
+Trigger Tracing
+---------------
+
+Some hardware has a feature named Intel PT Trigger Tracing.
+
+Trigger Tracing records Performance Monitoring Counter (PMC) events into
+the Intel PT trace.  It can also be used for Debug Register (DR) events i.e.
+breakpoints.  Furthermore, it can be configured so that an event will cause the
+Intel PT trace to pause or to resume (if it had previously been paused).
+
+Compared with other means of capturing event samples, Trigger Tracing offers:
+
+	- higher sampling rate (lower overhead)
+	- possible to trace *every* event e.g. with address filtering, trace every
+	branch mispredict in a function
+
+Like other Intel PT capabilities, the capabilities to do Trigger Tracing are
+indicated by the contents of files in the /sys/bus/event_source/devices/intel_pt/caps
+directory:
+
+*trigger_tracing*::
+1 if Trigger Tracing is supported, 0 otherwise
+
+*num_trigger_msrs*::
+Maximum number of trigger events divided by 4 e.g. a value of 2 means
+there can be up to 8
+
+*trigger_attribution*::
+1 if the instruction address at which the event occurred can be recorded
+
+*dr_match*::
+1 if Debug Register (DR) events i.e. breakpoints are supported
+
+*pause_resume*::
+1 if pause and resume are supported
+
+If the files are not present then the kernel does not have support.
+
+To indicate that a PMC event should be output to the Intel PT trace, the
+aux-output config term is used.  The event must be in a group with the
+Intel PT event as the leader, and the period must be specified e.g.
+
+	perf record -e '{intel_pt//,cycles/aux-output=on-overflow:trigger,period=10000/}:u' uname
+
+where cycles is the PMC which will "overflow" every 10000 events and write
+a record (TRIG packet) to the Intel PT trace.  The perf record command is
+tracing the command line utility uname in user space only.  Refer to
+linkperf:perf-record[1] for more information about perf record.
+
+The possible values of aux-output for a PMC are:
+
+*on-overflow:trigger*::
+Write a record (TRIG packet) to the Intel PT trace when the PMC overflows.
+Include instruction address information (ICNT) at which the event happened
+(subject to usual skid if it is not a precise event).  Note that the event
+will not cause a Performance Monitoring Interrupt (PMI).
+
+*on-overflow:trigger-pause*:: Same as on-overflow:trigger but also pause
+Intel PT tracing.  Pausing "skids", which means serveral instructions may
+execute before the pause takes affect.
+
+*on-overflow:trigger-resume*:: Same as on-overflow:trigger but also resume
+Intel PT tracing.  Note that it is possible to configure Intel PT to start
+in a paused state by using the start_paused config term.  Resuming "skids",
+which means serveral instructions may execute before the resume takes affect.
+
+*on-overflow:trigger-noip*:: Same as on-overflow:trigger but do not record the
+instruction address information (ICNT) at which the event happened.  In that
+case, the decoder will synthesize event samples with instruction
+address 0 [unknown].
+
+*on-overflow:trigger-noip-pause*:: Same as on-overflow:trigger-noip but
+also pause Intel PT tracing
+
+*on-overflow:trigger-noip-resume*:: Same as on-overflow:trigger-noip but
+also resume Intel PT tracing
+
+*on-event:trigger*::
+*on-event:trigger-pause*::
+*on-event:trigger-resume*::
+*on-event:trigger-noip*::
+*on-event:trigger-noip-pause*::
+*on-event:trigger-noip-resume*::
+Same as the corresponding on-overflow option but on *every* event instead
+of only on overflow.
+
+For PMCs, it is possible to use both on-overflow and on-event options, in
+which case the options are separated by :: e.g.
+
+	aux-output=on-overflow:trigger-pause::on-event:trigger
+
+For Debug Register (DR) events i.e. breakpoints, there are similar
+aux-output values:
+
+*on-match:trigger*::
+*on-match:trigger-pause*::
+*on-match:trigger-resume*::
+*on-match:trigger-noip*::
+*on-match:trigger-noip-pause*::
+*on-match:trigger-noip-resume*::
+Same as the corresponding options above but on matching the breakpoint.
+Note that the event will not cause a Debug Exception (#DB).
+
+perf record supports breakpoints using a "mem" event, which requires
+that you know the memory address, which is typically only possible for
+programs that are already executing.  For example, with a process with
+PID 40131, to make a execution (x) breakpoint at address 0x55b4706b1169
+and output to Intel PT:
+
+	perf record -e '{intel_pt//,mem:0x55b4706b1169:x/aux-output=on-match:trigger/}:u' -p 40131
+
+perf tools decode Trigger Tracing information and synthesize event
+samples in the same fashion that is done, for example, for branches or
+instructions events.  However the event samples synthesized correspond to the
+associated PMC or DR events, and are output only when the itrace 'o' option is
+used e.g.
+
+	perf script --itrace=oe
+
+or
+
+	perf report --itrace=oe
+
+It is also possible to output the TRIG packet information by using the
+itrace 'p' option.
+
+aux_output_cfg
+~~~~~~~~~~~~~~
+
+The aux-output options are recorded on struct perf_event_attr in member
+aux_output_cfg.  A PMC can have 2 triggers (on-overflow and on-event), so
+there are 2 sets of fields.  The format is:
+
+	Name            Sz      Bits            Description
+
+	action_1        4       31:28           Action bitmap
+	reserved_1      6       27:22           Must be zero
+	input_1         1       21:21           0 => match or overflow, 1 (PMC-only) => event
+	trig_nr_1       5       20:16           Trigger number 0 to 31 (current maximum is 7 due to TRIG packet limitation)
+
+	action_0        4       15:12           Action bitmap
+	reserved_0      6       11: 6           Must be zero
+	input_0         1        5: 5           0 => match or overflow, 1 (PMC-only) => event
+	trig_nr_0       5        4: 0           Trigger number 0 to 31 (current maximum is 7 due to TRIG packet limitation)
+
+	Action bitmap:
+		Bit 3: Trigger Enable
+		Bit 2: Whether to record instruction address information (ICNT)
+		Bit 1: Trace Pause
+		Bit 0: Trace Resume
+
+IMPORTANT: Multiple Triggers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If multiple trigger events happen in the same cycle, only 1 TRIG packet is
+generated and the MULT flag is set.  In that case, the instruction address
+belongs to the event with the lowest trigger number.  Triggers are numbered
+left-to-right in the perf record command, and are recorded in aux_output_cfg
+member of struct perf_event_attr.
+
+This means that the other event samples synthesized by the deocder for the same
+TRIG packet will have the same instruction address, not the address that those
+events happened at.  The MULT flag appears on the TRIG packet information output
+with the itrace 'p' option.
+
+There can also be multiple occurrences of the very same trigger, in which case
+the MULT flag will be set, but there will be only 1 event sample synthesized
+for each trigger.
 
 
 EXAMPLE
