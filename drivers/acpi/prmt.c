@@ -112,6 +112,7 @@ struct prm_module_info {
 	struct prm_handler_info handlers[];
 };
 
+static DEFINE_MUTEX(prm_mutex);
 /* fake device for request_firmware */
 static struct platform_device *prm_pdev;
 
@@ -205,6 +206,7 @@ acpi_parse_prmt(union acpi_subtable_headers *header, const unsigned long end)
 		th = &tm->handlers[cur_handler];
 
 		guid_copy(&th->guid, (guid_t *)handler_info->handler_guid);
+		th->rev = handler_info->revision;
 		th->handler_addr = (void *)efi_pa_va_lookup(handler_info->handler_address);
 		th->static_data_buffer_addr = efi_pa_va_lookup(handler_info->static_data_buffer_address);
 		th->acpi_param_buffer_addr = efi_pa_va_lookup(handler_info->acpi_param_buffer_address);
@@ -313,10 +315,13 @@ static acpi_status acpi_platformrt_space_handler(u32 function,
 	switch (buffer->prm_cmd) {
 	case PRM_CMD_RUN_SERVICE:
 
+		mutex_lock(&prm_mutex);
 		handler = find_prm_handler(&buffer->handler_guid);
 		module = find_prm_module(&buffer->handler_guid);
-		if (!handler || !module)
+		if (!handler || !module) {
+			mutex_unlock(&prm_mutex);
 			goto invalid_guid;
+		}
 
 		ACPI_COPY_NAMESEG(context.signature, "PRMC");
 		context.revision = 0x0;
@@ -328,6 +333,7 @@ static acpi_status acpi_platformrt_space_handler(u32 function,
 		status = efi_call_acpi_prm_handler(handler->handler_addr,
 						   handler->acpi_param_buffer_addr,
 						   &context);
+		mutex_unlock(&prm_mutex);
 		if (status == EFI_SUCCESS) {
 			buffer->prm_status = PRM_HANDLER_SUCCESS;
 		} else {
@@ -551,6 +557,87 @@ static int efi_collect_module_info(struct prm_handler_info *handler,
 	return PRM_STS_OK;
 }
 
+static int prm_compare_version(struct prm_module_info *old_mod,
+				struct prm_module_info *new_mod)
+{
+	/*
+	 * PRM updates are always applied in monotonically increasing fashion.
+	 */
+	if (new_mod->major_rev > old_mod->major_rev) {
+		return PRM_STS_OK;
+	} else if (new_mod->major_rev == old_mod->major_rev) {
+		if (new_mod->minor_rev > old_mod->minor_rev)
+			return PRM_STS_OK;
+	}
+	return PRM_STS_ERR;
+}
+
+static int prm_update_module(struct prm_handler_param_buffer *param_buffer)
+{
+	struct acpi_prmt_module_info *acpi_mod;
+	struct acpi_prmt_handler_info *acpi_handler;
+	struct prm_module_info *old_mod, *new_mod;
+	struct prm_handler_info *old_handler, *new_handler;
+	int mod_size, i;
+
+	acpi_mod = (struct acpi_prmt_module_info *)param_buffer->module_info_base;
+	old_mod = find_prm_module((guid_t *)acpi_mod->module_guid);
+	/*
+	 * Don't update PRM module if it's already in transaction.
+	 */
+	if (!old_mod->updatable)
+		return PRM_STS_ERR;
+
+	mod_size = struct_size(new_mod, handlers, acpi_mod->handler_info_count);
+	new_mod = kmalloc(mod_size, GFP_KERNEL);
+	if (!new_mod)
+		return PRM_STS_ERR;
+
+	guid_copy(&new_mod->guid, (guid_t *)acpi_mod->module_guid);
+	new_mod->major_rev = acpi_mod->major_rev;
+	new_mod->minor_rev = acpi_mod->minor_rev;
+	new_mod->handler_count = acpi_mod->handler_info_count;
+	new_mod->updatable = true;
+
+	/*
+	 * Don't update PRM module if its version number is not
+	 * greater than the current PRM module.
+	 */
+	if (prm_compare_version(old_mod, new_mod) != PRM_STS_OK) {
+		pr_err("PRM: version number not meet the requirement\n");
+		kfree(new_mod);
+		return PRM_STS_ERR;
+	}
+	/*
+	 * Inherit mmio resource from existing module
+	 */
+	new_mod->mmio_info = old_mod->mmio_info;
+
+	acpi_handler = get_first_handler(acpi_mod);
+
+	for (i = 0; i < acpi_mod->handler_info_count; i++) {
+		old_handler = &old_mod->handlers[i];
+		new_handler = &new_mod->handlers[i];
+
+		guid_copy(&new_handler->guid, (guid_t *)acpi_handler->handler_guid);
+		new_handler->rev = acpi_handler->revision;
+		new_handler->handler_addr = (void *)acpi_handler->handler_address;
+		/*
+		 * Inherit static data buffer and acpi parameter buffer from existing handler
+		 */
+		new_handler->static_data_buffer_addr = old_handler->static_data_buffer_addr;
+		new_handler->acpi_param_buffer_addr = old_handler->acpi_param_buffer_addr;
+		acpi_handler = get_next_handler(acpi_handler);
+		pr_info("PRM: count:%d,old addr:0x%llx, new addr:0x%llx\n",
+			i, (u64)old_handler->handler_addr, (u64)new_handler->handler_addr);
+	}
+
+	INIT_LIST_HEAD(&new_mod->module_list);
+	list_replace(&old_mod->module_list, &new_mod->module_list);
+	kfree(old_mod);
+	return PRM_STS_OK;
+}
+
 #define	PRM_UPDATE_HANDLER_GUID	EFI_GUID(0xa13cdd48, 0xc822, 0x4913, 0xb0, 0xcf, 0x3c, 0xb4, 0x68, 0x23, 0xd3, 0x76)
 
 static int prm_parse_image(const u8 *data, int size)
@@ -611,7 +698,10 @@ static int prm_parse_image(const u8 *data, int size)
 		}
 		sect++;
 	}
-	return PRM_STS_OK;
+	/*
+	 * Update system PRM module list
+	 */
+	return prm_update_module(param_buffer);
 
 parse_image_out:
 	kfree(param_buffer);
@@ -631,6 +721,7 @@ static int prm_load_image(struct device *dev)
 		return PRM_STS_NFOUND;
 	}
 
+	mutex_lock(&prm_mutex);
 	ret = prm_dump_image_info(firmware->data, firmware->size);
 	if (ret != PRM_STS_OK) {
 		pr_err("PRM: dump raw image error\n");
@@ -638,8 +729,8 @@ static int prm_load_image(struct device *dev)
 	}
 
 	ret = prm_parse_image(firmware->data, firmware->size);
-
 load_out:
+	mutex_unlock(&prm_mutex);
 	release_firmware(firmware);
 	return ret;
 }
@@ -652,6 +743,7 @@ static ssize_t prm_update_show(struct kobject *kobj,
 	char *s = buf;
 	int i = 0;
 
+	mutex_lock(&prm_mutex);
 	list_for_each_entry(cur_module, &prm_module_list, module_list) {
 		s += sprintf(s, "Module GUID  : %pUl\n", &cur_module->guid);
 		s += sprintf(s, "Major Rev    : %d\n", cur_module->major_rev);
@@ -664,6 +756,7 @@ static ssize_t prm_update_show(struct kobject *kobj,
 		}
 		s += sprintf(s, "\n");
 	}
+	mutex_unlock(&prm_mutex);
 
 	return (s - buf);
 }
