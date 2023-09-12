@@ -17,6 +17,9 @@
 #include <linux/kernel.h>
 #include <linux/efi.h>
 #include <linux/acpi.h>
+#include <linux/err.h>
+#include <linux/firmware.h>
+#include <linux/platform_device.h>
 #include <linux/prmt.h>
 #include <asm/efi.h>
 
@@ -47,12 +50,27 @@ struct prm_context_buffer {
 	u64 static_data_buffer;
 	struct prm_mmio_info *mmio_ranges;
 };
+
+struct prm_handler_export_descriptor {
+	guid_t handler_guid;
+	char handler_name[128];
+};
+
+struct prm_module_export_descriptor {
+	char signature[8];
+	u16 revision;
+	u16 handler_count;
+	guid_t platform_guid;
+	guid_t identifier;
+	struct prm_handler_export_descriptor handlers[];
+};
 #pragma pack()
 
 static LIST_HEAD(prm_module_list);
 
 struct prm_handler_info {
 	guid_t guid;
+	u16 rev;
 	efi_status_t (__efiapi *handler_addr)(u64, void *);
 	u64 static_data_buffer_addr;
 	u64 acpi_param_buffer_addr;
@@ -70,6 +88,16 @@ struct prm_module_info {
 
 	struct list_head module_list;
 	struct prm_handler_info handlers[];
+};
+
+/* fake device for request_firmware */
+static struct platform_device *prm_pdev;
+
+enum prm_state {
+	PRM_STS_OK		= 0,
+	PRM_STS_NFOUND,
+	PRM_STS_ERR,
+	PRM_STS_MAX
 };
 
 static u64 efi_pa_va_lookup(u64 pa)
@@ -316,6 +344,119 @@ invalid_guid:
 	return AE_OK;
 }
 
+static int prm_dump_image_info(const u8 *data, int size)
+{
+	struct prm_module_export_descriptor *med;
+	struct prm_handler_export_descriptor *hed;
+	unsigned char *signature = "PRM_MEDT";
+	int i, med_offset, sig_size = 8;
+
+	/*
+	 * Scan "PRM_MEDT" string for module export descriptor structure.
+	 */
+	for (i = 0; i <= size - sig_size; i++) {
+		if (memcmp(data + i, signature, sig_size) == 0) {
+			med_offset = i;
+			pr_info("PRM: module export descriptor offset = 0x%x\n",
+				i);
+			break;
+		}
+	}
+
+	if (i > size - sig_size) {
+		pr_err("PRM: no module export descriptor structure found\n");
+		return PRM_STS_NFOUND;
+	}
+
+	med = (struct prm_module_export_descriptor *)(data + med_offset);
+	pr_info("Platform guid    : %pUl\n", &med->platform_guid);
+	pr_info("Module signature : %s\n", med->signature);
+	pr_info("Module revision  : %d\n", med->revision);
+	pr_info("Module identifier: %pUl\n", &med->identifier);
+	pr_info("Handler count    : %d\n", med->handler_count);
+
+	hed = med->handlers;
+	for (i = 0; i < med->handler_count; i++) {
+		pr_info(" handler guid    : %pUl\n", &hed->handler_guid);
+		pr_info(" handler name    : %s\n", hed->handler_name);
+		hed++;
+	}
+
+	return PRM_STS_OK;
+}
+
+static int prm_load_image(struct device *dev)
+{
+	const struct firmware *firmware;
+	char name[16];
+	int ret;
+
+	sprintf(name, "prm.efi");
+
+	if (request_firmware_direct(&firmware, name, dev)) {
+		pr_err("PRM: image %s load failed\n", name);
+		return PRM_STS_NFOUND;
+	}
+
+	ret = prm_dump_image_info(firmware->data, firmware->size);
+	if (ret != PRM_STS_OK) {
+		pr_err("PRM: dump raw image error\n");
+		goto load_out;
+	}
+
+load_out:
+	release_firmware(firmware);
+	return ret;
+}
+
+static ssize_t prm_update_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	struct prm_handler_info *cur_handler;
+	struct prm_module_info *cur_module;
+	char *s = buf;
+	int i = 0;
+
+	list_for_each_entry(cur_module, &prm_module_list, module_list) {
+		s += sprintf(s, "Module GUID  : %pUl\n", &cur_module->guid);
+		s += sprintf(s, "Major Rev    : %d\n", cur_module->major_rev);
+		s += sprintf(s, "Minor Rev    : %d\n", cur_module->minor_rev);
+		s += sprintf(s, "Handler Count: %d\n", cur_module->handler_count);
+		for (i = 0; i < cur_module->handler_count; ++i) {
+			cur_handler = &cur_module->handlers[i];
+			s += sprintf(s, " Handler GUID: %pUl\n", &cur_handler->guid);
+			s += sprintf(s, "          Rev: %d\n", cur_handler->rev);
+		}
+		s += sprintf(s, "\n");
+	}
+
+	return (s - buf);
+}
+
+static ssize_t prm_update_store(struct kobject *kobj,
+				    struct kobj_attribute *attr,
+				    const char *buf, size_t size)
+{
+	unsigned long val;
+	ssize_t ret;
+
+	ret = kstrtoul(buf, 0, &val);
+	if (ret)
+		return ret;
+	if (val != 1)
+		return size;
+
+	pr_info("PRM: runtime update\n");
+	ret = prm_load_image(&prm_pdev->dev);
+	if (ret == PRM_STS_OK)
+		ret = size;
+
+	return ret;
+}
+
+static const struct kobj_attribute prm_update_attr =
+__ATTR(prm_update, 0644, prm_update_show, prm_update_store);
+
 void __init init_prmt(void)
 {
 	struct acpi_table_header *tbl;
@@ -343,10 +484,19 @@ void __init init_prmt(void)
 		return;
 	}
 
+	prm_pdev = platform_device_register_simple("prm", -1, NULL, 0);
+	if (IS_ERR(prm_pdev))
+		return;
+
 	status = acpi_install_address_space_handler(ACPI_ROOT_OBJECT,
 						    ACPI_ADR_SPACE_PLATFORM_RT,
 						    &acpi_platformrt_space_handler,
 						    NULL, NULL);
 	if (ACPI_FAILURE(status))
 		pr_alert("PRM: OperationRegion handler could not be installed\n");
+
+	if (sysfs_create_file(acpi_kobj, &prm_update_attr.attr)) {
+		pr_err("PRM: failed to create prm sysfs entry\n");
+		platform_device_unregister(prm_pdev);
+	}
 }
