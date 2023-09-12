@@ -4930,6 +4930,7 @@ static bool init_hybrid_pmu(int cpu)
 {
 	struct cpu_hw_events *cpuc = &per_cpu(cpu_hw_events, cpu);
 	u8 cpu_type = get_this_hybrid_cpu_type();
+	u32 native_id = x86_get_core_native_id();
 	struct x86_hybrid_pmu *pmu = NULL;
 	int i;
 
@@ -4937,7 +4938,8 @@ static bool init_hybrid_pmu(int cpu)
 		cpu_type = x86_pmu.get_hybrid_cpu_type();
 
 	for (i = 0; i < x86_pmu.num_hybrid_pmus; i++) {
-		if (x86_pmu.hybrid_pmu[i].cpu_type == cpu_type) {
+		if (x86_pmu.hybrid_pmu[i].cpu_type == cpu_type &&
+		    x86_pmu.hybrid_pmu[i].core_native_id == native_id) {
 			pmu = &x86_pmu.hybrid_pmu[i];
 			break;
 		}
@@ -6072,8 +6074,59 @@ static __always_inline bool is_mtl(u8 x86_model)
 	       (x86_model == INTEL_FAM6_METEORLAKE_L);
 }
 
+enum x86_hybrid_pmu_type {
+	hybrid_pmu_small	= BIT(0),
+	hybrid_pmu_big		= BIT(1),
+};
+
+static u32 x86_model_to_core_native_id(u8 x86_model,
+				       enum x86_hybrid_pmu_type pmu_type)
+{
+	u32 native_id = core_unknown_id;
+
+	switch (x86_model) {
+	case INTEL_FAM6_ALDERLAKE:
+	case INTEL_FAM6_ALDERLAKE_L:
+		if (pmu_type == hybrid_pmu_big)
+			native_id = glc_native_id;
+		else if (pmu_type == hybrid_pmu_small)
+			native_id = grt_native_id;
+		break;
+	case INTEL_FAM6_RAPTORLAKE:
+	case INTEL_FAM6_RAPTORLAKE_P:
+	case INTEL_FAM6_RAPTORLAKE_S:
+		if (pmu_type == hybrid_pmu_big)
+			native_id = rpc_native_id;
+		else if (pmu_type == hybrid_pmu_small)
+			native_id = grt_native_id;
+		break;
+	case INTEL_FAM6_METEORLAKE:
+	case INTEL_FAM6_METEORLAKE_L:
+		if (pmu_type == hybrid_pmu_big)
+			native_id = rwc_native_id;
+		else if (pmu_type == hybrid_pmu_small)
+			native_id = cmt_native_id;
+		break;
+	case INTEL_FAM6_LUNARLAKE_M:
+	case INTEL_FAM6_ARROWLAKE:
+		if (pmu_type == hybrid_pmu_big)
+			native_id = lnc_native_id;
+		else if (pmu_type == hybrid_pmu_small)
+			native_id = skt_native_id;
+		break;
+	default:
+		if (pmu_type == hybrid_pmu_big)
+			native_id = core_unknown_id;
+		else if (pmu_type == hybrid_pmu_small)
+			native_id = atom_unknown_id;
+	}
+
+	return native_id;
+}
+
 __init int intel_pmu_init(void)
 {
+	u8 x86_model = boot_cpu_data.x86_model;
 	struct attribute **extra_skl_attr = &empty_attrs;
 	struct attribute **extra_attr = &empty_attrs;
 	struct attribute **td_attr    = &empty_attrs;
@@ -6172,7 +6225,7 @@ __init int intel_pmu_init(void)
 	/*
 	 * Install the hw-cache-events table:
 	 */
-	switch (boot_cpu_data.x86_model) {
+	switch (x86_model) {
 	case INTEL_FAM6_CORE_YONAH:
 		pr_cont("Core events, ");
 		name = "core";
@@ -6853,6 +6906,7 @@ __init int intel_pmu_init(void)
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
 		pmu->name = "cpu_core";
 		pmu->cpu_type = hybrid_big;
+		pmu->core_native_id = x86_model_to_core_native_id(x86_model, hybrid_pmu_big);
 		pmu->late_ack = true;
 		if (cpu_feature_enabled(X86_FEATURE_HYBRID_CPU)) {
 			pmu->num_counters = x86_pmu.num_counters + 2;
@@ -6894,6 +6948,7 @@ __init int intel_pmu_init(void)
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
 		pmu->name = "cpu_atom";
 		pmu->cpu_type = hybrid_small;
+		pmu->core_native_id = x86_model_to_core_native_id(x86_model, hybrid_pmu_small);
 		pmu->mid_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed;
@@ -6984,6 +7039,7 @@ __init int intel_pmu_init(void)
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
 		pmu->name = "cpu_core";
 		pmu->cpu_type = hybrid_big;
+		pmu->core_native_id = x86_model_to_core_native_id(x86_model, hybrid_pmu_big);
 		pmu->late_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed + 1;
@@ -7007,6 +7063,7 @@ __init int intel_pmu_init(void)
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX];
 		pmu->name = "cpu_atom";
 		pmu->cpu_type = hybrid_small;
+		pmu->core_native_id = x86_model_to_core_native_id(x86_model, hybrid_pmu_small);
 		pmu->mid_ack = true;
 		pmu->num_counters = x86_pmu.num_counters;
 		pmu->num_counters_fixed = x86_pmu.num_counters_fixed;

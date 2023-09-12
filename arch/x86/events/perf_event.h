@@ -658,6 +658,7 @@ struct x86_hybrid_pmu {
 	struct pmu			pmu;
 	const char			*name;
 	u8				cpu_type;
+	u32				core_native_id;
 	cpumask_t			supported_cpus;
 	union perf_capabilities		intel_cap;
 	u64				intel_ctrl;
@@ -740,12 +741,43 @@ extern struct static_key_false perf_is_hybrid;
 	__Fp;						\
 })
 
+/*
+ * CPUID.1AH.EAX[31:0] uniquely identifies the microarchitecture
+ * of the core. Bits 31-24 indicates its core type (Core or Atom)
+ * and Bits [23:0] indicates the native model ID of the core.
+ * Core type and native model ID are defined in below enumerations.
+ */
 enum hybrid_pmu_type {
 	hybrid_big		= 0x40,
 	hybrid_small		= 0x20,
 
 	hybrid_big_small	= hybrid_big | hybrid_small,
 };
+
+enum core_native_id {
+	core_unknown_id		= 0x0,	/* unknown */
+	glc_native_id		= 0x1,	/* Golden Cove */
+	rpc_native_id		= 0x1,	/* Raptor Cove */
+	rwc_native_id		= 0x2,	/* Redwood Cove */
+	lnc_native_id		= 0x3,	/* Lion Cove */
+};
+
+enum atom_native_id {
+	atom_unknown_id		= 0x0,	/* unknown */
+	grt_native_id		= 0x1,	/* Gracemont */
+	cmt_native_id		= 0x2,	/* Crestmont */
+	skt_native_id		= 0x3,	/* Skymont */
+};
+
+#define X86_HYBRID_CORE_TYPE_ID_SHIFT	24
+static __always_inline u32 x86_get_core_native_id(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_HYBRID_CPU))
+		return 0;
+
+	return cpuid_eax(0x0000001a) &
+	       (BIT_ULL(X86_HYBRID_CORE_TYPE_ID_SHIFT) - 1);
+}
 
 #define X86_HYBRID_PMU_ATOM_IDX		0
 #define X86_HYBRID_PMU_CORE_IDX		1
