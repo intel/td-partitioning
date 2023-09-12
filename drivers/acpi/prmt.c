@@ -785,11 +785,25 @@ static ssize_t prm_update_store(struct kobject *kobj,
 static const struct kobj_attribute prm_update_attr =
 __ATTR(prm_update, 0644, prm_update_show, prm_update_store);
 
+bool acpi_prmt_off;
+
+static int __init disable_acpi_prmt(char *str)
+{
+	acpi_prmt_off = true;
+	return 1;
+}
+__setup("acpi_prmt_off", disable_acpi_prmt);
+
 void __init init_prmt(void)
 {
 	struct acpi_table_header *tbl;
 	acpi_status status;
 	int mc;
+
+	if (acpi_prmt_off) {
+		pr_info("PRM: Disabled via cmdline\n");
+		return;
+	}
 
 	status = acpi_get_table(ACPI_SIG_PRMT, 0, &tbl);
 	if (ACPI_FAILURE(status))
