@@ -20,6 +20,8 @@
 #include <linux/err.h>
 #include <linux/firmware.h>
 #include <linux/platform_device.h>
+#include <linux/moduleloader.h>
+#include <linux/set_memory.h>
 #include <linux/prmt.h>
 #include <asm/efi.h>
 
@@ -64,6 +66,26 @@ struct prm_module_export_descriptor {
 	guid_t identifier;
 	struct prm_handler_export_descriptor handlers[];
 };
+
+struct prm_image_section {
+	u64 base;
+	u64 size;
+	u64 attr;
+};
+
+struct prm_handler_param_buffer {
+	u32 phase;
+	u32 reserved;
+	u64 raw_base;
+	u64 raw_size;
+	u64 loaded_base;
+	u64 loaded_size;
+	u64 seclist_base;
+	u64 seclist_size;
+	guid_t module_guid;
+	u64 module_info_base;
+	u64 module_info_size;
+};
 #pragma pack()
 
 static LIST_HEAD(prm_module_list);
@@ -98,6 +120,13 @@ enum prm_state {
 	PRM_STS_NFOUND,
 	PRM_STS_ERR,
 	PRM_STS_MAX
+};
+
+enum prm_phase {
+	PRM_PHASE_GET_SIZE	= 0,
+	PRM_PHASE_LOAD_IMAGE,
+	PRM_PHASE_GET_MODINFO,
+	PRM_PHASE_MAX,
 };
 
 static u64 efi_pa_va_lookup(u64 pa)
@@ -385,6 +414,210 @@ static int prm_dump_image_info(const u8 *data, int size)
 	return PRM_STS_OK;
 }
 
+/*
+ * PE/COFF image section attribute definition.
+ */
+#define	PRM_IMAGE_SEC_CODE	BIT(5)
+#define	PRM_IMAGE_SEC_MEM_X	BIT(29)
+#define	PRM_IMAGE_SEC_MEM_R	BIT(30)
+#define	PRM_IMAGE_SEC_MEM_W	BIT(31)
+/*
+ * BIOS-OS communication phase 1: get loaded image size and section list size
+ * - input:
+ *   raw image base
+ *   raw image size
+ * - output:
+ *   loaded image size
+ *   section list size
+ */
+static int efi_get_loaded_size(struct prm_handler_info *handler,
+				struct prm_handler_param_buffer *param_buffer)
+{
+	efi_status_t status;
+
+	param_buffer->phase = PRM_PHASE_GET_SIZE;
+	/*
+	 * Return loaded image size
+	 */
+	status = efi_call_acpi_prm_handler(handler->handler_addr,
+					   (u64)param_buffer, NULL);
+	if (status != EFI_SUCCESS) {
+		pr_err("PRM: failed to query phase 1 size, 0x%lx\n", status);
+		return PRM_STS_ERR;
+	}
+	pr_info("PRM: phase:%d, raw_base:0x%llx, raw_size:0x%llx, loaded_size:0x%llx, seclist_size:0x%llx\n",
+		param_buffer->phase, param_buffer->raw_base, param_buffer->raw_size,
+		param_buffer->loaded_size, param_buffer->seclist_size);
+
+	return PRM_STS_OK;
+}
+
+/*
+ * BIOS-OS communication phase 2: parse loaded image
+ * - input:
+ *   loaded image base
+ *   loaded image size
+ *   section list base
+ *   section list size
+ * - output:
+ *   section list data structure
+ *   module GUID
+ *   module info size
+ */
+static int efi_parse_loaded_image(struct prm_handler_info *handler,
+		struct prm_handler_param_buffer *param_buffer)
+{
+	struct prm_module_info *module_info;
+	efi_status_t status;
+
+	param_buffer->phase = PRM_PHASE_LOAD_IMAGE;
+	param_buffer->loaded_base = (u64)module_alloc(param_buffer->loaded_size);
+	if (!param_buffer->loaded_base)
+		return PRM_STS_ERR;
+
+	param_buffer->seclist_base = (u64)kmalloc(param_buffer->seclist_size, GFP_KERNEL);
+	if (!param_buffer->seclist_base)
+		goto phase2_out1;
+	/*
+	 * Return module GUID and module info size
+	 */
+	status = efi_call_acpi_prm_handler(handler->handler_addr,
+					   (u64)param_buffer, NULL);
+	if (status != EFI_SUCCESS) {
+		pr_err("PRM: failed to parse loaded image\n");
+		goto phase2_out2;
+	}
+	module_info = find_prm_module(&param_buffer->module_guid);
+	if (!module_info) {
+		pr_err("PRM: no existing module found, update module GUID:%pUl\n",
+			&param_buffer->module_guid);
+		goto phase2_out2;
+	}
+	pr_info("PRM: phase:%d, module_GUID:%pUl, module_info_size:0x%llx\n",
+		param_buffer->phase, &param_buffer->module_guid, param_buffer->module_info_size);
+
+	return PRM_STS_OK;
+
+phase2_out2:
+	kfree((void *)param_buffer->seclist_base);
+phase2_out1:
+	module_memfree((void *)param_buffer->loaded_base);
+	return PRM_STS_ERR;
+}
+
+/*
+ * BIOS-OS communication phase 3: collect module info
+ * - input:
+ *   module info base
+ *   module info size
+ * - output:
+ *   module info data structure
+ */
+static int efi_collect_module_info(struct prm_handler_info *handler,
+				    struct prm_handler_param_buffer *param_buffer)
+{
+	struct acpi_prmt_module_info *acpi_module_info;
+	struct acpi_prmt_handler_info *acpi_handler_info;
+	efi_status_t status;
+	int i;
+
+	param_buffer->phase = PRM_PHASE_GET_MODINFO;
+	param_buffer->module_info_base = (u64)kmalloc(param_buffer->module_info_size, GFP_KERNEL);
+	if (!param_buffer->module_info_base)
+		return PRM_STS_ERR;
+	/*
+	 * Return code section data structure
+	 */
+	status = efi_call_acpi_prm_handler(handler->handler_addr,
+					   (u64)param_buffer, NULL);
+	if (status != EFI_SUCCESS) {
+		pr_err("PRM: failed to generate module info data structure, 0x%lx\n", status);
+		kfree((void *)param_buffer->module_info_base);
+		return PRM_STS_ERR;
+	}
+	pr_info("PRM: phase:%d\n", param_buffer->phase);
+	acpi_module_info = (struct acpi_prmt_module_info *)param_buffer->module_info_base;
+	pr_info("Module GUID  : %pUl\n", acpi_module_info->module_guid);
+	pr_info("Major Rev    : %d\n", acpi_module_info->major_rev);
+	pr_info("Minor Rev    : %d\n", acpi_module_info->minor_rev);
+	pr_info("Handler Count: %d\n", acpi_module_info->handler_info_count);
+
+	acpi_handler_info = get_first_handler(acpi_module_info);
+	for (i = 0; i < acpi_module_info->handler_info_count; i++) {
+		pr_info("Handler GUID: %pUl\n", acpi_handler_info->handler_guid);
+		pr_info("Handler addr: 0x%llx\n", acpi_handler_info->handler_address);
+		acpi_handler_info++;
+	}
+	return PRM_STS_OK;
+}
+
+#define	PRM_UPDATE_HANDLER_GUID	EFI_GUID(0xa13cdd48, 0xc822, 0x4913, 0xb0, 0xcf, 0x3c, 0xb4, 0x68, 0x23, 0xd3, 0x76)
+
+static int prm_parse_image(const u8 *data, int size)
+{
+	struct prm_handler_info *update_handler;
+	struct prm_handler_param_buffer *param_buffer;
+	struct prm_image_section *sect;
+	efi_guid_t update_handler_guid = PRM_UPDATE_HANDLER_GUID;
+	size_t param_size;
+	int num_pages, num_sects, ret, i;
+
+	update_handler = find_prm_handler(&update_handler_guid);
+	if (!update_handler) {
+		pr_err("PRM: failed to find self update handler\n");
+		return PRM_STS_NFOUND;
+	}
+	pr_info("PRM: found self update handler\n");
+
+	param_size = sizeof(struct prm_handler_param_buffer);
+	param_buffer = kzalloc(param_size, GFP_KERNEL);
+	if (!param_buffer)
+		return PRM_STS_ERR;
+
+	param_buffer->raw_base = (u64)data;
+	param_buffer->raw_size = size;
+	/*
+	 * BIOS-OS communication phase 1: get loaded image size
+	 */
+	ret = efi_get_loaded_size(update_handler, param_buffer);
+	if (ret != PRM_STS_OK)
+		goto parse_image_out;
+	/*
+	 * BIOS-OS communication phase 2: parse loaded image
+	 */
+	ret = efi_parse_loaded_image(update_handler, param_buffer);
+	if (ret != PRM_STS_OK)
+		goto parse_image_out;
+	/*
+	 * BIOS-OS communication phase 3: get module info
+	 */
+	ret = efi_collect_module_info(update_handler, param_buffer);
+	if (ret != PRM_STS_OK)
+		goto parse_image_out;
+	/*
+	 * PRM image load and parse completed, fix page table for code sections.
+	 * First make the page read-only, and only then make it executable to
+	 * prevent it from being W+X in between.
+	 */
+	num_sects = param_buffer->seclist_size / sizeof(struct prm_image_section);
+	sect = (struct prm_image_section *)param_buffer->seclist_base;
+	for (i = 0; i < num_sects; i++) {
+		pr_info("PRM: sect_base:0x%llx, sect_size:0x%llx, sect_attr:0x%llx\n",
+			sect->base, sect->size, sect->attr);
+		if (sect->attr & PRM_IMAGE_SEC_CODE) {
+			num_pages = DIV_ROUND_UP(sect->size, PAGE_SIZE);
+			set_memory_ro((unsigned long)sect->base, num_pages);
+			set_memory_x((unsigned long)sect->base, num_pages);
+		}
+		sect++;
+	}
+	return PRM_STS_OK;
+
+parse_image_out:
+	kfree(param_buffer);
+	return PRM_STS_ERR;
+}
+
 static int prm_load_image(struct device *dev)
 {
 	const struct firmware *firmware;
@@ -403,6 +636,8 @@ static int prm_load_image(struct device *dev)
 		pr_err("PRM: dump raw image error\n");
 		goto load_out;
 	}
+
+	ret = prm_parse_image(firmware->data, firmware->size);
 
 load_out:
 	release_firmware(firmware);
