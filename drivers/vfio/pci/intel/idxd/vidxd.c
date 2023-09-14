@@ -93,6 +93,7 @@ static void vidxd_mmio_init_wqcap(struct vdcm_idxd *vidxd)
 	wq_cap->total_wq_size = wq->size;
 	wq_cap->num_wqs = VIDXD_MAX_WQS;
 	wq_cap->wq_ats_support = 0;
+//	wq_cap->dedicated_mode = 1;
 	if (wq_dedicated(wq))
 		wq_cap->dedicated_mode = 1;
 	else
@@ -261,7 +262,7 @@ void vidxd_init(struct vdcm_idxd *vidxd)
 
 	vidxd_mmio_init(vidxd);
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		idxd_wq_disable(wq, false);
 		wq->state = IDXD_WQ_LOCKED;
 	}

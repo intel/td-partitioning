@@ -353,9 +353,21 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 		return;
 	}
 
+
+        if ((!wq_dedicated(wq) && wqcap->shared_mode == 0) ||
+            (wq_dedicated(wq) && wqcap->dedicated_mode == 0)) {
+                idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_WQ_MODE);
+                return;
+        }
+
+        if ((!wq_dedicated(wq) && vwqcfg->pasid_en == 0)) {
+                idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_PASID_EN);
+                return;
+        }
+
 	wq_pasid_enable = vwqcfg->pasid_en;
 
-        if (wq_shared(wq))
+	if (wq_shared(wq))
 		goto out;
 
 	if (wq_pasid_enable) {
