@@ -77,11 +77,15 @@ static void vidxd_disable(struct vdcm_idxd *vidxd)
 	vwqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET);
 	wq = vidxd->wq;
 
-	rc = idxd_wq_disable(wq, false);
-	if (rc) {
-		dev_warn(dev, "vidxd disable (wq disable) failed: %#x\n", rc);
-		idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_DIS_DEV_EN);
-		return;
+	if (wq_dedicated(wq)) {
+		rc = idxd_wq_disable(wq, false);
+		if (rc) {
+			dev_warn(dev, "vidxd disable (wq disable) failed: %#x\n", rc);
+			idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_DIS_DEV_EN);
+			return;
+		}
+	} else {
+		idxd_wq_drain(wq);
 	}
 
 	vwqcfg->wq_state = IDXD_WQ_DISABLED;

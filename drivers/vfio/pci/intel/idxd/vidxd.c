@@ -272,7 +272,7 @@ void vidxd_shutdown(struct vdcm_idxd *vidxd)
 {
 	struct idxd_wq *wq = vidxd->wq;
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		idxd_wq_disable(wq, false);
 		wq->state = IDXD_WQ_LOCKED;
 	}
