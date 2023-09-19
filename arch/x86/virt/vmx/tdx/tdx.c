@@ -639,7 +639,7 @@ static int tdmr_set_up_pamt(struct tdmr_info *tdmr,
 	 * and the total PAMT size.
 	 */
 	tdmr_pamt_size = 0;
-	for (pgsz = TDX_PS_4K; pgsz < TDX_PS_NR ; pgsz++) {
+	for (pgsz = TDX_PS_4K; pgsz < TDX_PS_NR; pgsz++) {
 		pamt_size[pgsz] = tdmr_get_pamt_sz(tdmr, pgsz,
 					pamt_entry_size);
 		tdmr_pamt_size += pamt_size[pgsz];
@@ -713,7 +713,7 @@ static void tdmr_do_pamt_func(struct tdmr_info *tdmr,
 	(*pamt_func)(pamt_base, pamt_size);
 }
 
-void pamt_free_contig_range(unsigned long base, unsigned long size)
+static void pamt_free_contig_range(unsigned long base, unsigned long size)
 {
 	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
 		set_memory_p((unsigned long)__va(base), size >> PAGE_SHIFT);
@@ -941,7 +941,7 @@ static int tdmr_populate_rsvd_pamts(struct tdmr_info_list *tdmr_list,
 
 		tdmr_get_pamt(tmp, &pamt_base, &pamt_size);
 		/* Each TDMR must already have PAMT allocated */
-		WARN_ON_ONCE(!pamt_size|| !pamt_base);
+		WARN_ON_ONCE(!pamt_size || !pamt_base);
 
 		pamt_end = pamt_base + pamt_size;
 		/* Skip PAMTs outside of the given TDMR */
