@@ -713,7 +713,7 @@ static void tdx_vm_free_cpuid(struct kvm_tdx *kvm_tdx)
 	kvm_tdx->cpuid = NULL;
 }
 
-void __tdx_vm_free(struct kvm *kvm)
+static void __tdx_vm_free(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
