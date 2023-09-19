@@ -1413,7 +1413,6 @@ static void vidxd_dest_load_state(struct vdcm_idxd *vidxd)
 	//offset += sizeof(vidxd->ims);
 }
 
-#if 0
 static int
 vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 {
@@ -1478,7 +1477,6 @@ vidxd_resume_ims_state(struct vdcm_idxd *vidxd, bool *int_handle_revoked)
 
 	return rc;
 }
-#endif
 
 static int vidxd_resubmit_pending_descs (struct vdcm_idxd *vidxd)
 {
@@ -1556,14 +1554,12 @@ static int idxd_vdcm_load_data(struct vdcm_idxd *vidxd)
 		return rc;
 	}
 
-#if 0
 	rc = vidxd_resume_ims_state(vidxd, &int_handle_revoked);
 	if (rc) {
 		pr_info("vidxd int handle revocation handling failed %d\n", rc);
 
 		return rc;
 	}
-#endif
 
 	rc = vidxd_resubmit_pending_descs(vidxd);
 	if (rc) {
@@ -1624,7 +1620,6 @@ static int vf_qm_load_data(struct hisi_acc_vf_core_device *hisi_acc_vdev,
 }
 #endif
 
-#if 0
 static void
 vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 				   struct vidxd_migration_file *migf)
@@ -1673,14 +1668,11 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
                 }
         }
 }
-#endif
 
 static void idxd_vdcm_state_save(struct vdcm_idxd *vidxd,
 				 struct vidxd_migration_file *migf)
 {
-#if 0
 	vidxd_source_prepare_for_migration(vidxd, migf);
-#endif
 
 	migf->total_length = sizeof(struct vidxd_data);
 }
