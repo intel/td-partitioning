@@ -626,6 +626,17 @@ static inline void kvm_memslot_gmem_fput(struct kvm_memory_slot *memslot)
 #endif
 }
 
+static inline void kvm_memslot_gmem_prepare(struct kvm_memory_slot *new,
+					    struct kvm_memory_slot *old)
+{
+#if defined(CONFIG_KVM_PRIVATE_MEM) && defined(CONFIG_KVM_GENERIC_MMU_NOTIFIER)
+	if (new && old) {
+		new->file = old->file;
+		old->file = NULL;
+	}
+#endif
+}
+
 static inline bool kvm_slot_can_be_private(const struct kvm_memory_slot *slot)
 {
 	return slot && (slot->flags & KVM_MEM_PRIVATE);

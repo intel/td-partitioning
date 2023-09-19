@@ -1976,6 +1976,7 @@ static int kvm_set_memslot(struct kvm *kvm,
 		kvm_invalidate_memslot(kvm, old, invalid_slot);
 	}
 
+	kvm_memslot_gmem_prepare(new, old);
 	r = kvm_prepare_memory_region(kvm, old, new, change);
 	if (r) {
 		/*
