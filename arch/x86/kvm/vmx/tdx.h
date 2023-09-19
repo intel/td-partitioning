@@ -7,6 +7,7 @@
 #include "posted_intr.h"
 #include "pmu_intel.h"
 #include "tdx_ops.h"
+#include "vmx.h"
 
 struct tdx_binding_slot_migtd {
 	/* Is migration source VM */
