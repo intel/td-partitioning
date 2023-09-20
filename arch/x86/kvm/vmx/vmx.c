@@ -2753,14 +2753,7 @@ int vmxon_get(void)
 	cpus_read_lock();
 	kvm_hardware_enable_lock();
 
-	/*
-	 * only check local cr4.vmxe is enough due to
-	 * kvm_hardware_enable_lock() holds kvm_lock
-	 */
-	if (cr4_read_shadow() & X86_CR4_VMXE)
-		return 0;
-
-       if (!cpu_vmxop_get())
+	if (!cpu_vmxop_get())
 	       return 1;
 
        preempt_enable();
@@ -8501,7 +8494,7 @@ __init int vmx_hardware_setup(void)
 
 	kvm_set_posted_intr_wakeup_handler(pi_wakeup_handler);
 
-	return r;
+	return 0;
 }
 
 static void vmx_cleanup_l1d_flush(void)
