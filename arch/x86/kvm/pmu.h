@@ -271,7 +271,7 @@ static inline void kvm_init_pmu_capability(const struct kvm_pmu_ops *pmu_ops)
 	}
 
 	if (is_intel)
-		kvm_pmu_cap.version = min(kvm_pmu_cap.version, 5);
+		kvm_pmu_cap.version = min(kvm_pmu_cap.version, 6);
 	else
 		kvm_pmu_cap.version = min(kvm_pmu_cap.version, 2);
 	kvm_pmu_cap.valid_pmc_bitmapl &= ((BIT_ULL(pmu_ops->MAX_NR_GP_COUNTERS) - 1) |
