@@ -2943,7 +2943,7 @@ static void intel_pmu_reset(void)
 		fixed_idx = idx - INTEL_PMC_IDX_FIXED;
 		if (fixed_counter_disabled(fixed_idx, cpuc->pmu))
 			continue;
-		wrmsrl_safe(MSR_ARCH_PERFMON_FIXED_CTR0 + fixed_idx, 0ull);
+		wrmsrl_safe(x86_pmu_fixed_ctr_addr(fixed_idx), 0ull);
 	}
 
 	if (ds)
@@ -5245,6 +5245,7 @@ static __initconst const struct x86_pmu core_pmu = {
 	.schedule_events	= x86_schedule_events,
 	.eventsel		= MSR_ARCH_PERFMON_EVENTSEL0,
 	.perfctr		= MSR_ARCH_PERFMON_PERFCTR0,
+	.fixedctr		= MSR_ARCH_PERFMON_FIXED_CTR0,
 	.event_map		= intel_pmu_event_map,
 	.max_events		= ARRAY_SIZE(intel_perfmon_event_map),
 	.apic			= 1,
@@ -5298,6 +5299,7 @@ static __initconst const struct x86_pmu intel_pmu = {
 	.schedule_events	= x86_schedule_events,
 	.eventsel		= MSR_ARCH_PERFMON_EVENTSEL0,
 	.perfctr		= MSR_ARCH_PERFMON_PERFCTR0,
+	.fixedctr		= MSR_ARCH_PERFMON_FIXED_CTR0,
 	.event_map		= intel_pmu_event_map,
 	.max_events		= ARRAY_SIZE(intel_perfmon_event_map),
 	.apic			= 1,
@@ -6212,6 +6214,11 @@ static u32 x86_model_to_core_native_id(u8 x86_model,
 	}
 
 	return native_id;
+}
+
+static inline int intel_pmu_addr_offset(int index, bool eventsel)
+{
+	return MSR_IA32_PMC_STEP * index;
 }
 
 __init int intel_pmu_init(void)
@@ -7401,6 +7408,14 @@ __init int intel_pmu_init(void)
 		x86_pmu.max_period = x86_pmu.cntval_mask >> 1;
 		x86_pmu.perfctr = MSR_IA32_PMC0;
 		pr_cont("full-width counters, ");
+	}
+
+	/* Support V6+ MSR Aliasing */
+	if (x86_pmu.version > 6) {
+		x86_pmu.perfctr = MSR_IA32_PMC_GP0_CTR;
+		x86_pmu.eventsel = MSR_IA32_PMC_GP0_CFG_A;
+		x86_pmu.fixedctr = MSR_IA32_PMC_FX0_CTR;
+		x86_pmu.addr_offset = intel_pmu_addr_offset;
 	}
 
 	if (!is_hybrid() && x86_pmu.intel_cap.perf_metrics)
