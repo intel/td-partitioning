@@ -315,6 +315,59 @@ static void test_fixed_counter_enumeration(void)
 	kvm_vm_free(vm);
 }
 
+static void guest_cntr_bitmap_validation_code(void)
+{
+	uint8_t vector;
+	uint64_t val = 0;
+
+	vector = wrmsr_safe(MSR_IA32_PERFCTR0, 0x3c);
+	__GUEST_ASSERT(vector == GP_VECTOR, "GP counter 0 disabled, but write ok");
+	vector = rdmsr_safe(MSR_IA32_PMC0, &val);
+	__GUEST_ASSERT(vector == GP_VECTOR, "GP counter 0 disabled, but read ok");
+
+	vector = rdmsr_safe(MSR_CORE_PERF_FIXED_CTR0, &val);
+	__GUEST_ASSERT(vector == GP_VECTOR, "Fixed counter 0 disabled, but read ok");
+
+	GUEST_DONE();
+}
+
+static void test_discountinuous_counter_bitmap(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int r;
+	struct kvm_cpuid_entry2 *ent;
+	struct ucall uc;
+
+	if (kvm_cpu_property(X86_PROPERTY_PMU_VERSION) < 6)
+		return;
+
+	vm = vm_create_with_one_vcpu(&vcpu, guest_cntr_bitmap_validation_code);
+	vm_init_descriptor_tables(vm);
+	vcpu_init_descriptor_tables(vcpu);
+
+	ent = __vcpu_get_cpuid_entry(vcpu, 0x23, 0x1);
+	/* Disable GP and Fixed counter 0 */
+	ent->eax &= ~0x1;
+	ent->ebx &= ~0x1;
+	r = __vcpu_set_cpuid(vcpu);
+	TEST_ASSERT(!r, "Disabling GP & Fixed counter 0 failed in CPUID.0x23");
+
+	vcpu_run(vcpu);
+
+	switch (get_ucall(vcpu, &uc)) {
+	case UCALL_ABORT:
+		REPORT_GUEST_ASSERT(uc);
+		break;
+	case UCALL_DONE:
+		break;
+	default:
+		TEST_FAIL("Unexpected ucall: %lu", uc.cmd);
+	}
+
+	kvm_vm_free(vm);
+}
+
 int main(int argc, char *argv[])
 {
 	union perf_capabilities host_cap;
@@ -337,4 +390,5 @@ int main(int argc, char *argv[])
 	test_lbr_perf_capabilities(host_cap);
 
 	test_fixed_counter_enumeration();
+	test_discountinuous_counter_bitmap();
 }
