@@ -2736,33 +2736,6 @@ int vmx_check_processor_compat(void)
 	return 0;
 }
 
-void vmxoff_put(int off)
-{
-	WARN_ON_ONCE(off < 0);
-
-	if (off)
-		cpu_vmxop_put();
-
-	kvm_hardware_enable_unlock();
-	cpus_read_unlock();
-}
-EXPORT_SYMBOL_GPL(vmxoff_put);
-
-int vmxon_get(void)
-{
-	cpus_read_lock();
-	kvm_hardware_enable_lock();
-
-	if (!cpu_vmxop_get())
-	       return 1;
-
-       preempt_enable();
-       kvm_hardware_enable_unlock();
-       cpus_read_unlock();
-       return -EFAULT;
-}
-EXPORT_SYMBOL_GPL(vmxon_get);
-
 int vmx_hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();

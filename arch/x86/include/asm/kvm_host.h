@@ -2388,11 +2388,6 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
  */
 #define KVM_EXIT_HYPERCALL_MBZ		GENMASK_ULL(31, 1)
 
-#if IS_ENABLED(CONFIG_KVM_INTEL)
-int vmxon_get(void);
-void vmxoff_put(int off);
-#endif
-
 /* The common function for normal x86 guest */
 void load_guest_debug_regs(struct kvm_vcpu *vcpu);
 
