@@ -1968,11 +1968,11 @@ config INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
 	  If unuser, say N.
 
 config INTEL_TDX_HOST_DEBUG
-	tristate "TDX host debugfs"
+	bool "TDX host debugfs"
 	default n
 	depends on INTEL_TDX_HOST
 	depends on DEBUG_FS
-	depends on KVM
+	select HAVE_VMX_GENERIC
 	help
 	  TDX module debug support via debug fs.  The debug version of TDX
 	  module is required.

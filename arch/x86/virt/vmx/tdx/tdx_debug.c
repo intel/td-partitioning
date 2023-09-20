@@ -5,6 +5,7 @@
 
 #include <asm/page.h>
 #include <asm/tdx.h>
+#include <asm/vmx.h>
 
 #include "tdx.h"
 
@@ -33,7 +34,23 @@
 static inline u64 tddebugconfig(u64 subleaf, u64 param1, u64 param2)
 {
 	static bool debugconfig_supported = true;
-	int ret = 0;
+	int ret;
+
+	tdx_module_lock();
+	preempt_disable();
+	ret = cpu_vmxop_get();
+
+	if (ret) {
+		pr_info("failed to enable VMX\n");
+		goto out;
+	}
+
+	if (tdx_module_status != TDX_MODULE_INITIALIZED) {
+		/* no need to return error */
+		ret = -EIO;
+		pr_err("TDX module isn't initialized\n");
+		goto out;
+	}
 
 	if (debugconfig_supported) {
 		struct tdx_module_args args = {
@@ -48,6 +65,11 @@ static inline u64 tddebugconfig(u64 subleaf, u64 param1, u64 param2)
 		}
 	}
 
+out:
+	cpu_vmxop_put();
+	preempt_enable();
+	tdx_module_unlock();
+
 	return  ret;
 }
 
@@ -60,32 +82,16 @@ static int print_severity_get(void *data, u64 *val)
 	return 0;
 }
 
-static int tdx_vmxon_get(void)
-{
-	if (!tdx_is_enabled()) {
-		pr_info("TDX is not enabled\n");
-		return -EIO;
-	}
-
-	return vmxon_get();
-}
-
 static int print_severity_set(void *data, u64 val)
 {
 	int ret = -EINVAL;
-	int vmxon_ret;
 
 	if (val == DEBUGCONFIG_TRACE_ALL ||
 	    val == DEBUGCONFIG_TRACE_WARN ||
 	    val == DEBUGCONFIG_TRACE_ERROR ||
 	    val == DEBUGCONFIG_TRACE_CUSTOM ||
 	    val == DEBUGCONFIG_TRACE_NONE) {
-		vmxon_ret = tdx_vmxon_get();
-		if (vmxon_ret < 0)
-			return vmxon_ret;
-
 		tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, val, 0);
-		vmxoff_put(vmxon_ret);
 		trace_seamcalls = val;
 		ret = 0;
 	}
@@ -111,7 +117,6 @@ static int trace_target_get(void *data, u64 *val)
 static int trace_target_set(void *data, u64 val)
 {
 	int ret = -EINVAL;
-	int vmxon_ret;
 	u64 err;
 	u64 paddr = 0;
 
@@ -123,12 +128,7 @@ static int trace_target_set(void *data, u64 val)
 			paddr = __pa(buffer_trace);
 		else
 			paddr = 0;
-		vmxon_ret = tdx_vmxon_get();
-		if (vmxon_ret < 0)
-			return vmxon_ret;
-
 		err = tddebugconfig(DEBUGCONFIG_SET_TARGET, val, paddr);
-		vmxoff_put(vmxon_ret);
 		if (err)
 			pr_err("TDDEBUGCONFIG 0x%llx", err);
 		else
@@ -164,17 +164,11 @@ static int emergency_set(void *data, u64 val)
 
 	memset(buffer_emergency, 0, BUFFER_SIZE);
 	if (!emergency_configured) {
-		int vmxon_ret;
 		u64 err;
-
-		vmxon_ret = tdx_vmxon_get();
-		if (vmxon_ret < 0)
-			return vmxon_ret;
 
 		err = tddebugconfig(DEBUGCONFIG_SET_EMERGENCY_BUFFER,
 				    __pa(buffer_emergency),
 				    TRACE_BUFFER_SIZE);
-		vmxoff_put(vmxon_ret);
 		if ((s64)err < 0) {
 			pr_err("TDDEBUGCONFIG 0x%llx\n", err);
 			ret = (s64)err;
@@ -195,17 +189,11 @@ static int dump_set(void *data, u64 val)
 	int ret = -EINVAL;
 
 	if (trace_target == DEBUGCONFIG_TARGET_TRACE_BUFFER) {
-		int vmxon_ret;
 		u64 err;
 
 		memset(buffer_dump, 0, BUFFER_SIZE);
-		vmxon_ret = tdx_vmxon_get();
-		if (vmxon_ret < 0)
-			return vmxon_ret;
-
 		err = tddebugconfig(DEBUGCONFIG_DUMP_TRACE_BUFFER,
 				    __pa(buffer_dump), TRACE_BUFFER_SIZE);
-		vmxoff_put(vmxon_ret);
 		if ((s64)err < 0) {
 			pr_err("TDDEBUGCONFIG 0x%llx\n", err);
 			ret = (s64)err;
