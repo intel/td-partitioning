@@ -110,17 +110,23 @@ u64 __tdcall_saved(u64 fn, struct tdx_module_args *args);
 u64 __tdcall_saved_ret(u64 fn, struct tdx_module_args *args);
 
 static inline u64 __tdcall_common(u64 fn, struct tdx_module_args *args,
-				  bool tdcall_ret, bool tdcall_saved_ret)
+				  bool tdcall_ret, bool tdcall_saved)
 {
 	u64 err, err_masked, retries = 0;
 
 	do {
-		if (tdcall_saved_ret)
-			err = __tdcall_saved_ret(fn, args);
-		else if (tdcall_ret)
-			err = __tdcall_ret(fn, args);
-		else
-			err = __tdcall(fn, args);
+		if (tdcall_ret) {
+			if (tdcall_saved)
+				err = __tdcall_saved_ret(fn, args);
+			else
+				err = __tdcall_ret(fn, args);
+		} else {
+			if (tdcall_saved)
+				err = __tdcall_saved(fn, args);
+			else
+				err = __tdcall(fn, args);
+
+		}
 
 		if (likely(!err) || retries++ > TDCALL_RETRY_MAX)
 			break;
@@ -142,9 +148,14 @@ static inline u64 tdcall_ret(u64 fn, struct tdx_module_args *args)
 	return __tdcall_common(fn, args, true, false);
 }
 
-static inline u64 tdcall_saved_ret(u64 fn, struct tdx_module_args *args)
+static inline u64 tdcall_saved(u64 fn, struct tdx_module_args *args)
 {
 	return __tdcall_common(fn, args, false, true);
+}
+
+static inline u64 tdcall_saved_ret(u64 fn, struct tdx_module_args *args)
+{
+	return __tdcall_common(fn, args, true, true);
 }
 
 /* Used to request services from the VMM */
