@@ -1294,6 +1294,31 @@ static void intel_pt_add_br_stack(struct intel_pt *pt,
 	thread__put(thread);
 }
 
+static void intel_pt_set_triger_tracing_params(struct intel_pt *pt, struct intel_pt_params *params)
+{
+	union intel_pt_aux_output_cfg cfg;
+	uint32_t pause = 0, resume = 0;
+	struct evsel *evsel;
+
+	evlist__for_each_entry(pt->session->evlist, evsel) {
+		cfg.val = evsel->core.attr.aux_output_cfg;
+		if (!cfg.val)
+			continue;
+		if (cfg.val_0 & INTEL_PT_TT_PAUSE)
+			pause |= 1 << cfg.trig_nr_0;
+		if (cfg.val_0 & INTEL_PT_TT_RESUME)
+			resume |= 1 << cfg.trig_nr_0;
+		if (cfg.val_1 & INTEL_PT_TT_PAUSE)
+			pause |= 1 << cfg.trig_nr_1;
+		if (cfg.val_1 & INTEL_PT_TT_RESUME)
+			resume |= 1 << cfg.trig_nr_1;
+	}
+
+	/* Pause and resume together cancel out */
+	params->pause_trbv = pause & ~resume;
+	params->resume_trbv = resume & ~pause;
+}
+
 /* INTEL_PT_LBR_0, INTEL_PT_LBR_1 and INTEL_PT_LBR_2 */
 #define LBRS_MAX (INTEL_PT_BLK_ITEM_ID_CNT * 3U)
 
@@ -1351,6 +1376,7 @@ static struct intel_pt_queue *intel_pt_alloc_queue(struct intel_pt *pt,
 	params.vm_tm_corr_dry_run = pt->synth_opts.vm_tm_corr_dry_run;
 	params.first_timestamp = pt->first_timestamp;
 	params.max_loops = pt->max_loops;
+	intel_pt_set_triger_tracing_params(pt, &params);
 
 	/* Cannot walk code without TNT, so force 'quick' mode */
 	if (params.branch_enable && intel_pt_disabled_tnt(pt) && !params.quick)
