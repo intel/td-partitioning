@@ -34,7 +34,7 @@ static bool vmx_basic_valid(u64 _vmx_basic)
 	if (vmx_basic_vmcs_size(_vmx_basic) > PAGE_SIZE)
 		return false;
 
-#ifdef config_x86_64
+#ifdef CONFIG_X86_64
 	/* ia-32 sdm vol 3b: 64-bit cpus always have vmx_basic_msr[48]==0. */
 	if (_vmx_basic & VMX_BASIC_64)
 		return false;
