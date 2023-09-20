@@ -248,10 +248,10 @@ static void guest_v5_code(void)
 		 * when guest access other fixed counters.
 		 */
 		if (i == fixed_counter_num - 1)
-			GUEST_ASSERT_1(vector != GP_VECTOR,
+			__GUEST_ASSERT(vector != GP_VECTOR,
 				       "Max Fixed counter is accessible, but get #GP");
 		else
-			GUEST_ASSERT_1(vector == GP_VECTOR,
+			__GUEST_ASSERT(vector == GP_VECTOR,
 				       "Fixed counter isn't accessible, but access is ok");
 	}
 
