@@ -49,6 +49,7 @@ void iopf_free_group(struct iopf_group *group)
 
 	kfree(group);
 }
+EXPORT_SYMBOL_GPL(iopf_free_group);
 
 int iopf_queue_work(struct iopf_group *group, work_func_t func)
 {
@@ -59,6 +60,7 @@ int iopf_queue_work(struct iopf_group *group, work_func_t func)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(iopf_queue_work);
 
 int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
 			enum iommu_page_response_code status)
@@ -76,6 +78,7 @@ int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
 
 	return iommu_page_response(dev, &resp);
 }
+EXPORT_SYMBOL_GPL(iopf_complete_group);
 
 /**
  * iommu_queue_iopf - IO Page Fault handler

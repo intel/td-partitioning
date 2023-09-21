@@ -94,3 +94,5 @@ int vfio_set_req_trigger(struct vfio_device *vdev, unsigned int index,
 	return vfio_set_ctx_trigger_single(&vdev->req_trigger, count, flags, data);
 }
 EXPORT_SYMBOL_GPL(vfio_set_req_trigger);
+
+MODULE_LICENSE("GPL v2");
