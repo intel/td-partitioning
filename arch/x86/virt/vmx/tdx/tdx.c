@@ -1235,14 +1235,6 @@ static int init_tdx_module(void)
 {
 	int ret;
 
-	/* TDX seamcall trace is supported only with debug build. */
-	if (sysinfo->attributes & TDSYSINFO_ATTRIBUTES_DEBUG) {
-		if (trace_boot_seamcalls)
-			tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
-		else
-			tdx_trace_seamcalls(tdx_trace_level);
-	}
-
 	/*
 	 * To keep things simple, assume that all TDX-protected memory
 	 * will come from the page allocator.  Make sure all pages in the
@@ -1356,6 +1348,17 @@ static bool verify_all_cpus_enabled_tdx(void)
 	return true;
 }
 
+static void tdx_set_debug_level(void)
+{
+	/* TDX seamcall trace is supported only with debug build. */
+	if (sysinfo->attributes & TDSYSINFO_ATTRIBUTES_DEBUG) {
+		if (trace_boot_seamcalls)
+			tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+		else
+			tdx_trace_seamcalls(tdx_trace_level);
+	}
+}
+
 static int __tdx_enable(void)
 {
 	int ret;
@@ -1366,6 +1369,8 @@ static int __tdx_enable(void)
 	ret = get_sysinfo();
 	if (ret)
 		goto out;
+
+	tdx_set_debug_level();
 
 	ret = init_tdx_module();
 	if (ret)
