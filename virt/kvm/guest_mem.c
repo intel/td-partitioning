@@ -175,6 +175,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	pgoff_t start = offset >> PAGE_SHIFT;
 	pgoff_t end = (offset + len) >> PAGE_SHIFT;
 	struct kvm_gmem *gmem;
+	struct kvm *kvm = NULL;
 
 	/*
 	 * Bindings must stable across invalidation to ensure the start+end
@@ -182,10 +183,21 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	 */
 	filemap_invalidate_lock(inode->i_mapping);
 
-	list_for_each_entry(gmem, gmem_list, entry)
+	list_for_each_entry(gmem, gmem_list, entry) {
 		kvm_gmem_invalidate_begin(gmem, start, end);
 
-	kvm_gmem_issue_arch_invalidate(gmem->kvm, inode, start, end);
+		/*
+		 * Cache KVM for the following kvm_gmem_issue_arch_invalidate().
+		 * Opptunistically, verify that all gmem in the list are bound
+		 * to the same guest.
+		 */
+		if (!kvm)
+			kvm = gmem->kvm;
+		else
+			WARN_ON_ONCE(kvm != gmem->kvm);
+	}
+
+	kvm_gmem_issue_arch_invalidate(kvm, inode, start, end);
 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
 
 	list_for_each_entry(gmem, gmem_list, entry)
