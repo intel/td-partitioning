@@ -36,7 +36,7 @@ static bool vmx_basic_valid(u64 _vmx_basic)
 
 #ifdef CONFIG_X86_64
 	/* ia-32 sdm vol 3b: 64-bit cpus always have vmx_basic_msr[48]==0. */
-	if (_vmx_basic & VMX_BASIC_64)
+	if (_vmx_basic & VMX_BASIC_32BIT_PHYS_ADDR_ONLY)
 		return false;
 #endif
 
