@@ -89,3 +89,4 @@ noinstr u64 __tdx_hypercall(struct tdx_module_args *args)
 	/* TDVMCALL leaf return code is in R10 */
 	return args->r10;
 }
+EXPORT_SYMBOL_GPL(__tdx_hypercall);
