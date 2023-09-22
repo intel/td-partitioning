@@ -371,7 +371,7 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 
 	wq_pasid_enable = vwqcfg->pasid_en;
 
-	if (wq_shared(wq))
+	if (!wq_dedicated(wq))
 		goto out;
 
 	if (wq_pasid_enable) {
@@ -453,6 +453,11 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
+	if (!wq_dedicated(wq)) {
+		idxd_wq_drain(wq);
+		goto out;
+	}
+
 	rc = idxd_wq_disable(wq, false);
 	if (rc < 0) {
 		dev_warn(dev, "vidxd disable wq failed: %#x\n", rc);
@@ -460,6 +465,7 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
+#if 0
 	if (vwqcfg->pasid_en) {
 		mm = get_task_mm(current);
 		if (!mm) {
@@ -467,7 +473,9 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 			return;
 		}
 	}
+#endif
 
+out:
 	vwqcfg->wq_state = IDXD_WQ_DEV_DISABLED;
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }

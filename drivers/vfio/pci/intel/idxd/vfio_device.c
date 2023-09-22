@@ -543,7 +543,7 @@ static int idxd_vdcm_mmap(struct vfio_device *vdev, struct vm_area_struct *vma)
 	 */
 	virt_portal = ((offset >> PAGE_SHIFT) & 0x3) == 1;
 	phys_portal = IDXD_PORTAL_LIMITED;
-	if (virt_portal == IDXD_PORTAL_UNLIMITED)
+	if (virt_portal == IDXD_PORTAL_UNLIMITED && wq_dedicated(wq))
 		phys_portal = IDXD_PORTAL_UNLIMITED;
 
 	/* We always map IMS portals to the guest */
@@ -2165,7 +2165,8 @@ static struct idxd_wq *find_wq_by_type(struct idxd_device *idxd, u32 type)
 			continue;
 		}
 
-		if (type == IDXD_VDEV_TYPE_1DWQ && !idxd_wq_refcount(wq)) {
+		if (type == IDXD_VDEV_TYPE_1DWQ && wq_dedicated(wq) &&
+		    !idxd_wq_refcount(wq)) {
 			found = true;
 			mutex_unlock(&wq->wq_lock);
 			break;
