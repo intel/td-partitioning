@@ -95,8 +95,6 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 	savesegment(cs, cs);
 	pr_err("%s:%d ds 0x%x es 0x%x fs 0x%x gs 0x%x ss 0x%x cs 0x%x\n",
 		__func__, __LINE__, ds, es, fs, gs, ss, cs);
-	pr_err("die_notifier:cs 0x%lx ss 0x%lx KERNEL_CS 0x%x KERNEL_DS 0x%x\n",
-		regs->cs, regs->ss, __KERNEL_CS, __KERNEL_DS);
 	pr_err("np_seamldr_saved_cr4 0x%lx\n", np_seamldr_saved_cr4);
 
 	if (cmd == DIE_TRAP && die_args->trapnr == X86_TRAP_UD &&
