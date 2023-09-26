@@ -813,7 +813,7 @@ static void reset_tdx_pages(unsigned long base, unsigned long size)
 	if (system_state != SYSTEM_HALT &&
 	    system_state != SYSTEM_POWER_OFF &&
 	    system_state != SYSTEM_RESTART)
-		set_tdx_pages_p(base >> PAGE_SHIFT, size >> PAGE_SHIFT);
+		set_tdx_pages_p(base, size);
 
 	end = base + size;
 	for (phys = base; phys < end; phys += 64)
