@@ -1643,7 +1643,7 @@ vidxd_source_prepare_for_migration(struct vdcm_idxd *vidxd,
 
 	/* Save int handle info if MIS was set up. */
 	for (i = 1; i < 2; i++) {
-			u32 ims_idx = vfio_pci_ims_hwirq(&vidxd->vdev, i);
+			u8 ims_idx = vfio_pci_ims_hwirq(&vidxd->vdev, i);
 			int irq = vfio_ims_msi_virq(&vidxd->vdev, i);
 
 			if (irq < 0)

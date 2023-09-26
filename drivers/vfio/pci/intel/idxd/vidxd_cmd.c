@@ -440,7 +440,6 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 	u8 *bar0 = vidxd->bar0;
 	struct device *dev = vidxd_dev(vidxd);
 	int rc;
-	struct mm_struct *mm;
 
 	wq = vidxd->wq;
 
