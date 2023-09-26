@@ -182,6 +182,30 @@ static u64 pmc_get_pebs_precise_level(struct kvm_pmc *pmc)
 	return 1;
 }
 
+static void pmc_setup_td_metrics_events_attr(struct kvm_pmc *pmc,
+					     struct perf_event_attr *attr,
+					     unsigned int event_idx)
+{
+	if (!pmc_is_topdown_metrics_used(pmc))
+		return;
+
+	/*
+	 * setup slots event attribute, when slots event is
+	 * created for guest topdown metrics profiling, the
+	 * sample period must be 0.
+	 */
+	if (event_idx == KVM_TD_SLOTS)
+		attr->sample_period = 0;
+
+	/* setup vmetrics event attribute */
+	if (event_idx == KVM_TD_METRICS) {
+		attr->config = INTEL_FIXED_VMETRICS_EVENT;
+		attr->sample_period = 0;
+		/* Only group leader event can be pinned. */
+		attr->pinned = false;
+	}
+}
+
 static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 				 bool exclude_user, bool exclude_kernel,
 				 bool intr)
@@ -233,6 +257,8 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 
 	for (i = 0; i < pmc->max_nr_events; i++) {
 		group_leader = i ? pmc->perf_event : NULL;
+		pmc_setup_td_metrics_events_attr(pmc, &attr, i);
+
 		event = perf_event_create_kernel_counter(&attr, -1,
 							 current, group_leader,
 							 kvm_perf_overflow, pmc);
@@ -256,6 +282,12 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 	pmc->is_paused = false;
 	pmc->intr = intr || pebs;
 
+	if (pmc_is_topdown_metrics_active(pmc)) {
+		pmc_update_topdown_metrics(pmc);
+		/* KVM need to inject PMI for PERF_METRICS overflow. */
+		pmc->intr = true;
+	}
+
 	if (!attr.disabled)
 		return 0;
 
@@ -269,6 +301,7 @@ static void pmc_pause_counter(struct kvm_pmc *pmc)
 {
 	u64 counter = pmc->counter;
 	unsigned int i;
+	u64 data;
 
 	if (!pmc->perf_event || pmc->is_paused)
 		return;
@@ -279,8 +312,15 @@ static void pmc_pause_counter(struct kvm_pmc *pmc)
 	 * then disable non-group leader events.
 	 */
 	counter += perf_event_pause(pmc->perf_event, true);
-	for (i = 1; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
-		perf_event_pause(pmc->perf_events[i], true);
+	for (i = 1; pmc->perf_events[i] && i < pmc->max_nr_events; i++) {
+		data = perf_event_pause(pmc->perf_events[i], true);
+		/*
+		 * The count of vmetrics event actually stores raw data of
+		 * PERF_METRICS, save it to extra_config.
+		 */
+		if (pmc->idx == INTEL_PMC_IDX_FIXED_SLOTS && i == KVM_TD_METRICS)
+			pmc->extra_config = data;
+	}
 	pmc->counter = counter & pmc_bitmask(pmc);
 	pmc->is_paused = true;
 }
@@ -557,6 +597,21 @@ static int kvm_pmu_rdpmc_vmware(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 	return 0;
 }
 
+static inline int kvm_pmu_read_perf_metrics(struct kvm_vcpu *vcpu,
+					    unsigned int idx, u64 *data)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc = get_fixed_pmc(pmu, MSR_CORE_PERF_FIXED_CTR3);
+
+	if (!pmc) {
+		*data = 0;
+		return 1;
+	}
+
+	*data = pmc->extra_config;
+	return 0;
+}
+
 int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 {
 	bool fast_mode = idx & (1u << 31);
@@ -569,6 +624,9 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 
 	if (is_vmware_backdoor_pmc(idx))
 		return kvm_pmu_rdpmc_vmware(vcpu, idx, data);
+
+	if (idx & INTEL_PMC_FIXED_RDPMC_METRICS)
+		return kvm_pmu_read_perf_metrics(vcpu, idx, data);
 
 	pmc = static_call(kvm_x86_pmu_rdpmc_ecx_to_pmc)(vcpu, idx, &mask);
 	if (!pmc)

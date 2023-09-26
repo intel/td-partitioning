@@ -268,6 +268,34 @@ static inline bool pmc_is_globally_enabled(struct kvm_pmc *pmc)
 	return test_bit(pmc->idx, (unsigned long *)&pmu->global_ctrl);
 }
 
+static inline int pmc_is_topdown_metrics_used(struct kvm_pmc *pmc)
+{
+	return (pmc->idx == INTEL_PMC_IDX_FIXED_SLOTS) &&
+	       (pmc->max_nr_events == KVM_TD_EVENTS_MAX);
+}
+
+static inline int pmc_is_topdown_metrics_active(struct kvm_pmc *pmc)
+{
+	return pmc_is_topdown_metrics_used(pmc) &&
+	       pmc->perf_events[KVM_TD_METRICS];
+}
+
+static inline void pmc_update_topdown_metrics(struct kvm_pmc *pmc)
+{
+	struct perf_event *event;
+	int i;
+
+	struct td_metrics td_metrics = {
+		.slots = pmc->counter,
+		.metric = pmc->extra_config,
+	};
+
+	for (i = 0; i < pmc->max_nr_events; i++) {
+		event = pmc->perf_events[i];
+		perf_event_topdown_metrics(event, &td_metrics);
+	}
+}
+
 void kvm_pmu_deliver_pmi(struct kvm_vcpu *vcpu);
 void kvm_pmu_handle_event(struct kvm_vcpu *vcpu);
 int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned pmc, u64 *data);

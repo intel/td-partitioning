@@ -487,6 +487,12 @@ enum pmc_type {
 	KVM_PMC_FIXED,
 };
 
+enum topdown_events {
+	KVM_TD_SLOTS = 0,
+	KVM_TD_METRICS = 1,
+	KVM_TD_EVENTS_MAX = 2,
+};
+
 struct kvm_pmc {
 	enum pmc_type type;
 	u8 idx;

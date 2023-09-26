@@ -673,6 +673,11 @@ static inline bool intel_pmu_lbr_is_enabled(struct kvm_vcpu *vcpu)
 	return !!vcpu_to_lbr_records(vcpu)->nr;
 }
 
+static inline bool intel_pmu_metrics_is_enabled(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.perf_capabilities & PMU_CAP_PERF_METRICS;
+}
+
 void intel_pmu_cross_mapped_check(struct kvm_pmu *pmu);
 int intel_pmu_create_guest_lbr_event(struct kvm_vcpu *vcpu);
 void vmx_passthrough_lbr_msrs(struct kvm_vcpu *vcpu);

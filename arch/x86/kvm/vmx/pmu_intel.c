@@ -235,6 +235,9 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 		ret = (perf_capabilities & PERF_CAP_PEBS_BASELINE) &&
 			((perf_capabilities & PERF_CAP_PEBS_FORMAT) > 3);
 		break;
+	case MSR_PERF_METRICS:
+		ret = intel_pmu_metrics_is_enabled(vcpu) && (pmu->version > 1);
+		break;
 	default:
 		ret = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0) ||
 			get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0) ||
@@ -419,6 +422,43 @@ static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
 	return data;
 }
 
+static int intel_pmu_handle_perf_metrics_access(struct kvm_vcpu *vcpu,
+						struct msr_data *msr_info, bool read)
+{
+	u32 index = msr_info->index;
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc = get_fixed_pmc(pmu, MSR_CORE_PERF_FIXED_CTR3);
+
+	if (!pmc || index != MSR_PERF_METRICS)
+		return 1;
+
+	if (read) {
+		msr_info->data = pmc->extra_config;
+	} else {
+		/*
+		 * Save guest PERF_METRICS data in to extra_config,
+		 * the extra_config would be read to write to PERF_METRICS
+		 * MSR in later events group creating process.
+		 */
+		pmc->extra_config = msr_info->data;
+		if (pmc_is_topdown_metrics_active(pmc)) {
+			pmc_update_topdown_metrics(pmc);
+		} else {
+			/*
+			 * If the slots/vmetrics events group is not
+			 * created yet, set max_nr_events to 2
+			 * (slots event + vmetrics event), so KVM knows
+			 * topdown metrics profiling is running in guest
+			 * and slots/vmetrics events group would be created
+			 * later.
+			 */
+			pmc->max_nr_events = KVM_TD_EVENTS_MAX;
+		}
+	}
+
+	return 0;
+}
+
 static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -443,6 +483,10 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_PEBS_DATA_CFG:
 		msr_info->data = pmu->pebs_data_cfg;
+		break;
+	case MSR_PERF_METRICS:
+		if (intel_pmu_handle_perf_metrics_access(vcpu, msr_info, true))
+			return 1;
 		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
@@ -541,6 +585,10 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 		if (!msr_info->host_initiated)
 			pmu->global_status |= data;
+		break;
+	case MSR_PERF_METRICS:
+		if (intel_pmu_handle_perf_metrics_access(vcpu, msr_info, false))
+			return 1;
 		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
