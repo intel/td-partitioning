@@ -727,6 +727,9 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	pmu->global_ctrl_mask = counter_mask;
 
+	if (intel_pmu_metrics_is_enabled(vcpu))
+		pmu->global_ctrl_mask &= ~(1ULL << GLOBAL_CTRL_EN_PERF_METRICS);
+
 	/*
 	 * GLOBAL_STATUS and GLOBAL_OVF_CONTROL (a.k.a. GLOBAL_STATUS_RESET)
 	 * share reserved bit definitions.  The kernel just happens to use

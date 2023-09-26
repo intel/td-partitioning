@@ -7859,6 +7859,8 @@ static u64 vmx_get_perf_capabilities(void)
 			perf_cap &= ~PERF_CAP_PEBS_BASELINE;
 	}
 
+	perf_cap |= host_perf_cap & PMU_CAP_PERF_METRICS;
+
 	return perf_cap;
 }
 
