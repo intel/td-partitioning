@@ -12748,12 +12748,14 @@ err_fd:
  * @attr: attributes of the counter to create
  * @cpu: cpu in which the counter is bound
  * @task: task to profile (NULL for percpu)
+ * @group_leader: the group leader event of the created event
  * @overflow_handler: callback to trigger when we hit the event
  * @context: context data could be used in overflow_handler callback
  */
 struct perf_event *
 perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 				 struct task_struct *task,
+				 struct perf_event *group_leader,
 				 perf_overflow_handler_t overflow_handler,
 				 void *context)
 {
@@ -12761,6 +12763,7 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 	struct perf_event_context *ctx;
 	struct perf_event *event;
 	struct pmu *pmu;
+	int move_group = 0;
 	int err;
 
 	/*
@@ -12770,7 +12773,11 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 	if (attr->aux_output)
 		return ERR_PTR(-EINVAL);
 
-	event = perf_event_alloc(attr, cpu, task, NULL, NULL,
+	if (task && group_leader &&
+	    group_leader->attr.inherit != attr->inherit)
+		return ERR_PTR(-EINVAL);
+
+	event = perf_event_alloc(attr, cpu, task, group_leader, NULL,
 				 overflow_handler, context, -1);
 	if (IS_ERR(event)) {
 		err = PTR_ERR(event);
@@ -12800,6 +12807,11 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 		goto err_unlock;
 	}
 
+	err = perf_event_group_leader_check(group_leader, event, attr, ctx,
+					    &pmu, &move_group);
+	if (err)
+		goto err_unlock;
+
 	pmu_ctx = find_get_pmu_context(pmu, ctx, event);
 	if (IS_ERR(pmu_ctx)) {
 		err = PTR_ERR(pmu_ctx);
@@ -12826,6 +12838,9 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 		err = -EBUSY;
 		goto err_pmu_ctx;
 	}
+
+	if (move_group)
+		perf_event_move_group(group_leader, pmu_ctx, ctx);
 
 	perf_install_in_context(ctx, event, event->cpu);
 	perf_unpin_context(ctx);

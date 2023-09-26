@@ -39,7 +39,7 @@ static struct perf_event *register_test_bp(int cpu, struct task_struct *tsk, int
 	attr.bp_addr = (unsigned long)&break_vars[idx];
 	attr.bp_len = HW_BREAKPOINT_LEN_1;
 	attr.bp_type = HW_BREAKPOINT_RW;
-	return perf_event_create_kernel_counter(&attr, cpu, tsk, NULL, NULL);
+	return perf_event_create_kernel_counter(&attr, cpu, tsk, NULL, NULL, NULL);
 }
 
 static void unregister_test_bp(struct perf_event **bp)

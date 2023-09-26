@@ -308,8 +308,8 @@ int intel_pmu_create_guest_lbr_event(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
-	event = perf_event_create_kernel_counter(&attr, -1,
-						current, NULL, NULL);
+	event = perf_event_create_kernel_counter(&attr, -1, current,
+						 NULL, NULL, NULL);
 	if (IS_ERR(event)) {
 		pr_debug_ratelimited("%s: failed %ld\n",
 					__func__, PTR_ERR(event));

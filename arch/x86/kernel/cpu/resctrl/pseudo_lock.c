@@ -966,12 +966,12 @@ static int measure_residency_fn(struct perf_event_attr *miss_attr,
 	u64 tmp;
 
 	miss_event = perf_event_create_kernel_counter(miss_attr, plr->cpu,
-						      NULL, NULL, NULL);
+						      NULL, NULL, NULL, NULL);
 	if (IS_ERR(miss_event))
 		goto out;
 
 	hit_event = perf_event_create_kernel_counter(hit_attr, plr->cpu,
-						     NULL, NULL, NULL);
+						     NULL, NULL, NULL, NULL);
 	if (IS_ERR(hit_event))
 		goto out_miss;
 
