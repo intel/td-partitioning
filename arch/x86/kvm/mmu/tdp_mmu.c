@@ -1894,7 +1894,7 @@ bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 
 	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, false, false)
 		flush = tdp_mmu_zap_leafs(kvm, root, range->start, range->end,
-					  range->may_block, flush, zap_private);
+					  range->may_block, flush, is_private_sp(root) ? zap_private : ZAP_PRIVATE_SKIP);
 
 	return flush;
 }
