@@ -848,6 +848,7 @@ static const struct platform_data turbostat_pdata[] = {
 	{ INTEL_FAM6_ATOM_TREMONT, &tmt_features },
 	{ INTEL_FAM6_ATOM_TREMONT_L, &tmt_features },
 	{ INTEL_FAM6_ATOM_GRACEMONT, &adl_features },
+	{ INTEL_FAM6_ATOM_CRESTMONT_X, &spr_features },
 	{ INTEL_FAM6_XEON_PHI_KNL, &knl_features },
 	{ INTEL_FAM6_XEON_PHI_KNM, &knl_features },
 	/*
