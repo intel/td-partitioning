@@ -465,7 +465,9 @@ static inline int vfio_pci_ims_hwirq(struct vfio_device *vdev,
 }
 
 static inline void vfio_dump_ims_entries(struct vfio_device *vdev) {}
-static inline int vfio_ims_msi_virq(struct vfio_device *vdev, int index) {}
+static inline int vfio_ims_msi_virq(struct vfio_device *vdev, int index) {
+    return -EOPNOTSUPP;
+}
 #endif /* CONFIG_VFIO_PCI_IMS */
 
 extern void vfio_device_set_pasid(struct vfio_device *device, u32 pasid);
