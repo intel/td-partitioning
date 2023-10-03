@@ -283,9 +283,9 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 		ret = (perf_capabilities & PERF_CAP_PEBS_BASELINE) &&
 			((perf_capabilities & PERF_CAP_PEBS_FORMAT) > 3);
 		break;
-	case MSR_PERF_METRICS:
-		ret = intel_pmu_metrics_is_enabled(vcpu) && (pmu->version > 1);
-		break;
+//mgross hack	case MSR_PERF_METRICS:
+//mgross hack		ret = intel_pmu_metrics_is_enabled(vcpu) && (pmu->version > 1);
+//mgross hack		break;
 	default:
 		ret = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0) ||
 			get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0) ||
@@ -828,8 +828,8 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	counter_mask = ~pmu->all_valid_pmc_idxl;
 	pmu->global_ctrl_mask = counter_mask;
 
-	if (intel_pmu_metrics_is_enabled(vcpu))
-		pmu->global_ctrl_mask &= ~(1ULL << GLOBAL_CTRL_EN_PERF_METRICS);
+//mgross hack	if (intel_pmu_metrics_is_enabled(vcpu))
+//mgross hack		pmu->global_ctrl_mask &= ~(1ULL << GLOBAL_CTRL_EN_PERF_METRICS);
 
 	/*
 	 * GLOBAL_STATUS and GLOBAL_OVF_CONTROL (a.k.a. GLOBAL_STATUS_RESET)
