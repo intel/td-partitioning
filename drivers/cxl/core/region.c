@@ -1500,6 +1500,91 @@ static int match_switch_decoder_by_range(struct device *dev, void *data)
 	return range_contains(r1, r2);
 }
 
+/* Find the position of a port in it's parent and the parents ways */
+static int find_pos_and_ways(struct cxl_port *port, struct range *range,
+			     int *pos, int *ways)
+{
+	struct cxl_switch_decoder *cxlsd;
+	struct cxl_port *parent;
+	int child_ways = *ways;
+	int child_pos = *pos;
+	struct device *dev;
+	int index = 0;
+	int rc = -1;
+
+	parent = next_port(port);
+	if (!parent)
+		return rc;
+
+	dev = device_find_child(&parent->dev, range,
+				match_switch_decoder_by_range);
+	if (!dev) {
+		dev_err(port->uport_dev,
+			"failed to find decoder mapping %#llx-%#llx\n",
+			range->start, range->end);
+		return rc;
+	}
+	cxlsd = to_cxl_switch_decoder(dev);
+	*ways = cxlsd->cxld.interleave_ways;
+
+	/* Use the child ways/pos as index to target list */
+	if (cxlsd->nr_targets > child_ways)
+		index = child_pos * child_ways;
+
+	for (int i = index; i < *ways; i++) {
+		if (cxlsd->target[i] == port->parent_dport) {
+			*pos = i;
+			rc = 0;
+			break;
+		}
+	}
+	put_device(dev);
+
+	return rc;
+}
+
+static int calc_interleave_pos(struct cxl_endpoint_decoder *cxled,
+			       int region_ways)
+{
+	struct cxl_port *iter, *port = cxled_to_port(cxled);
+	struct cxl_memdev *cxlmd = cxled_to_memdev(cxled);
+	struct range *range = &cxled->cxld.hpa_range;
+	int parent_ways = 0;
+	int parent_pos = 0;
+	int rc, pos;
+
+	/* Initialize pos to its local position */
+	rc = find_pos_and_ways(port, range, &parent_pos, &parent_ways);
+	if (rc)
+		return -ENXIO;
+
+	pos = parent_pos;
+
+	if (parent_ways == region_ways)
+		goto out;
+
+	/* Iterate up the ancestral tree refining the position */
+	for (iter = next_port(port); iter; iter = next_port(iter)) {
+		if (is_cxl_root(iter))
+			break;
+
+		rc = find_pos_and_ways(iter, range, &parent_pos, &parent_ways);
+		if (rc)
+			return -ENXIO;
+
+		if (parent_ways == region_ways) {
+			pos = parent_pos;
+			break;
+		}
+		pos = pos * parent_ways + parent_pos;
+	}
+out:
+	dev_dbg(&cxlmd->dev,
+		"decoder:%s parent:%s port:%s range:%#llx-%#llx pos:%d\n",
+		dev_name(&cxled->cxld.dev), dev_name(cxlmd->dev.parent),
+		dev_name(&port->dev), range->start, range->end, pos);
+
+	return pos;
 }
 
 static void find_positions(const struct cxl_switch_decoder *cxlsd,
@@ -1764,6 +1849,21 @@ static int cxl_region_attach(struct cxl_region *cxlr,
 		.start = p->res->start,
 		.end = p->res->end,
 	};
+
+	if (p->nr_targets != p->interleave_ways)
+		return 0;
+
+	/* Exercise position calculator on user-defined regions */
+	for (int i = 0; i < p->nr_targets; i++) {
+		struct cxl_endpoint_decoder *cxled = p->targets[i];
+		int test_pos;
+
+		test_pos = calc_interleave_pos(cxled, p->interleave_ways);
+		dev_dbg(&cxled->cxld.dev,
+			"Interleave calc match %s test_pos:%d cxled->pos:%d\n",
+			(test_pos == cxled->pos) ? "Success" : "Fail",
+			test_pos, cxled->pos);
+	}
 
 	return 0;
 
