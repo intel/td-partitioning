@@ -612,7 +612,7 @@ static inline int kvm_pmu_read_perf_metrics(struct kvm_vcpu *vcpu,
 					    unsigned int idx, u64 *data)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
-	struct kvm_pmc *pmc = get_fixed_pmc(pmu, MSR_CORE_PERF_FIXED_CTR3);
+	struct kvm_pmc *pmc = get_fixed_pmc_from_idx(pmu, 3);
 
 	if (!pmc) {
 		*data = 0;

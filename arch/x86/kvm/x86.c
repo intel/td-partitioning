@@ -1486,8 +1486,8 @@ static const u32 msrs_to_save_pmu_base[] = {
 	MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR,
 };
 
-static u32 msrs_to_save_pmu_cntrs[KVM_PMC_MAX_FIXED +
-				  2 * KVM_INTEL_PMC_MAX_GENERIC];
+static u32 msrs_to_save_pmu_cntrs[2 * KVM_PMC_MAX_FIXED +
+				  4 * KVM_INTEL_PMC_MAX_GENERIC];
 
 static u32 msrs_to_save[ARRAY_SIZE(msrs_to_save_base) +
 			ARRAY_SIZE(msrs_to_save_pmu_base) +
@@ -7103,6 +7103,7 @@ static void kvm_probe_feature_msr(u32 msr_index)
 static void kvm_probe_msr_to_save(u32 msr_index)
 {
 	u32 dummy[2];
+	int idx;
 
 	if (rdmsr_safe(msr_index, &dummy[0], &dummy[1]))
 		return;
@@ -7163,6 +7164,20 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 		    x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
 			return;
 		break;
+	case MSR_IA32_PMC_GP0_CTR ... MSR_IA32_PMC_GP0_CFG_A_MAX:
+		idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_GP0_CTR, false);
+		if (idx < 0)
+			idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_GP0_CFG_A, false);
+		if (idx < 0 ||
+		    !(BIT_ULL(idx) & x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
+			return;
+		break;
+	case MSR_IA32_PMC_FX0_CTR ... MSR_IA32_PMC_FX0_CTR_MAX:
+		idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_FX0_CTR, true);
+		if (idx < 0 ||
+		    !(BIT_ULL(idx) & x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
+			return;
+		break;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_CTL:
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS:
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR:
@@ -7190,11 +7205,18 @@ static void kvm_init_save_pmu_cntrs_msr_array(void)
 	int idx = 0;
 	int i;
 
-	for (i = 0; i < KVM_PMC_MAX_FIXED; i++)
+	for (i = 0; i < KVM_PMC_MAX_FIXED; i++) {
 		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_FIXED_CTR0 + i;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_FX0_CTR + i * MSR_IA32_PMC_STEP;
+	}
 	for (i = 0; i < KVM_INTEL_PMC_MAX_GENERIC; i++) {
 		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_PERFCTR0 + i;
 		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_EVENTSEL0 + i;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_GP0_CTR + i  * MSR_IA32_PMC_STEP;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_GP0_CFG_A + i  * MSR_IA32_PMC_STEP;
 	}
 }
 
