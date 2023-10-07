@@ -42,8 +42,10 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/acpi.h>
+#include <linux/atomic.h>
 #include <linux/kernel.h>
 #include <linux/cpuidle.h>
+#include <linux/debugfs.h>
 #include <linux/tick.h>
 #include <trace/events/power.h>
 #include <linux/sched.h>
@@ -226,6 +228,71 @@ static __cpuidle int intel_idle_s2idle(struct cpuidle_device *dev,
 	return 0;
 }
 
+/*
+ * This is a dummy cstate driver that includes all possible cstates.
+ * It can be used to verify the availability of each cstates, and it can
+ * also be used for cstate latency measurement.
+ */
+static struct cpuidle_state dummy_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00),
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 2,
+		.target_residency = 4,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6",
+		.desc = "MWAIT 0x20",
+		.flags = MWAIT2flg(0x20) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 150,
+		.target_residency = 450,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C7",
+		.desc = "MWAIT 0x30",
+		.flags = MWAIT2flg(0x33) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 200,
+		.target_residency = 600,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C8",
+		.desc = "MWAIT 0x40",
+		.flags = MWAIT2flg(0x40) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 250,
+		.target_residency = 750,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C9",
+		.desc = "MWAIT 0x50",
+		.flags = MWAIT2flg(0x50) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 400,
+		.target_residency = 1200,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C10",
+		.desc = "MWAIT 0x60",
+		.flags = MWAIT2flg(0x60) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 600,
+		.target_residency = 1800,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
 /*
  * States are indexed by the cstate number,
  * which is also the index into the MWAIT hint array.
@@ -998,6 +1065,135 @@ static struct cpuidle_state spr_cstates[] __initdata = {
 		.enter = NULL }
 };
 
+static struct cpuidle_state rpl_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00) | CPUIDLE_FLAG_UNUSABLE,
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 2,
+		.target_residency = 4,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6",
+		.desc = "MWAIT 0x20",
+		.flags = MWAIT2flg(0x20) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 210,
+		.target_residency = 630,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C8",
+		.desc = "MWAIT 0x40",
+		.flags = MWAIT2flg(0x40) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 280,
+		.target_residency = 840,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C10",
+		.desc = "MWAIT 0x60",
+		.flags = MWAIT2flg(0x60) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 610,
+		.target_residency = 1830,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
+static struct cpuidle_state rplp_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00) | CPUIDLE_FLAG_UNUSABLE,
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 2,
+		.target_residency = 4,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6",
+		.desc = "MWAIT 0x20",
+		.flags = MWAIT2flg(0x20) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 230,
+		.target_residency = 690,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C8",
+		.desc = "MWAIT 0x40",
+		.flags = MWAIT2flg(0x40) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 280,
+		.target_residency = 840,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C10",
+		.desc = "MWAIT 0x60",
+		.flags = MWAIT2flg(0x60) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 360,
+		.target_residency = 1080,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
+static struct cpuidle_state gnr_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 2,
+		.target_residency = 4,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6",
+		.desc = "MWAIT 0x20",
+		.flags = MWAIT2flg(0x20) | CPUIDLE_FLAG_TLB_FLUSHED |
+					   CPUIDLE_FLAG_INIT_XSTATE,
+		.exit_latency = 300,
+		.target_residency = 800,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6P",
+		.desc = "MWAIT 0x21",
+		.flags = MWAIT2flg(0x21) | CPUIDLE_FLAG_TLB_FLUSHED |
+					   CPUIDLE_FLAG_INIT_XSTATE,
+		.exit_latency = 500,
+		.target_residency = 1000,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
 static struct cpuidle_state atom_cstates[] __initdata = {
 	{
 		.name = "C1E",
@@ -1242,6 +1438,72 @@ static struct cpuidle_state snr_cstates[] __initdata = {
 		.enter = NULL }
 };
 
+static struct cpuidle_state grr_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 15,
+		.target_residency = 25,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6S",
+		.desc = "MWAIT 0x22",
+		.flags = MWAIT2flg(0x22) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 130,
+		.target_residency = 500,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
+static struct cpuidle_state srf_cstates[] __initdata = {
+	{
+		.name = "C1",
+		.desc = "MWAIT 0x00",
+		.flags = MWAIT2flg(0x00) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 1,
+		.target_residency = 1,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C1E",
+		.desc = "MWAIT 0x01",
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
+		.exit_latency = 15,
+		.target_residency = 25,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6S",
+		.desc = "MWAIT 0x22",
+		.flags = MWAIT2flg(0x22) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 130,
+		.target_residency = 500,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.name = "C6SP",
+		.desc = "MWAIT 0x23",
+		.flags = MWAIT2flg(0x23) | CPUIDLE_FLAG_TLB_FLUSHED,
+		.exit_latency = 180,
+		.target_residency = 800,
+		.enter = &intel_idle,
+		.enter_s2idle = intel_idle_s2idle, },
+	{
+		.enter = NULL }
+};
+
 static const struct idle_cpu idle_cpu_nehalem __initconst = {
 	.state_table = nehalem_cstates,
 	.auto_demotion_disable_flags = NHM_C1_AUTO_DEMOTE | NHM_C3_AUTO_DEMOTE,
@@ -1253,6 +1515,11 @@ static const struct idle_cpu idle_cpu_nhx __initconst = {
 	.auto_demotion_disable_flags = NHM_C1_AUTO_DEMOTE | NHM_C3_AUTO_DEMOTE,
 	.disable_promotion_to_c1e = true,
 	.use_acpi = true,
+};
+
+static const struct idle_cpu idle_cpu_dummy __initconst = {
+	.state_table = dummy_cstates,
+	.disable_promotion_to_c1e = true,
 };
 
 static const struct idle_cpu idle_cpu_atom __initconst = {
@@ -1359,6 +1626,20 @@ static const struct idle_cpu idle_cpu_spr __initconst = {
 	.use_acpi = true,
 };
 
+static const struct idle_cpu idle_cpu_rpl __initconst = {
+	.state_table = rpl_cstates,
+};
+
+static const struct idle_cpu idle_cpu_rplp __initconst = {
+	.state_table = rplp_cstates,
+};
+
+static const struct idle_cpu idle_cpu_gnr __initconst = {
+	.state_table = gnr_cstates,
+	.disable_promotion_to_c1e = true,
+	.use_acpi = true,
+};
+
 static const struct idle_cpu idle_cpu_avn __initconst = {
 	.state_table = avn_cstates,
 	.disable_promotion_to_c1e = true,
@@ -1383,6 +1664,18 @@ static const struct idle_cpu idle_cpu_dnv __initconst = {
 
 static const struct idle_cpu idle_cpu_snr __initconst = {
 	.state_table = snr_cstates,
+	.disable_promotion_to_c1e = true,
+	.use_acpi = true,
+};
+
+static const struct idle_cpu idle_cpu_grr __initconst = {
+	.state_table = grr_cstates,
+	.disable_promotion_to_c1e = true,
+	.use_acpi = true,
+};
+
+static const struct idle_cpu idle_cpu_srf __initconst = {
+	.state_table = srf_cstates,
 	.disable_promotion_to_c1e = true,
 	.use_acpi = true,
 };
@@ -1426,12 +1719,20 @@ static const struct x86_cpu_id intel_idle_ids[] __initconst = {
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_GRACEMONT,	&idle_cpu_gmt),
 	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X,	&idle_cpu_spr),
 	X86_MATCH_INTEL_FAM6_MODEL(EMERALDRAPIDS_X,	&idle_cpu_spr),
+	X86_MATCH_INTEL_FAM6_MODEL(GRANITERAPIDS_X,	&idle_cpu_gnr),
+	X86_MATCH_INTEL_FAM6_MODEL(RAPTORLAKE,          &idle_cpu_rpl),
+	X86_MATCH_INTEL_FAM6_MODEL(RAPTORLAKE_S,        &idle_cpu_rpl),
+	X86_MATCH_INTEL_FAM6_MODEL(RAPTORLAKE_P,        &idle_cpu_rplp),
+	X86_MATCH_INTEL_FAM6_MODEL(METEORLAKE,          &idle_cpu_dummy),
+	X86_MATCH_INTEL_FAM6_MODEL(METEORLAKE_L,        &idle_cpu_dummy),
 	X86_MATCH_INTEL_FAM6_MODEL(XEON_PHI_KNL,	&idle_cpu_knl),
 	X86_MATCH_INTEL_FAM6_MODEL(XEON_PHI_KNM,	&idle_cpu_knl),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_GOLDMONT,	&idle_cpu_bxt),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_GOLDMONT_PLUS,	&idle_cpu_bxt),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_GOLDMONT_D,	&idle_cpu_dnv),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_TREMONT_D,	&idle_cpu_snr),
+	X86_MATCH_INTEL_FAM6_MODEL(ATOM_CRESTMONT,	&idle_cpu_grr),
+	X86_MATCH_INTEL_FAM6_MODEL(ATOM_CRESTMONT_X,	&idle_cpu_srf),
 	{}
 };
 
@@ -1899,6 +2200,9 @@ static void __init intel_idle_init_cstates_icpu(struct cpuidle_driver *drv)
 	case INTEL_FAM6_ALDERLAKE:
 	case INTEL_FAM6_ALDERLAKE_L:
 	case INTEL_FAM6_ATOM_GRACEMONT:
+	case INTEL_FAM6_RAPTORLAKE:
+	case INTEL_FAM6_RAPTORLAKE_S:
+	case INTEL_FAM6_RAPTORLAKE_P:
 		adl_idle_state_table_update();
 		break;
 	}
@@ -2045,16 +2349,242 @@ static int intel_idle_cpu_online(unsigned int cpu)
 	return 0;
 }
 
+static enum cpuhp_state intel_idle_cpuhp_state;
+
 /**
  * intel_idle_cpuidle_devices_uninit - Unregister all cpuidle devices.
  */
-static void __init intel_idle_cpuidle_devices_uninit(void)
+static void intel_idle_cpuidle_devices_uninit(void)
 {
 	int i;
 
-	for_each_online_cpu(i)
-		cpuidle_unregister_device(per_cpu_ptr(intel_idle_cpuidle_devices, i));
+	cpuhp_remove_state(intel_idle_cpuhp_state);
+	for_each_possible_cpu(i) {
+		struct cpuidle_device *dev;
+
+		dev = per_cpu_ptr(intel_idle_cpuidle_devices, i);
+		if (dev->registered)
+			cpuidle_unregister_device(dev);
+		memset(dev, 0, sizeof(*dev));
+	}
 }
+
+static void intel_idle_cpuidle_unregister(struct cpuidle_driver *drv)
+{
+	intel_idle_cpuidle_devices_uninit();
+	cpuidle_unregister_driver(drv);
+}
+
+static int intel_idle_cpuidle_register(struct cpuidle_driver *drv)
+{
+	int retval;
+
+	retval = cpuidle_register_driver(drv);
+	if (retval) {
+		struct cpuidle_driver *drv = cpuidle_get_driver();
+
+		printk(KERN_DEBUG pr_fmt("intel_idle yielding to %s\n"),
+			drv ? drv->name : "none");
+		return retval;
+	}
+
+	intel_idle_cpuhp_state = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
+		"idle/intel:online", intel_idle_cpu_online, NULL);
+	if (intel_idle_cpuhp_state < 0) {
+		intel_idle_cpuidle_unregister(drv);
+		return intel_idle_cpuhp_state;
+	}
+	return 0;
+}
+
+#ifdef CONFIG_DEBUG_FS
+
+/*
+ * Debugfs Interface
+ * for overriding existing cstate target_residency and exit_latency.
+ *
+ * The pattern for overriding the cstate parameters is a combination of
+ * "state_no:new_target_residency_value:new_exit_latency_value", where the
+ * "state_no" is the index of the idle state as shown at
+ * /sys/devices/system/cpu/cpu0/cpuidle/stateX
+ *
+ * To modify the parameters for multiple cstates, it must be done within one
+ * command, combined by multiple patterns as described above, separated by
+ * space.
+ *
+ * Examples
+ * ========
+ *
+ * For state2 (as shown in /sys/devices/system/cpu/cpuX/cpuidle/),
+ * override the exit_latency to 11(us)
+ * #echo 2:0:11 > /sys/kernel/debug/intel_idle/control
+ *
+ * For state3 (as shown in /sys/devices/system/cpu/cpuX/cpuidle/),
+ * override the target_residency to 100(us), and the exit_latency to 30(us)
+ * #echo 3:100:30 > /sys/kernel/debug/intel_idle/control
+ *
+ * For state4 (as shown in /sys/devices/system/cpu/cpuX/cpuidle/),
+ * override the target_residency to 300(us), and the exit_latency to 100(us)
+ * and for state5 (as shown in /sys/devices/system/cpu/cpuX/cpuidle/),
+ * override the target_residency to 600(us), and the exit_latency to 200(us)
+ * #echo "4:300:100 5:600:200" > /sys/kernel/debug/intel_idle/control
+ *
+ * To switch by to the default intel_idle driver,
+ * #echo  > /sys/kernel/debug/intel_idle/control
+ *
+ * Note:
+ * After finishing the first change, if you want to make a second change to
+ * the cstate parameters, you need to switch back to the default driver first,
+ * and then apply all the changes within one commandi, e.g.
+ * // make the first change
+ * #echo 2:0:11 > /sys/kernel/debug/intel_idle/control
+ * // clear the previous change
+ * #echo > /sys/kernel/debug/intel_idle/control
+ * // make the two changes altogether
+ * #echo "2:0:11 3:60:20" > /sys/kernel/debug/intel_idle/control
+ */
+
+static struct cpuidle_driver intel_idle_debug_driver;
+static atomic_t debug_mode;
+
+static void debugfs_format_driver(struct cpuidle_driver *drv)
+{
+	if (drv != &intel_idle_driver)
+		memcpy(drv, &intel_idle_driver, sizeof(intel_idle_driver));
+	drv->cpumask = NULL;
+	drv->governor = NULL;
+}
+
+static int debugfs_parse_one(char **param, int *value)
+{
+	char *pos = strsep(param, ":");
+
+	if (!pos)
+		return -EINVAL;
+	return kstrtoint(pos, 10, value);
+}
+
+static int debugfs_parse_param(char *param)
+{
+	struct cpuidle_state *state;
+	int sta, res, lat, ret;
+
+	ret = debugfs_parse_one(&param, &sta);
+	if (ret)
+		return ret;
+
+	ret = debugfs_parse_one(&param, &res);
+	if (ret)
+		return ret;
+
+	ret = debugfs_parse_one(&param, &lat);
+	if (ret)
+		return ret;
+
+	/* only format state_no:new_res:new_lat is supported */
+	if (strsep(&param, ":"))
+		return -EINVAL;
+
+	/* Do sanity check */
+	if (sta > intel_idle_debug_driver.state_count ||
+		sta < 1 || res < 0 || lat < 0)
+		return -EINVAL;
+
+	state = &intel_idle_debug_driver.states[sta];
+	if (res)
+		state->target_residency = res;
+	if (lat)
+		state->exit_latency = lat;
+	return 0;
+}
+
+static ssize_t control_write(struct file *file, const char __user *user_buf,
+				size_t count, loff_t *ppos)
+{
+	char *buf, *pos;
+	int ret;
+
+	if (count >= PAGE_SIZE)
+		return -EINVAL;
+
+	buf = kzalloc(count + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = copy_from_user(buf, user_buf, count);
+	if (ret)
+		goto end;
+
+	buf[count] = 0;
+
+	if (buf[0] == '\n') {
+		if (atomic_read(&debug_mode)) {
+			/* Quit debug mode and restore to original driver */
+			intel_idle_cpuidle_unregister(&intel_idle_debug_driver);
+			debugfs_format_driver(&intel_idle_driver);
+			intel_idle_cpuidle_register(&intel_idle_driver);
+
+			/* Fix me:
+			 * need error handling if fail to register back the
+			 * intel_idle driver.
+			 */
+
+			atomic_set(&debug_mode, 0);
+		}
+		ret = count;
+		goto end;
+	}
+
+	if (atomic_read(&debug_mode)) {
+		ret = -EBUSY;
+		goto end;
+	}
+	debugfs_format_driver(&intel_idle_debug_driver);
+
+	while ((pos = strsep(&buf, " "))) {
+		ret = debugfs_parse_param(pos);
+		if (ret)
+			goto end;
+	}
+
+	intel_idle_cpuidle_unregister(&intel_idle_driver);
+	ret = intel_idle_cpuidle_register(&intel_idle_debug_driver);
+	if (ret) {
+		debugfs_format_driver(&intel_idle_driver);
+		intel_idle_cpuidle_register(&intel_idle_driver);
+
+		/* Fix me:
+		 * need error handling if fail to register back the
+		 * intel_idle driver.
+		 */
+
+		goto end;
+	}
+	atomic_set(&debug_mode, 1);
+	ret = count;
+end:
+	kfree(buf);
+	return ret;
+}
+
+
+static const struct file_operations control_fops = {
+	.write = control_write,
+	.llseek = default_llseek,
+};
+
+static struct dentry *intel_idle_debugfs_dir;
+
+static void intel_idle_debugfs_create(void)
+{
+	intel_idle_debugfs_dir = debugfs_create_dir("intel_idle", NULL);
+	debugfs_create_file("control", 0200, intel_idle_debugfs_dir,
+				NULL, &control_fops);
+}
+#else
+static void intel_idle_debugfs_create(void) {}
+#endif /* CONFIG_DEBUG_FS */
+
 
 static int __init intel_idle_init(void)
 {
@@ -2116,27 +2646,17 @@ static int __init intel_idle_init(void)
 
 	intel_idle_cpuidle_driver_init(&intel_idle_driver);
 
-	retval = cpuidle_register_driver(&intel_idle_driver);
-	if (retval) {
-		struct cpuidle_driver *drv = cpuidle_get_driver();
-		printk(KERN_DEBUG pr_fmt("intel_idle yielding to %s\n"),
-		       drv ? drv->name : "none");
+	retval = intel_idle_cpuidle_register(&intel_idle_driver);
+	if (retval)
 		goto init_driver_fail;
-	}
-
-	retval = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "idle/intel:online",
-				   intel_idle_cpu_online, NULL);
-	if (retval < 0)
-		goto hp_setup_fail;
 
 	pr_debug("Local APIC timer is reliable in %s\n",
 		 boot_cpu_has(X86_FEATURE_ARAT) ? "all C-states" : "C1");
 
+	intel_idle_debugfs_create();
+
 	return 0;
 
-hp_setup_fail:
-	intel_idle_cpuidle_devices_uninit();
-	cpuidle_unregister_driver(&intel_idle_driver);
 init_driver_fail:
 	free_percpu(intel_idle_cpuidle_devices);
 	return retval;
