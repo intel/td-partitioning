@@ -745,7 +745,7 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 				if (!(entry23_1->ebx & BIT_ULL(i)))
 					continue;
 			} else if (!(entry->ecx & BIT_ULL(i) ||
-				   edx.split.num_counters_fixed > i)) {
+				   edx.split.first_continuous_fixed_counters_num > i)) {
 				/*
 				 * FxCtr[i]_is_supported :=
 				 *      CPUID.0xA.ECX[i] || EDX[4:0] > i

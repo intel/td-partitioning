@@ -168,7 +168,11 @@ union cpuid10_ebx {
 
 union cpuid10_edx {
 	struct {
-		unsigned int num_counters_fixed:5;
+		/*
+		 * EDX[4:0] indicates the "Number of contiguous
+		 * fixed-function performance counters starting from 0".
+		 */
+		unsigned int first_continuous_fixed_counters_num:5;
 		unsigned int bit_width_fixed:8;
 		unsigned int reserved1:2;
 		unsigned int anythread_deprecated:1;

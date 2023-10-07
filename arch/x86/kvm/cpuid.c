@@ -164,7 +164,7 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 		    best->ecx != 0) {
 			return -EINVAL;
 		} else if (eax.split.version_id >= 5) {
-			int fixed_count = edx.split.num_counters_fixed;
+			int fixed_count = edx.split.first_continuous_fixed_counters_num;
 
 			if (fixed_count == 0 && (best->ecx & 0x1)) {
 				return -EINVAL;
@@ -1024,7 +1024,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		eax.split.bit_width = kvm_pmu_cap.bit_width_gp;
 		eax.split.mask_length = kvm_pmu_cap.events_mask_len;
 		bitmap = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
-		edx.split.num_counters_fixed =
+		edx.split.first_continuous_fixed_counters_num =
 			find_first_zero_bit((unsigned long *)&bitmap, X86_PMC_IDX_MAX);
 		edx.split.bit_width_fixed = kvm_pmu_cap.bit_width_fixed;
 
@@ -1039,7 +1039,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 			entry->ecx = 0;
 		else
 			entry->ecx = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl) &
-				     (BIT(edx.split.num_counters_fixed) - 1);
+				     (BIT(edx.split.first_continuous_fixed_counters_num) - 1);
 		entry->edx = edx.full;
 		break;
 	}

@@ -6284,7 +6284,7 @@ __init int intel_pmu_init(void)
 		int assume = 3 * !boot_cpu_has(X86_FEATURE_HYPERVISOR);
 
 		x86_pmu.num_counters_fixed =
-			max((int)edx.split.num_counters_fixed, assume);
+			max((int)edx.split.first_continuous_fixed_counters_num, assume);
 	} else if (version >= 5)
 		x86_pmu.num_counters_fixed = fls(fixed_mask);
 
