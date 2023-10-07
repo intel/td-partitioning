@@ -1011,6 +1011,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 	case 0xa: { /* Architectural Performance Monitoring */
 		union cpuid10_eax eax;
 		union cpuid10_edx edx;
+		u64 bitmap;
 
 		if (!enable_pmu || !static_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
 			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
@@ -1018,10 +1019,13 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		}
 
 		eax.split.version_id = kvm_pmu_cap.version;
-		eax.split.num_counters = kvm_pmu_cap.num_counters_gp;
+		bitmap = x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+		eax.split.num_counters = hweight64(bitmap);
 		eax.split.bit_width = kvm_pmu_cap.bit_width_gp;
 		eax.split.mask_length = kvm_pmu_cap.events_mask_len;
-		edx.split.num_counters_fixed = kvm_pmu_cap.num_counters_fixed;
+		bitmap = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+		edx.split.num_counters_fixed =
+			find_first_zero_bit((unsigned long *)&bitmap, X86_PMC_IDX_MAX);
 		edx.split.bit_width_fixed = kvm_pmu_cap.bit_width_fixed;
 
 		if (kvm_pmu_cap.version)
@@ -1034,7 +1038,8 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		if (kvm_pmu_cap.version < 5)
 			entry->ecx = 0;
 		else
-			entry->ecx = (1ULL << kvm_pmu_cap.num_counters_fixed) - 1;
+			entry->ecx = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl) &
+				     (BIT(edx.split.num_counters_fixed) - 1);
 		entry->edx = edx.full;
 		break;
 	}
@@ -1306,6 +1311,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 	/* AMD Extended Performance Monitoring and Debug */
 	case 0x80000022: {
 		union cpuid_0x80000022_ebx ebx;
+		u64 bitmap = x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
 
 		entry->ecx = entry->edx = 0;
 		if (!enable_pmu || !kvm_cpu_cap_has(X86_FEATURE_PERFMON_V2)) {
@@ -1316,7 +1322,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		cpuid_entry_override(entry, CPUID_8000_0022_EAX);
 
 		if (kvm_cpu_cap_has(X86_FEATURE_PERFMON_V2))
-			ebx.split.num_core_pmc = kvm_pmu_cap.num_counters_gp;
+			ebx.split.num_core_pmc = hweight64(bitmap);
 		else if (kvm_cpu_cap_has(X86_FEATURE_PERFCTR_CORE))
 			ebx.split.num_core_pmc = AMD64_NUM_COUNTERS_CORE;
 		else
