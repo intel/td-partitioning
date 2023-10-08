@@ -516,7 +516,7 @@ struct kvm_pmc {
 	u64 extra_config;
 	union {
 		struct perf_event *perf_event;
-		DECLARE_FLEX_ARRAY(struct perf_event *, perf_events);
+		struct perf_event *perf_events[KVM_TD_EVENTS_MAX];
 	};
 };
 
