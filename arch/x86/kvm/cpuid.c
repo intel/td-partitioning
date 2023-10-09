@@ -1170,7 +1170,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		}
 		break;
 	/* Intel archPerfmon extended leaf */
-	case 0x23:
+	case 0x23: {
 		u32 subleaves;
 
 		if (!enable_pmu || !static_cpu_has(X86_FEATURE_ARCH_PERFMON_EXT)) {
@@ -1223,6 +1223,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 			entry->edx = 0;
 		}
 		break;
+	}
 	case KVM_CPUID_SIGNATURE: {
 		const u32 *sigptr = (const u32 *)KVM_SIGNATURE;
 		entry->eax = KVM_CPUID_FEATURES;

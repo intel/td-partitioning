@@ -266,7 +266,7 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 static struct kvm_pmc *intel_msr_idx_to_pmc(struct kvm_vcpu *vcpu, u32 msr)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
-	struct kvm_pmc *pmc;
+	struct kvm_pmc *pmc = NULL;
 
 	if (msr < MSR_IA32_PMC_GP0_CTR) {
 		pmc = get_fixed_pmc(pmu, msr, MSR_CORE_PERF_FIXED_CTR0);
