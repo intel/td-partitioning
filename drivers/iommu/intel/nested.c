@@ -147,6 +147,7 @@ static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
 	u64 uptr = inv_info->inv_data_uptr;
 	u64 nr_uptr = inv_info->entry_nr_uptr;
 	struct device_domain_info *info;
+	struct dev_pasid_info *dev_pasid;
 	u32 entry_nr, index;
 	int ret = 0;
 
@@ -170,6 +171,10 @@ static int intel_nested_cache_invalidate_user(struct iommu_domain *domain,
 
 		list_for_each_entry(info, &dmar_domain->devices, link)
 			intel_nested_invalidate(info->dev, dmar_domain,
+						req->addr, req->npages);
+
+		list_for_each_entry(dev_pasid, &dmar_domain->dev_pasids, link_domain)
+			intel_nested_invalidate(dev_pasid->dev, dmar_domain,
 						req->addr, req->npages);
 	}
 
