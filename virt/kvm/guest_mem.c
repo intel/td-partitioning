@@ -155,7 +155,7 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct inode *inode,
 
 	while (index < end) {
 		struct folio *folio;
-		unsigned int order;
+		pgoff_t ntails;
 		struct page *page;
 		kvm_pfn_t pfn;
 
@@ -168,9 +168,9 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct inode *inode,
 
 		page = folio_file_page(folio, index);
 		pfn = page_to_pfn(page);
-		order = folio_order(folio);
+		ntails = folio_nr_pages(folio) - folio_page_idx(folio, page);
 
-		kvm_arch_gmem_invalidate(kvm, pfn, pfn + min((1ul << order), end - index));
+		kvm_arch_gmem_invalidate(kvm, pfn, pfn + min(ntails, end - index));
 
 		index = folio_next_index(folio);
 		folio_unlock(folio);
