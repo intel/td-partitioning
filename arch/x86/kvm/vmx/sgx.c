@@ -37,7 +37,9 @@ static int sgx_get_encls_gva(struct kvm_vcpu *vcpu, unsigned long offset,
 	if (!IS_ALIGNED(*gva, alignment)) {
 		fault = true;
 	} else if (likely(is_64_bit_mode(vcpu))) {
-		fault = is_noncanonical_address(*gva, vcpu);
+		*gva = vmx_get_untagged_addr(vcpu, *gva, 0);
+		fault = is_noncanonical_address(*gva, vcpu) ||
+			vmx_is_lass_violation(vcpu, *gva, size, 0);
 	} else {
 		*gva &= 0xffffffff;
 		fault = (s.unusable) ||

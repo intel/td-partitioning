@@ -133,7 +133,9 @@ KVM_X86_OP_OPTIONAL(migrate_timers)
 KVM_X86_OP(msr_filter_changed)
 KVM_X86_OP(complete_emulated_msr)
 KVM_X86_OP(vcpu_deliver_sipi_vector)
-KVM_X86_OP_OPTIONAL_RET0(vcpu_get_apicv_inhibit_reasons);
+KVM_X86_OP_OPTIONAL_RET0(vcpu_get_apicv_inhibit_reasons)
+KVM_X86_OP(get_untagged_addr)
+KVM_X86_OP_OPTIONAL_RET0(is_lass_violation)
 
 #undef KVM_X86_OP
 #undef KVM_X86_OP_OPTIONAL
