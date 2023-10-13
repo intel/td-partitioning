@@ -99,6 +99,36 @@ static u32 offsets_demand2_spr[] = {0x22c70, 0x22d80, 0x22f18, 0x22d58, 0x22c64,
 static u32 offsets_demand_spr_hbm0[] = {0x2a54, 0x2a60, 0x2b10, 0x2a58, 0x2a5c, 0x0ee0};
 static u32 offsets_demand_spr_hbm1[] = {0x2e54, 0x2e60, 0x2f10, 0x2e58, 0x2e5c, 0x0fb0};
 
+#define EDAC_DEBUG_SCHEMA "v0.1.0"
+
+/*
+ * edac_debug_schema v0.1.0:
+ * "CORRECTION_DEBUG_DEV_VEC_1",
+ * "CORRECTION_DEBUG_DEV_VEC_2",
+ * "CORRECTION_DEBUG_LOG",
+ * "CORRECTION_DEBUG_PLUS1_LOG",
+ * "RSP_FUNC_ADDR_MASK_HI",
+ * "RSP_FUNC_ADDR_MASK_LO",
+ * "RSP_FUNC_ADDR_MATCH_HI",
+ * "RSP_FUNC_ADDR_MATCH_LO",
+ * "RSP_FUNC_RANK_BANK_MATCH",
+ * "RSP_FUNC_ADDR2_MATCH_LO",
+ * "RSP_FUNC_ADDR2_MATCH_HI",
+ * "RSP_FUNC_ADDR2_MASK_LO",
+ * "RSP_FUNC_ADDR2_MASK_HI",
+ * "RSP_FUNC_CRC_ERR_INJ_DEV0_XOR_MSK",
+ * "RSP_FUNC_CRC_ERR_INJ_DEV1_XOR_MSK",
+ * "RSP_FUNC_CRC_ERR_INJ_DEV0_XOR_MSK2",
+ * "RSP_FUNC_CRC_ERR_INJ_DEV1_XOR_MSK2",
+ * "RSP_FUNC_CRC_ERR_INJ_EXTRA"
+ */
+
+static u32 offsets_debug_info[] = {
+	0x22cc0, 0x22cc4, 0x22c44, 0x22c48, 0x2099c, 0x20998,
+	0x20994, 0x20990, 0x209a0, 0x209a4, 0x209a8, 0x209ac,
+	0x209b0, 0x23008, 0x2300c, 0x23030, 0x23034, 0x23010
+};
+
 static void __enable_retry_rd_err_log(struct skx_imc *imc, int chan, bool enable,
 				      u32 *offsets_scrub, u32 *offsets_demand,
 				      u32 *offsets_demand2)
@@ -214,8 +244,9 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 	u32 *xffsets = NULL;
 	u64 log2a, log5;
 	u64 lxg2a, lxg5;
+	int i, n, pch;
 	u32 *offsets;
-	int n, pch;
+	u32 reg;
 
 	if (!imc->mbase)
 		return;
@@ -292,12 +323,28 @@ static void show_retry_rd_err_log(struct decoded_addr *res, char *msg,
 	}
 
 	if (len - n > 0)
-		snprintf(msg + n, len - n,
+		n += snprintf(msg + n, len - n,
 			 " correrrcnt[%.4x %.4x %.4x %.4x %.4x %.4x %.4x %.4x]",
 			 corr0 & 0xffff, corr0 >> 16,
 			 corr1 & 0xffff, corr1 >> 16,
 			 corr2 & 0xffff, corr2 >> 16,
 			 corr3 & 0xffff, corr3 >> 16);
+
+	if (!imc->hbm_mc && len - n > 0) {
+		n += snprintf(msg + n, len - n, " edac_schema:%s edac_debug[", EDAC_DEBUG_SCHEMA);
+
+		for (i = 0; i < ARRAY_SIZE(offsets_debug_info); i++) {
+			if (len - n <= 0)
+				break;
+
+			reg = I10NM_GET_REG32(imc, res->channel, offsets_debug_info[i]);
+			n += snprintf(msg + n, len - n, "%x ", reg);
+		}
+
+		if (len - n > 0)
+			/* Also remove the space just before ']' */
+			snprintf(msg + n - 1, len - n + 1, "]");
+	}
 
 	/* Clear status bits */
 	if (retry_rd_err_log == 2) {
@@ -951,6 +998,8 @@ static const struct x86_cpu_id i10nm_cpuids[] = {
 	X86_MATCH_INTEL_FAM6_MODEL_STEPPINGS(EMERALDRAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &spr_cfg),
 	X86_MATCH_INTEL_FAM6_MODEL_STEPPINGS(GRANITERAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
 	X86_MATCH_INTEL_FAM6_MODEL_STEPPINGS(ATOM_CRESTMONT_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
+	X86_MATCH_INTEL_FAM6_MODEL_STEPPINGS(ATOM_CRESTMONT,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
+	X86_MATCH_INTEL_FAM6_MODEL_STEPPINGS(CLEARWATERFOREST_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, i10nm_cpuids);
