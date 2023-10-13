@@ -1489,6 +1489,8 @@ void intel_pmu_disable_bts(void);
 
 int intel_pmu_drain_bts_buffer(void);
 
+void intel_pmu_enable_pt_trigger_tracing(bool enable);
+
 u64 adl_latency_data_small(struct perf_event *event, u64 status);
 
 u64 mtl_latency_data_small(struct perf_event *event, u64 status);

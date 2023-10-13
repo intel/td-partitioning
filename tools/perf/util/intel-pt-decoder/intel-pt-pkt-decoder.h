@@ -23,6 +23,10 @@
 
 #define INTEL_PT_VMX_NR_FLAG		1
 
+#define INTEL_PT_TRIG_INST	0x10
+#define INTEL_PT_TRIG_MULT	0x20
+#define INTEL_PT_TRIG_ICNTV	0x40
+
 enum intel_pt_pkt_type {
 	INTEL_PT_BAD,
 	INTEL_PT_PAD,
@@ -59,6 +63,8 @@ enum intel_pt_pkt_type {
 	INTEL_PT_CFE,
 	INTEL_PT_CFE_IP,
 	INTEL_PT_EVD,
+	INTEL_PT_TRIG,
+	INTEL_PT_TRIG_IP,
 };
 
 struct intel_pt_pkt {
@@ -88,5 +94,15 @@ void intel_pt_upd_pkt_ctx(const struct intel_pt_pkt *packet,
 			  enum intel_pt_pkt_ctx *ctx);
 
 int intel_pt_pkt_desc(const struct intel_pt_pkt *packet, char *buf, size_t len);
+
+static inline uint32_t intel_pt_pkt_trbv(const struct intel_pt_pkt *packet)
+{
+	return packet->payload >> 8;
+}
+
+static inline uint8_t intel_pt_pkt_trig_flags(const struct intel_pt_pkt *packet)
+{
+	return packet->payload;
+}
 
 #endif

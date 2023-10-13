@@ -416,6 +416,17 @@ static int arch_build_bp_info(struct perf_event *bp,
 	return 0;
 }
 
+bool intel_pt_bp_aux_output_capable(void);
+__weak bool intel_pt_bp_aux_output_capable(void)
+{
+	return false;
+}
+
+static int hw_breakpoint_aux_output_match(struct perf_event *event)
+{
+	return true;
+}
+
 /*
  * Validate the arch-specific HW Breakpoint register settings
  */
@@ -426,6 +437,13 @@ int hw_breakpoint_arch_parse(struct perf_event *bp,
 	unsigned int align;
 	int ret;
 
+
+	/* HACK: For testing only */
+	if (intel_pt_bp_aux_output_capable())
+		bp->pmu->capabilities |= PERF_PMU_CAP_AUX_OUTPUT;
+	else
+		bp->pmu->capabilities &= ~(u64)PERF_PMU_CAP_AUX_OUTPUT;
+	bp->pmu->aux_output_match = hw_breakpoint_aux_output_match;
 
 	ret = arch_build_bp_info(bp, attr, hw);
 	if (ret)

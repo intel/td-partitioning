@@ -13,6 +13,7 @@
 #include <linux/zalloc.h>
 #include <linux/err.h>
 #include <cpuid.h>
+#include <inttypes.h>
 
 #include "../../../util/session.h"
 #include "../../../util/event.h"
@@ -583,24 +584,239 @@ static void intel_pt_min_max_sample_sz(struct evlist *evlist,
 	}
 }
 
-/*
- * Currently, there is not enough information to disambiguate different PEBS
- * events, so only allow one.
- */
-static bool intel_pt_too_many_aux_output(struct evlist *evlist)
+static struct intel_pt_aux_output_opts {
+	const char *str;
+	u16 cfg;
+	bool dr;
+} intel_pt_aux_output_opts[] = {
+	{"pebs", 0, false},  /* PEBS-via-PT */
+	{"on-overflow:trigger", 0xc000, false},
+	{"on-overflow:trigger-pause", 0xe000, false},
+	{"on-overflow:trigger-resume", 0xd000, false},
+	{"on-overflow:trigger-noip", 0x8000, false},
+	{"on-overflow:trigger-noip-pause", 0xa000, false},
+	{"on-overflow:trigger-noip-resume", 0x9000, false},
+	{"on-event:trigger", 0xc020, false},
+	{"on-event:trigger-pause", 0xe020, false},
+	{"on-event:trigger-resume", 0xd020, false},
+	{"on-event:trigger-noip", 0x8020, false},
+	{"on-event:trigger-noip-pause", 0xa020, false},
+	{"on-event:trigger-noip-resume", 0x9020, false},
+	{"on-match:trigger", 0xc000, true},
+	{"on-match:trigger-pause", 0xe000, true},
+	{"on-match:trigger-resume", 0xd000, true},
+	{"on-match:trigger-noip", 0x8000, true},
+	{"on-match:trigger-noip-pause", 0xa000, true},
+	{"on-match:trigger-noip-resume", 0x9000, true},
+	{NULL},
+};
+
+static s64 intel_pt_parse_aux_output(const char *str, int *num)
 {
-	struct evsel *evsel;
-	int aux_output_cnt = 0;
+	const struct intel_pt_aux_output_opts *opt;
+	union intel_pt_aux_output_cfg cfg;
 
-	evlist__for_each_entry(evlist, evsel)
-		aux_output_cnt += !!evsel->core.attr.aux_output;
+	if (!str || !str[0] || !strcmp(str, "1"))
+		return 0; /* PEBS-via-PT */
 
-	if (aux_output_cnt > 1) {
-		pr_err(INTEL_PT_PMU_NAME " supports at most one event with aux-output\n");
-		return true;
+	for (opt = intel_pt_aux_output_opts; opt->str; opt++) {
+		size_t n = strlen(opt->str);
+
+		if (strncmp(str, opt->str, n) || str[n] == '-')
+			continue;
+		cfg.val = opt->cfg;
+		cfg.trig_nr_0 = (*num)++;
+		if (!str[n])
+			return cfg.val;
+		if (str[n] != ':' || str[n + 1] != ':')
+			return -1;
+		str += n + 2;
+		break;
 	}
 
-	return false;
+	if (!opt->str)
+		return -1;
+
+	for (opt = intel_pt_aux_output_opts; opt->str; opt++) {
+		if (!strcmp(str, opt->str)) {
+			cfg.val_1 = opt->cfg;
+			cfg.trig_nr_1 = (*num)++;
+			return cfg.val;
+		}
+	}
+
+	return -1;
+}
+
+struct intel_pt_trigger_caps {
+	int trigger_tracing;
+	int dr_match;
+	int pause_resume;
+	int trigger_attribution;
+	int num_trigger_msrs;
+};
+
+static int intel_pt_pmu_int(struct perf_pmu *intel_pt_pmu, int dirfd, const char *path)
+{
+	int val;
+
+	return perf_pmu__scan_file_at(intel_pt_pmu, dirfd, path, "%d", &val) == 1 ? val : 0;
+}
+
+static void intel_pt_get_trigger_caps(struct perf_pmu *pmu,
+				      struct intel_pt_trigger_caps *caps)
+{
+	int fd;
+
+	fd = perf_pmu__event_source_devices_fd();
+
+	memset(caps, 0, sizeof(*caps));
+	caps->trigger_tracing = intel_pt_pmu_int(pmu, fd, "caps/trigger_tracing");
+	if (caps->trigger_tracing) {
+		caps->dr_match = intel_pt_pmu_int(pmu, fd, "caps/dr_match");
+		caps->pause_resume = intel_pt_pmu_int(pmu, fd, "caps/pause_resume");
+		caps->trigger_attribution = intel_pt_pmu_int(pmu, fd, "caps/trigger_attribution");
+		caps->num_trigger_msrs = intel_pt_pmu_int(pmu, fd, "caps/num_trigger_msrs");
+	}
+
+	close(fd);
+}
+
+static bool intel_pt_val_trigger_action(u16 val, struct intel_pt_trigger_caps *caps)
+{
+	return (caps->pause_resume || !(val & INTEL_PT_TT_PAUSE_RESUME)) &&
+	       (caps->trigger_attribution || !(val & INTEL_PT_TT_EN_ICNT));
+}
+
+static void intel_pt_aux_output_error(struct evsel *evsel,
+				      const char *str,
+				      struct intel_pt_trigger_caps *caps)
+{
+	const struct intel_pt_aux_output_opts *opt;
+	u64 type = evsel->core.attr.type;
+	int printed = 0;
+
+	if (!caps->trigger_tracing)
+		return;
+
+	for (opt = intel_pt_aux_output_opts; opt->str; opt++) {
+		if (type == PERF_TYPE_BREAKPOINT) {
+			if (!opt->dr || !caps->dr_match)
+				continue;
+		} else if (opt->dr) {
+			continue;
+		}
+		if (!intel_pt_val_trigger_action(opt->cfg, caps))
+			continue;
+		if (!printed++) {
+			pr_err("Event: '%s' error, bad aux-output: '%s'\n",
+			       evsel__name(evsel), str);
+			pr_err("Valid aux-output for Intel PT Trigger Tracing:\n");
+		}
+		pr_err("\t%s\n", opt->str);
+	}
+	if (printed && type != PERF_TYPE_BREAKPOINT) {
+		pr_err("If supported, multiple aux-output can be sparated by '::'\n");
+		pr_err("e.g. on-event:trigger::on-overflow:trigger-pause\n");
+	}
+	if (!printed)
+		pr_err("Event: '%s' does not support aux-output\n", evsel__name(evsel));
+}
+
+static int intel_pt_validate_aux_output_cfg(struct evsel *evsel, s64 cfg_val, const char *str,
+					    struct intel_pt_trigger_caps *caps)
+{
+	union intel_pt_aux_output_cfg cfg = {.val = cfg_val};
+
+	if (cfg_val && !caps->trigger_tracing) {
+		pr_err("Intel PT Trigger Tracing is not supported.\n");
+		goto err_out;
+	}
+
+	if (cfg_val < 0)
+		goto err_out;
+
+	if (evsel->core.attr.type == PERF_TYPE_BREAKPOINT &&
+	    (!cfg_val || !caps->dr_match || cfg.val_1 || cfg.input_0))
+		goto err_out;
+
+	if (!intel_pt_val_trigger_action(cfg.val_0, caps) ||
+	    !intel_pt_val_trigger_action(cfg.val_1, caps))
+		goto err_out;
+
+	return 0;
+err_out:
+	intel_pt_aux_output_error(evsel, str, caps);
+	return -EINVAL;
+}
+
+static int intel_pt_configure_aux_output(struct perf_pmu *intel_pt_pmu,
+					 struct evlist *evlist,
+					 struct record_opts *opts)
+{
+	struct intel_pt_trigger_caps caps;
+	struct evsel_config_term *term;
+	int aux_output_cnt = 0;
+	struct evsel *evsel;
+	int event_trace;
+	int max_trigs;
+	int num = 0;
+
+	intel_pt_get_trigger_caps(intel_pt_pmu, &caps);
+
+	evlist__for_each_entry(evlist, evsel) {
+		u64 type = evsel->core.attr.type;
+		s64 cfg;
+
+		term = evsel__get_config_term(evsel, AUX_OUTPUT);
+		if (!term)
+			continue;
+		if (type == PERF_TYPE_SOFTWARE || type == PERF_TYPE_TRACEPOINT) {
+			pr_err("Intel PT: Bad event type (%#" PRIx64 ") for aux-output\n", type);
+			return -EINVAL;
+		}
+		cfg = intel_pt_parse_aux_output(term->val.str, &num);
+		if (intel_pt_validate_aux_output_cfg(evsel, cfg, term->val.str, &caps))
+			return -EINVAL;
+		if (type != PERF_TYPE_BREAKPOINT) {
+			bool has_period;
+
+			if (evsel__get_config_term(evsel, FREQ))
+				has_period = false;
+			else if (evsel__get_config_term(evsel, PERIOD))
+				has_period = true;
+			else if (opts->user_interval == ULLONG_MAX)
+				has_period = false;
+			else
+				has_period = true;
+			if (!has_period) {
+				pr_err("Intel PT Trigger Tracing: PMC event requires period\n");
+				return -EINVAL;
+			}
+		}
+		evsel->core.attr.aux_output_cfg = cfg;
+		aux_output_cnt += !cfg;
+	}
+
+	/*
+	 * MSRs have 4 triggers each, but TRIG packet has room for
+	 * INTEL_PT_MAX_TRIG_TRIGGERS.
+	 */
+	max_trigs = min(caps.num_trigger_msrs * 4, INTEL_PT_MAX_TRIG_TRIGGERS);
+	if (num > max_trigs) {
+		pr_err("Intel PT: Too many triggers (max %d)\n", max_trigs);
+		return -EINVAL;
+	}
+
+	/*
+	 * Older kernels may not support PERF_RECORD_AUX_OUTPUT_HW_ID, but those
+	 * after event_trace support was added probably do.
+	 */
+	if (aux_output_cnt > 1 &&
+	    perf_pmu__scan_file(intel_pt_pmu, "caps/event_trace", "%d", &event_trace) != 1)
+		pr_warning("Older kernels may support at most one event with PEBS-via-PT\n");
+
+	return 0;
 }
 
 static int intel_pt_recording_options(struct auxtrace_record *itr,
@@ -650,8 +866,9 @@ static int intel_pt_recording_options(struct auxtrace_record *itr,
 		return -EINVAL;
 	}
 
-	if (intel_pt_too_many_aux_output(evlist))
-		return -EINVAL;
+	err = intel_pt_configure_aux_output(intel_pt_pmu, evlist, opts);
+	if (err)
+		return err;
 
 	if (!opts->full_auxtrace)
 		return 0;

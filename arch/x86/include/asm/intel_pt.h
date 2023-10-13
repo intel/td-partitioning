@@ -15,15 +15,20 @@ enum pt_capabilities {
 	PT_CAP_power_event_trace,
 	PT_CAP_event_trace,
 	PT_CAP_tnt_disable,
+	PT_CAP_trigger_tracing,
 	PT_CAP_topa_output,
 	PT_CAP_topa_multiple_entries,
 	PT_CAP_single_range_output,
 	PT_CAP_output_subsys,
 	PT_CAP_payloads_lip,
 	PT_CAP_num_address_ranges,
+	PT_CAP_num_trigger_msrs,
 	PT_CAP_mtc_periods,
 	PT_CAP_cycle_thresholds,
 	PT_CAP_psb_periods,
+	PT_CAP_trigger_attribution,
+	PT_CAP_pause_resume,
+	PT_CAP_dr_match,
 };
 
 #if defined(CONFIG_PERF_EVENTS) && defined(CONFIG_CPU_SUP_INTEL)

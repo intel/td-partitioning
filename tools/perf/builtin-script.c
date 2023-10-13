@@ -1622,6 +1622,8 @@ static struct {
 	{PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_TRACE_END, "tr end"},
 	{PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_CALL | PERF_IP_FLAG_VMENTRY, "vmentry"},
 	{PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_CALL | PERF_IP_FLAG_VMEXIT, "vmexit"},
+	{PERF_IP_FLAG_TRACE_BEGIN, "tr begin"},
+	{PERF_IP_FLAG_TRACE_END, "tr end"},
 	{0, NULL}
 };
 
@@ -1957,6 +1959,21 @@ static int perf_sample__fprintf_synth_iflag_chg(struct perf_sample *sample, FILE
 	return len + perf_sample__fprintf_pt_spacing(len, fp);
 }
 
+/* Intel PT Trigger Trace */
+static int perf_sample__fprintf_synth_trig(struct perf_sample *sample, FILE *fp)
+{
+	struct perf_synth_intel_trig *data = perf_sample__synth_ptr(sample);
+	int len;
+
+	if (perf_sample__bad_synth_size(sample, *data))
+		return 0;
+
+	len = fprintf(fp, "trbv: %#x icntv: %d mult: %d inst: %d",
+		      data->trbv, data->trig_icntv,
+		      data->trig_mult, data->trig_inst);
+	return len + perf_sample__fprintf_pt_spacing(len, fp);
+}
+
 static int perf_sample__fprintf_synth(struct perf_sample *sample,
 				      struct evsel *evsel, FILE *fp)
 {
@@ -1979,6 +1996,8 @@ static int perf_sample__fprintf_synth(struct perf_sample *sample,
 		return perf_sample__fprintf_synth_evt(sample, fp);
 	case PERF_SYNTH_INTEL_IFLAG_CHG:
 		return perf_sample__fprintf_synth_iflag_chg(sample, fp);
+	case PERF_SYNTH_INTEL_TRIG:
+		return perf_sample__fprintf_synth_trig(sample, fp);
 	default:
 		break;
 	}

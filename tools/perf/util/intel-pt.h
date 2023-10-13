@@ -9,6 +9,38 @@
 
 #define INTEL_PT_PMU_NAME "intel_pt"
 
+/* 5-bits are allowed for trigger number */
+#define INTEL_PT_MAX_TRIGGERS		32
+
+/* TRIG packet has room for only 8 triggers */
+#define INTEL_PT_MAX_TRIG_TRIGGERS	8
+
+union intel_pt_aux_output_cfg {
+	struct {
+		u32	trig_nr_0	: 5,
+			input_0		: 1,
+			reserved_0	: 6,
+			action_0	: 4,
+			trig_nr_1	: 5,
+			input_1		: 1,
+			reserved_1	: 6,
+			action_1	: 4;
+	};
+	struct {
+		u16 val_0;
+		u16 val_1;
+	};
+	u32 val;
+};
+
+#define INTEL_PT_TT_EVENT		BIT(5)
+#define INTEL_PT_TT_RESUME		BIT(12)
+#define INTEL_PT_TT_PAUSE		BIT(13)
+#define INTEL_PT_TT_EN_ICNT		BIT(14)
+#define INTEL_PT_TT_EN			BIT(15)
+
+#define INTEL_PT_TT_PAUSE_RESUME	(INTEL_PT_TT_PAUSE | INTEL_PT_TT_RESUME)
+
 enum {
 	INTEL_PT_PMU_TYPE,
 	INTEL_PT_TIME_SHIFT,

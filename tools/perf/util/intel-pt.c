@@ -13,6 +13,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/zalloc.h>
+#include <linux/hashtable.h>
 
 #include "session.h"
 #include "machine.h"
@@ -81,6 +82,7 @@ struct intel_pt {
 	bool callstack;
 	bool cap_event_trace;
 	bool have_guest_sideband;
+	bool trigger_tracing;
 	unsigned int br_stack_sz;
 	unsigned int br_stack_sz_plus;
 	int have_sched_switch;
@@ -135,6 +137,9 @@ struct intel_pt {
 	u64 iflag_chg_sample_type;
 	u64 iflag_chg_id;
 
+	u64 trig_sample_type;
+	u64 trig_id;
+
 	u64 tsc_bit;
 	u64 mtc_bit;
 	u64 mtc_freq_bits;
@@ -173,6 +178,11 @@ enum switch_state {
 #define INTEL_PT_MAX_PEBS 64
 
 struct intel_pt_pebs_event {
+	struct evsel *evsel;
+	u64 id;
+};
+
+struct intel_pt_trig_event {
 	struct evsel *evsel;
 	u64 id;
 };
@@ -226,6 +236,7 @@ struct intel_pt_queue {
 	unsigned int cbr_seen;
 	char insn[INTEL_PT_INSN_BUF_SZ];
 	struct intel_pt_pebs_event pebs[INTEL_PT_MAX_PEBS];
+	struct intel_pt_trig_event trigs[INTEL_PT_MAX_TRIGGERS];
 };
 
 static void intel_pt_dump(struct intel_pt *pt __maybe_unused,
@@ -1283,6 +1294,31 @@ static void intel_pt_add_br_stack(struct intel_pt *pt,
 	thread__put(thread);
 }
 
+static void intel_pt_set_triger_tracing_params(struct intel_pt *pt, struct intel_pt_params *params)
+{
+	union intel_pt_aux_output_cfg cfg;
+	uint32_t pause = 0, resume = 0;
+	struct evsel *evsel;
+
+	evlist__for_each_entry(pt->session->evlist, evsel) {
+		cfg.val = evsel->core.attr.aux_output_cfg;
+		if (!cfg.val)
+			continue;
+		if (cfg.val_0 & INTEL_PT_TT_PAUSE)
+			pause |= 1 << cfg.trig_nr_0;
+		if (cfg.val_0 & INTEL_PT_TT_RESUME)
+			resume |= 1 << cfg.trig_nr_0;
+		if (cfg.val_1 & INTEL_PT_TT_PAUSE)
+			pause |= 1 << cfg.trig_nr_1;
+		if (cfg.val_1 & INTEL_PT_TT_RESUME)
+			resume |= 1 << cfg.trig_nr_1;
+	}
+
+	/* Pause and resume together cancel out */
+	params->pause_trbv = pause & ~resume;
+	params->resume_trbv = resume & ~pause;
+}
+
 /* INTEL_PT_LBR_0, INTEL_PT_LBR_1 and INTEL_PT_LBR_2 */
 #define LBRS_MAX (INTEL_PT_BLK_ITEM_ID_CNT * 3U)
 
@@ -1340,6 +1376,7 @@ static struct intel_pt_queue *intel_pt_alloc_queue(struct intel_pt *pt,
 	params.vm_tm_corr_dry_run = pt->synth_opts.vm_tm_corr_dry_run;
 	params.first_timestamp = pt->first_timestamp;
 	params.max_loops = pt->max_loops;
+	intel_pt_set_triger_tracing_params(pt, &params);
 
 	/* Cannot walk code without TNT, so force 'quick' mode */
 	if (params.branch_enable && intel_pt_disabled_tnt(pt) && !params.quick)
@@ -1566,6 +1603,48 @@ static void intel_pt_setup_time_range(struct intel_pt *pt,
 	}
 }
 
+static void intel_pt_set_trigger(struct intel_pt_queue *ptq, int trig_nr, struct evsel *evsel, u64 id)
+{
+	ptq->trigs[trig_nr].evsel = evsel;
+	ptq->trigs[trig_nr].id = id;
+	intel_pt_log("queue %d cpu %d tid %d trigger %u ID %" PRIu64 "\n",
+		     ptq->queue_nr, ptq->cpu, ptq->tid, trig_nr, id);
+}
+
+static void intel_pt_setup_triggers(struct intel_pt *pt,
+				    struct intel_pt_queue *ptq)
+{
+	struct perf_evlist *evlist = &pt->session->evlist->core;
+	union intel_pt_aux_output_cfg cfg;
+	struct perf_sample_id *sid;
+	struct evsel *evsel;
+	size_t h;
+
+	hash_for_each(evlist->heads, h, sid, node) {
+		if (sid->cpu.cpu != ptq->cpu || sid->tid != ptq->tid)
+			continue;
+		cfg.val = sid->evsel->attr.aux_output_cfg;
+		if (!cfg.val)
+			continue;
+		evsel = container_of(sid->evsel, struct evsel, core);
+		intel_pt_set_trigger(ptq, cfg.trig_nr_0, evsel, sid->id);
+		if (cfg.action_1)
+			intel_pt_set_trigger(ptq, cfg.trig_nr_1, evsel, sid->id);
+	}
+}
+
+static bool intel_pt_triger_tracing(struct intel_pt *pt)
+{
+	struct evsel *evsel;
+
+	evlist__for_each_entry(pt->session->evlist, evsel) {
+		if (evsel->core.attr.aux_output_cfg)
+			return true;
+	}
+
+	return false;
+}
+
 static int intel_pt_setup_queue(struct intel_pt *pt,
 				struct auxtrace_queue *queue,
 				unsigned int queue_nr)
@@ -1594,6 +1673,8 @@ static int intel_pt_setup_queue(struct intel_pt *pt,
 		ptq->sync_switch = pt->sync_switch;
 
 		intel_pt_setup_time_range(pt, ptq);
+
+		intel_pt_setup_triggers(pt, ptq);
 	}
 
 	if (!ptq->on_heap &&
@@ -2399,6 +2480,75 @@ static int intel_pt_synth_pebs_sample(struct intel_pt_queue *ptq)
 	return err;
 }
 
+static int intel_pt_do_synth_trig_sample(struct intel_pt_queue *ptq,
+					 struct evsel *evsel, u64 id, u16 cfg_val)
+{
+	u64 sample_type = evsel->core.attr.sample_type;
+	struct perf_sample sample = { .ip = 0, };
+	union perf_event *event = ptq->event_buf;
+	struct intel_pt *pt = ptq->pt;
+
+	if (intel_pt_skip_event(pt))
+		return 0;
+
+	intel_pt_prep_sample(pt, ptq, event, &sample);
+
+	sample.id = id;
+	sample.stream_id = id;
+	sample.flags = 0;
+
+	/* Do not report IP if no IP attribution */
+	if (!(ptq->state->trig_flags & INTEL_PT_TRIG_ICNTV))
+		sample.ip = 0;
+
+	if (evsel->core.attr.type == PERF_TYPE_BREAKPOINT ||
+	    cfg_val & INTEL_PT_TT_EVENT ||
+	    evsel->core.attr.freq) {
+		sample.period = 1;
+	} else {
+		sample.period = evsel->core.attr.sample_period;
+	}
+
+	return intel_pt_deliver_synth_event(pt, event, &sample, sample_type);
+}
+
+static int intel_pt_synth_single_trig_sample(struct intel_pt_queue *ptq, int trig_nr)
+{
+	struct intel_pt_trig_event *te = &ptq->trigs[trig_nr];
+	union intel_pt_aux_output_cfg cfg;
+	u16 cfg_val = 0;
+
+	if (!te->evsel) {
+		pr_err("Intel PT Trigger with no matching selected event\n");
+		return 0;
+	}
+
+	cfg.val = te->evsel->core.attr.aux_output_cfg;
+	if (cfg.trig_nr_0 == trig_nr)
+		cfg_val = cfg.val_0;
+	else if (cfg.trig_nr_1 == trig_nr)
+		cfg_val = cfg.val_1;
+	else
+		pr_err("Intel PT Trigger with no matching aux_output_cfg\n");
+
+	return intel_pt_do_synth_trig_sample(ptq, te->evsel, te->id, cfg_val);
+}
+
+static int intel_pt_synth_trig_sample(struct intel_pt_queue *ptq)
+{
+	unsigned long trbv = ptq->state->trbv;
+	int trig_nr;
+	int err;
+
+	for_each_set_bit(trig_nr, &trbv, INTEL_PT_MAX_TRIGGERS) {
+		err = intel_pt_synth_single_trig_sample(ptq, trig_nr);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static int intel_pt_synth_events_sample(struct intel_pt_queue *ptq)
 {
 	struct intel_pt *pt = ptq->pt;
@@ -2469,6 +2619,33 @@ static int intel_pt_synth_iflag_chg_sample(struct intel_pt_queue *ptq)
 
 	return intel_pt_deliver_synth_event(pt, event, &sample,
 					    pt->iflag_chg_sample_type);
+}
+
+static int intel_pt_synth_trig_pkt_sample(struct intel_pt_queue *ptq)
+{
+	struct intel_pt *pt = ptq->pt;
+	union perf_event *event = ptq->event_buf;
+	struct perf_sample sample = { .ip = 0, };
+	struct perf_synth_intel_trig raw;
+
+	if (intel_pt_skip_event(pt))
+		return 0;
+
+	intel_pt_prep_p_sample(pt, ptq, event, &sample);
+
+	sample.id        = ptq->pt->trig_id;
+	sample.stream_id = ptq->pt->trig_id;
+	sample.flags     = 0;
+
+	raw.flags        = ptq->state->trig_flags;
+	raw.trbv         = ptq->state->trbv;
+	raw.icnt         = ptq->state->icnt;
+
+	sample.raw_size = perf_synth__raw_size(raw);
+	sample.raw_data = perf_synth__raw_data(&raw);
+
+	return intel_pt_deliver_synth_event(pt, event, &sample,
+					    pt->trig_sample_type);
 }
 
 static int intel_pt_synth_error(struct intel_pt *pt, int code, int cpu,
@@ -2620,6 +2797,11 @@ static int intel_pt_sample(struct intel_pt_queue *ptq)
 	}
 
 	if (pt->sample_pwr_events) {
+		if (state->type & INTEL_PT_TRIG_EVENT) {
+			err = intel_pt_synth_trig_pkt_sample(ptq);
+			if (err)
+				return err;
+		}
 		if (state->type & INTEL_PT_PSB_EVT) {
 			err = intel_pt_synth_psb_sample(ptq);
 			if (err)
@@ -2675,6 +2857,12 @@ static int intel_pt_sample(struct intel_pt_queue *ptq)
 
 	if (pt->sample_ptwrites && (state->type & INTEL_PT_PTW)) {
 		err = intel_pt_synth_ptwrite_sample(ptq);
+		if (err)
+			return err;
+	}
+
+	if (state->type & INTEL_PT_TRIG_EVENT && pt->synth_opts.other_events) {
+		err = intel_pt_synth_trig_sample(ptq);
 		if (err)
 			return err;
 	}
@@ -3924,6 +4112,17 @@ static int intel_pt_synth_events(struct intel_pt *pt,
 		id += 1;
 	}
 
+	if (pt->synth_opts.pwr_events && pt->trigger_tracing) {
+		attr.config = PERF_SYNTH_INTEL_TRIG;
+		err = intel_pt_synth_event(session, "trig", &attr, id);
+		if (err)
+			return err;
+		pt->trig_sample_type = attr.sample_type;
+		pt->trig_id = id;
+		intel_pt_set_event_name(evlist, id, "trig");
+		id += 1;
+	}
+
 	return 0;
 }
 
@@ -4308,6 +4507,8 @@ int intel_pt_process_auxtrace_info(union perf_event *event,
 	pt->have_tsc = intel_pt_have_tsc(pt);
 	pt->sampling_mode = intel_pt_sampling_mode(pt);
 	pt->est_tsc = !pt->timeless_decoding;
+
+	pt->trigger_tracing = intel_pt_triger_tracing(pt);
 
 	if (pt->synth_opts.vm_time_correlation) {
 		if (pt->timeless_decoding) {

@@ -106,6 +106,7 @@ enum perf_synth_id {
 	PERF_SYNTH_INTEL_PSB,
 	PERF_SYNTH_INTEL_EVT,
 	PERF_SYNTH_INTEL_IFLAG_CHG,
+	PERF_SYNTH_INTEL_TRIG,
 };
 
 /*
@@ -241,6 +242,23 @@ struct perf_synth_intel_iflag_chg {
 		u32	flags;
 	};
 	u64	branch_ip; /* If via_branch */
+};
+
+/* Intel PT Trigger Trace */
+struct perf_synth_intel_trig {
+	u32 padding;
+	union {
+		struct {
+			u32	reserved1	:  4,
+				trig_inst	:  1,
+				trig_mult	:  1,
+				trig_icntv	:  1,
+				reserved2	: 25;
+		};
+		u32	flags;
+	};
+	u32 trbv;
+	u32 icnt;
 };
 
 static inline void *perf_synth__raw_data(void *p)

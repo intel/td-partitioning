@@ -932,7 +932,7 @@ do {									   \
 		}
 		break;
 	case PARSE_EVENTS__TERM_TYPE_AUX_OUTPUT:
-		CHECK_TYPE_VAL(NUM);
+		/* Accept a number or a string */
 		break;
 	case PARSE_EVENTS__TERM_TYPE_AUX_SAMPLE_SIZE:
 		CHECK_TYPE_VAL(NUM);
@@ -1166,8 +1166,10 @@ do {								\
 					    term->val.num ? true : false, term->weak);
 			break;
 		case PARSE_EVENTS__TERM_TYPE_AUX_OUTPUT:
-			ADD_CONFIG_TERM_VAL(AUX_OUTPUT, aux_output,
-					    term->val.num ? 1 : 0, term->weak);
+			ADD_CONFIG_TERM_STR(AUX_OUTPUT,
+					    term->type_val == PARSE_EVENTS__TERM_TYPE_STR ?
+					    term->val.str :
+					    term->val.num ? "1" : "", term->weak);
 			break;
 		case PARSE_EVENTS__TERM_TYPE_AUX_SAMPLE_SIZE:
 			ADD_CONFIG_TERM_VAL(AUX_SAMPLE_SIZE, aux_sample_size,
