@@ -3,6 +3,10 @@
 config IOMMU_IOVA
 	tristate
 
+# The IOASID library may also be used by non-IOMMU_API users
+config IOASID
+	tristate
+
 # IOMMU_API always gets selected by whoever wants it.
 config IOMMU_API
 	bool
@@ -156,6 +160,10 @@ config IOMMU_DMA
 
 # Shared Virtual Addressing
 config IOMMU_SVA
+	bool
+	select IOASID
+
+config IOMMU_IOPF
 	bool
 
 config FSL_PAMU
@@ -404,6 +412,7 @@ config ARM_SMMU_V3_SVA
 	bool "Shared Virtual Addressing support for the ARM SMMUv3"
 	depends on ARM_SMMU_V3
 	select IOMMU_SVA
+	select IOMMU_IOPF
 	select MMU_NOTIFIER
 	help
 	  Support for sharing process address spaces with devices using the

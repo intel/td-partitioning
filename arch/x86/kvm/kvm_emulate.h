@@ -165,7 +165,10 @@ struct x86_emulate_ops {
 	int (*write_emulated)(struct x86_emulate_ctxt *ctxt,
 			      unsigned long addr, const void *val,
 			      unsigned int bytes,
-			      struct x86_exception *fault);
+			      struct x86_exception *fault,
+			      bool non_posted);
+
+	int (*np_write_complete)(struct x86_emulate_ctxt *ctxt, bool *retry);
 
 	/*
 	 * cmpxchg_emulated: Emulate an atomic (LOCKed) CMPXCHG operation on an
@@ -239,6 +242,8 @@ struct x86_emulate_ops {
 				  unsigned int size, unsigned int flags);
 };
 
+typedef u32 __attribute__((vector_size(64))) sz512_t;
+
 /* Type, address-of, and value of an instruction's operand. */
 struct operand {
 	enum { OP_REG, OP_MEM, OP_MEM_STR, OP_IMM, OP_XMM, OP_MM, OP_NONE } type;
@@ -262,6 +267,7 @@ struct operand {
 		u64 val64;
 		char valptr[sizeof(sse128_t)];
 		sse128_t vec_val;
+		char valptr512[sizeof(sz512_t)];
 		u64 mm_val;
 		void *data;
 	};

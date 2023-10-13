@@ -350,6 +350,10 @@ struct kvm_vcpu {
 #ifdef CONFIG_HAS_IOMEM
 	int mmio_needed;
 	int mmio_read_completed;
+	int mmio_nonposted_write_completed;
+#define MMIO_WRITE 1
+#define MMIO_NONPOSTED_WRITE 3
+#define MMIO_NONPOSTED_DEFERRED 4
 	int mmio_is_write;
 	int mmio_cur_fragment;
 	int mmio_nr_fragments;
@@ -1476,6 +1480,8 @@ bool kvm_arch_dy_has_pending_interrupt(struct kvm_vcpu *vcpu);
 int kvm_arch_post_init_vm(struct kvm *kvm);
 void kvm_arch_pre_destroy_vm(struct kvm *kvm);
 int kvm_arch_create_vm_debugfs(struct kvm *kvm);
+
+int kvm_arch_ioasid_bind(struct kvm_vcpu *vcpu, struct kvm_bind_pasid *pb);
 
 #ifndef __KVM_HAVE_ARCH_VM_ALLOC
 /*

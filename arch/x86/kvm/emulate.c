@@ -172,6 +172,7 @@
 #define NoMod	    ((u64)1 << 47)  /* Mod field is ignored */
 #define Intercept   ((u64)1 << 48)  /* Has valid intercept field */
 #define CheckPerm   ((u64)1 << 49)  /* Has valid check_perm field */
+#define NonPostedWrite  ((u64)1 << 50)  /* Instruction does non-posted write */
 #define PrivUD      ((u64)1 << 51)  /* #UD instead of #GP on CPL > 0 */
 #define NearBranch  ((u64)1 << 52)  /* Near branches */
 #define No16	    ((u64)1 << 53)  /* No 16 bit operand */
@@ -1411,12 +1412,15 @@ static int segmented_write(struct x86_emulate_ctxt *ctxt,
 {
 	int rc;
 	ulong linear;
+	bool non_posted = false;
 
 	rc = linearize(ctxt, addr, size, true, &linear);
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
+	if (ctxt->d & NonPostedWrite)
+		non_posted = true;
 	return ctxt->ops->write_emulated(ctxt, linear, data, size,
-					 &ctxt->exception);
+					 &ctxt->exception, non_posted);
 }
 
 static int segmented_cmpxchg(struct x86_emulate_ctxt *ctxt,
@@ -3275,6 +3279,119 @@ static int em_mov(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_enqcmd(struct x86_emulate_ctxt *ctxt)
+{
+	u64 dest_va = ctxt->dst.val;
+	int rc = X86EMUL_CONTINUE;
+	bool retry = false;
+
+	if (ctxt->ops->np_write_complete(ctxt, &retry)) {
+		/* Dont do writeback on the return path*/
+		ctxt->d &= ~NoWrite;
+		if (retry)
+			ctxt->eflags |=  X86_EFLAGS_ZF;
+		else
+			ctxt->eflags &=  ~X86_EFLAGS_ZF;
+
+		return rc;
+	}
+
+	if (dest_va & 0x3f) {
+		printk("dest va is not 64 byte aligned\n");
+	}
+	ctxt->op_bytes = 64;
+	ctxt->src.bytes = 64;
+	ctxt->dst.bytes = 64;
+
+	ctxt->dst.type = OP_MEM;
+	ctxt->dst.addr.mem.ea = dest_va;
+	ctxt->dst.addr.mem.seg = ctxt->src.addr.mem.seg;
+
+	rc = segmented_read(ctxt, ctxt->src.addr.mem,
+	ctxt->src.valptr512, ctxt->src.bytes);
+	if (rc != X86EMUL_CONTINUE) {
+		printk("ENQCMD: read src data failed rc %d\n", rc);
+		goto done;
+	}
+
+	/* TODO: Get PASID from PASID MSR */
+
+	/* TODO: Translate PASID through VMCS PASID translation table */
+
+	memcpy(ctxt->dst.valptr512, ctxt->src.valptr512, sizeof(ctxt->src.valptr512));
+done:
+	return rc;
+}
+
+static int em_enqcmds(struct x86_emulate_ctxt *ctxt)
+{
+	u64 dest_va = ctxt->dst.val;
+	int rc = X86EMUL_CONTINUE;
+	bool retry = false;
+
+	if (ctxt->ops->np_write_complete(ctxt, &retry)) {
+		/* Dont do writeback on the return path*/
+		ctxt->d &= ~NoWrite;
+		if (retry)
+			ctxt->eflags |=  X86_EFLAGS_ZF;
+		else
+			ctxt->eflags &=  ~X86_EFLAGS_ZF;
+
+		return rc;
+	}
+
+	if (dest_va & 0x3f) {
+		printk("dest va is not 64 byte aligned\n");
+	}
+	ctxt->op_bytes = 64;
+	ctxt->src.bytes = 64;
+	ctxt->dst.bytes = 64;
+
+	ctxt->dst.type = OP_MEM;
+	ctxt->dst.addr.mem.ea = dest_va;
+	ctxt->dst.addr.mem.seg = ctxt->src.addr.mem.seg;
+
+	rc = segmented_read(ctxt, ctxt->src.addr.mem,
+	ctxt->src.valptr512, ctxt->src.bytes);
+	if (rc != X86EMUL_CONTINUE) {
+		printk("ENQCMDS: read src data failed rc %d\n", rc);
+		goto done;
+	}
+
+	/* TODO: Translate PASID through VMCS PASID translation table */
+	memcpy(ctxt->dst.valptr512, ctxt->src.valptr512, sizeof(ctxt->src.valptr512));
+done:
+	return rc;
+}
+
+static int em_movdir64b(struct x86_emulate_ctxt *ctxt)
+{
+	u64 dest_va = ctxt->dst.val;
+	int rc = X86EMUL_CONTINUE;
+
+	if (dest_va & 0x3f) {
+		printk("dest va is not 64 byte aligned\n");
+	}
+	ctxt->op_bytes = 64;
+	ctxt->src.bytes = 64;
+	ctxt->dst.bytes = 64;
+
+	ctxt->dst.type = OP_MEM;
+	ctxt->dst.addr.mem.ea = dest_va;
+	ctxt->dst.addr.mem.seg = ctxt->src.addr.mem.seg;
+
+	rc = segmented_read(ctxt, ctxt->src.addr.mem,
+		ctxt->src.valptr512, ctxt->src.bytes);
+	if (rc != X86EMUL_CONTINUE) {
+		printk("MOVDIR64B: read src data failed rc %d\n", rc);
+		goto done;
+	}
+
+	memcpy(ctxt->dst.valptr512, ctxt->src.valptr512, sizeof(ctxt->src.valptr512));
+done:
+	return rc;
+}
+
 static int em_movbe(struct x86_emulate_ctxt *ctxt)
 {
 	u16 tmp;
@@ -4524,6 +4641,15 @@ static const struct gprefix three_byte_0f_38_f1 = {
 	ID(0, &instr_dual_0f_38_f1), N, N, N
 };
 
+/* MOVDIR64B has alignment requirement on dest but not on source.
+ * Not sure how to specify Unaligned only on the source addr
+ */
+static const struct gprefix three_byte_0f_38_f8 = {
+	N, I(DstReg | SrcMem | Mov | NoAccess | TwoMemOp | Unaligned, em_movdir64b),
+	I(DstReg | SrcMem | Mov | NoAccess | TwoMemOp | Unaligned | NonPostedWrite, em_enqcmd),
+	I(DstReg | SrcMem | Mov | NoAccess | TwoMemOp | Unaligned | NonPostedWrite, em_enqcmds)
+};
+
 /*
  * Insns below are selected by the prefix which indexed by the third opcode
  * byte.
@@ -4537,7 +4663,7 @@ static const struct opcode opcode_map_0f_38[256] = {
 	GP(EmulateOnUD | ModRM, &three_byte_0f_38_f0),
 	GP(EmulateOnUD | ModRM, &three_byte_0f_38_f1),
 	/* 0xf2 - 0xff */
-	N, N, X4(N), X8(N)
+	N, N, X4(N), GP(ModRM, &three_byte_0f_38_f8), N, N, N, X4(N)
 };
 
 #undef D
@@ -4905,6 +5031,8 @@ done_prefixes:
 			ctxt->opcode_len = 3;
 			ctxt->b = insn_fetch(u8, ctxt);
 			opcode = opcode_map_0f_38[ctxt->b];
+			if (ctxt->b == 0xf8)
+				ctxt->op_bytes = 8;
 		}
 	}
 	ctxt->d = opcode.flags;

@@ -114,6 +114,8 @@ TEST_F(iommufd, cmd_length)
 
 	TEST_LENGTH(iommu_destroy, IOMMU_DESTROY);
 	TEST_LENGTH(iommu_hw_info, IOMMU_GET_HW_INFO);
+	TEST_LENGTH(iommu_hwpt_alloc, IOMMU_HWPT_ALLOC);
+	TEST_LENGTH(iommu_hwpt_invalidate, IOMMU_HWPT_INVALIDATE);
 	TEST_LENGTH(iommu_ioas_alloc, IOMMU_IOAS_ALLOC);
 	TEST_LENGTH(iommu_ioas_iova_ranges, IOMMU_IOAS_IOVA_RANGES);
 	TEST_LENGTH(iommu_ioas_allow_iovas, IOMMU_IOAS_ALLOW_IOVAS);
@@ -121,6 +123,8 @@ TEST_F(iommufd, cmd_length)
 	TEST_LENGTH(iommu_ioas_copy, IOMMU_IOAS_COPY);
 	TEST_LENGTH(iommu_ioas_unmap, IOMMU_IOAS_UNMAP);
 	TEST_LENGTH(iommu_option, IOMMU_OPTION);
+	TEST_LENGTH(iommu_set_dev_data, IOMMU_SET_DEV_DATA);
+	TEST_LENGTH(iommu_unset_dev_data, IOMMU_UNSET_DEV_DATA);
 	TEST_LENGTH(iommu_vfio_ioas, IOMMU_VFIO_IOAS);
 #undef TEST_LENGTH
 }
@@ -194,6 +198,7 @@ FIXTURE_VARIANT(iommufd_ioas)
 {
 	unsigned int mock_domains;
 	unsigned int memory_limit;
+	bool new_hwpt;
 };
 
 FIXTURE_SETUP(iommufd_ioas)
@@ -233,6 +238,12 @@ FIXTURE_VARIANT_ADD(iommufd_ioas, mock_domain)
 	.mock_domains = 1,
 };
 
+FIXTURE_VARIANT_ADD(iommufd_ioas, mock_domain_hwpt)
+{
+	.mock_domains = 1,
+	.new_hwpt = true,
+};
+
 FIXTURE_VARIANT_ADD(iommufd_ioas, two_mock_domain)
 {
 	.mock_domains = 2,
@@ -257,6 +268,104 @@ TEST_F(iommufd_ioas, ioas_destroy)
 	} else {
 		/* Can allocate and manually free an IOAS table */
 		test_ioctl_destroy(self->ioas_id);
+	}
+}
+
+TEST_F(iommufd_ioas, hwpt_alloc)
+{
+	uint32_t new_hwpt_id = 0;
+
+	if (self->stdev_id && self->device_id) {
+		test_cmd_hwpt_alloc(self->device_id, self->ioas_id, &new_hwpt_id);
+		test_cmd_mock_domain_replace(self->stdev_id, new_hwpt_id);
+		/* hw_pagetable cannot be freed if a device is attached to it */
+		EXPECT_ERRNO(EBUSY, _test_ioctl_destroy(self->fd, new_hwpt_id));
+
+		/* Detach from the new hw_pagetable and try again */
+		test_cmd_mock_domain_replace(self->stdev_id, self->ioas_id);
+		test_ioctl_destroy(new_hwpt_id);
+	} else {
+		test_err_cmd_hwpt_alloc(ENOENT, self->device_id,
+					self->ioas_id, &new_hwpt_id);
+		test_err_mock_domain_replace(ENOENT,
+					     self->stdev_id, new_hwpt_id);
+	}
+}
+
+TEST_F(iommufd_ioas, nested_hwpt_alloc)
+{
+	uint32_t nested_hwpt_id[2] = {};
+	uint32_t parent_hwpt_id = 0;
+	uint32_t test_hwpt_id = 0;
+
+	if (self->device_id) {
+		/* Negative tests */
+		test_err_cmd_hwpt_alloc(ENOENT, self->ioas_id, self->device_id,
+					&test_hwpt_id);
+		test_err_cmd_hwpt_alloc(EINVAL, self->device_id,
+					self->device_id, &test_hwpt_id);
+
+		/* Allocate two nested hwpts sharing one common parent hwpt */
+		test_cmd_hwpt_alloc(self->device_id, self->ioas_id,
+				    &parent_hwpt_id);
+
+		test_cmd_hwpt_alloc_nested(self->device_id, parent_hwpt_id,
+					   &nested_hwpt_id[0]);
+		test_cmd_hwpt_alloc_nested(self->device_id, parent_hwpt_id,
+					   &nested_hwpt_id[1]);
+		test_cmd_hwpt_check_iotlb(nested_hwpt_id[0],
+					  IOMMU_TEST_IOTLB_DEFAULT);
+		test_cmd_hwpt_check_iotlb(nested_hwpt_id[1],
+					  IOMMU_TEST_IOTLB_DEFAULT);
+
+		/* Negative test: a nested hwpt on top of a nested hwpt */
+		test_err_cmd_hwpt_alloc_nested(EINVAL, self->device_id,
+					       nested_hwpt_id[0],
+					       &test_hwpt_id);
+		/* Negative test: parent hwpt now cannot be freed */
+		EXPECT_ERRNO(EBUSY,
+			     _test_ioctl_destroy(self->fd, parent_hwpt_id));
+
+		/* hwpt_invalidate only supports a user-managed hwpt (nested) */
+		test_err_cmd_hwpt_invalidate(EINVAL, parent_hwpt_id);
+		test_cmd_hwpt_invalidate(nested_hwpt_id[0]);
+		test_cmd_hwpt_check_iotlb(nested_hwpt_id[0], 0);
+		test_cmd_hwpt_invalidate(nested_hwpt_id[1]);
+		test_cmd_hwpt_check_iotlb(nested_hwpt_id[1], 0);
+
+		/* Attach device to nested_hwpt_id[0] that then will be busy */
+		test_cmd_mock_domain_replace(self->stdev_id,
+					     nested_hwpt_id[0]);
+		EXPECT_ERRNO(EBUSY,
+			     _test_ioctl_destroy(self->fd, nested_hwpt_id[0]));
+
+		/* Switch from nested_hwpt_id[0] to nested_hwpt_id[1] */
+		test_cmd_mock_domain_replace(self->stdev_id,
+					     nested_hwpt_id[1]);
+		EXPECT_ERRNO(EBUSY,
+			     _test_ioctl_destroy(self->fd, nested_hwpt_id[1]));
+		test_ioctl_destroy(nested_hwpt_id[0]);
+
+		/* Detach from nested_hwpt_id[1] and destroy it */
+		test_cmd_mock_domain_replace(self->stdev_id, parent_hwpt_id);
+		test_ioctl_destroy(nested_hwpt_id[1]);
+
+		/* Detach from the parent hw_pagetable and destroy it */
+		test_cmd_mock_domain_replace(self->stdev_id, self->ioas_id);
+		test_ioctl_destroy(parent_hwpt_id);
+	} else {
+		test_err_cmd_hwpt_alloc(ENOENT, self->device_id, self->ioas_id,
+					&parent_hwpt_id);
+		test_err_cmd_hwpt_alloc_nested(ENOENT, self->device_id,
+					       parent_hwpt_id,
+					       &nested_hwpt_id[0]);
+		test_err_cmd_hwpt_alloc_nested(ENOENT, self->device_id,
+					       parent_hwpt_id,
+					       &nested_hwpt_id[1]);
+		test_err_mock_domain_replace(ENOENT, self->stdev_id,
+					     nested_hwpt_id[0]);
+		test_err_mock_domain_replace(ENOENT, self->stdev_id,
+					     nested_hwpt_id[1]);
 	}
 }
 
@@ -684,6 +793,8 @@ TEST_F(iommufd_ioas, access_pin)
 			       MOCK_FLAGS_ACCESS_CREATE_NEEDS_PIN_PAGES);
 
 	for (npages = 1; npages < BUFFER_SIZE / PAGE_SIZE; npages++) {
+		uint32_t new_hwpt_id = 0;
+		uint32_t mock_device_id;
 		uint32_t mock_stdev_id;
 		uint32_t mock_hwpt_id;
 
@@ -717,12 +828,27 @@ TEST_F(iommufd_ioas, access_pin)
 				   _IOMMU_TEST_CMD(IOMMU_TEST_OP_ACCESS_PAGES),
 				   &access_cmd));
 		test_cmd_mock_domain(self->ioas_id, &mock_stdev_id,
-				     &mock_hwpt_id, NULL);
+				     &mock_hwpt_id, &mock_device_id);
 		check_map_cmd.id = mock_hwpt_id;
+		if (variant->new_hwpt) {
+			test_cmd_hwpt_alloc(mock_device_id, self->ioas_id,
+					    &new_hwpt_id);
+			test_cmd_mock_domain_replace(mock_stdev_id,
+						     new_hwpt_id);
+			check_map_cmd.id = new_hwpt_id;
+		} else {
+			check_map_cmd.id = mock_hwpt_id;
+		}
 		ASSERT_EQ(0, ioctl(self->fd,
 				   _IOMMU_TEST_CMD(IOMMU_TEST_OP_MD_CHECK_MAP),
 				   &check_map_cmd));
 
+		if (variant->new_hwpt) {
+			/* Detach from the new hwpt for its destroy() */
+			test_cmd_mock_domain_replace(mock_stdev_id,
+						     mock_hwpt_id);
+			test_ioctl_destroy(new_hwpt_id);
+		}
 		test_ioctl_destroy(mock_stdev_id);
 		test_cmd_destroy_access_pages(
 			access_cmd.id,
@@ -1414,6 +1540,26 @@ TEST_F(iommufd_mock_domain, alloc_hwpt)
 	}
 }
 
+TEST_F(iommufd_mock_domain, set_dev_data)
+{
+	struct iommu_test_device_data dev_data = {
+		.val = IOMMU_DEVICE_DATA_SELFTEST,
+	};
+	int i;
+
+	for (i = 0; i != variant->mock_domains; i++) {
+		test_err_set_dev_data(ENOENT, 0, &dev_data);
+		test_err_set_dev_data(EINVAL, self->idev_ids[i], NULL);
+		test_cmd_set_dev_data(self->idev_ids[i], &dev_data);
+		test_err_set_dev_data(EEXIST, self->idev_ids[i], &dev_data);
+		test_cmd_dev_check_data(self->idev_ids[i], dev_data.val);
+		test_err_unset_dev_data(ENOENT, 0);
+		test_cmd_unset_dev_data(self->idev_ids[i]);
+		test_err_unset_dev_data(ENOENT, self->idev_ids[i]);
+		test_cmd_dev_check_data(self->idev_ids[i], 0);
+	}
+}
+
 /* VFIO compatibility IOCTLs */
 
 TEST_F(iommufd, simple_ioctls)
@@ -1798,6 +1944,233 @@ TEST_F(vfio_compat_mock_domain, huge_map)
 				     ioctl(self->fd, VFIO_IOMMU_UNMAP_DMA,
 					   &unmap_cmd));
 		}
+	}
+}
+
+FIXTURE(iommufd_device_resv_iova)
+{
+	int fd;
+	uint32_t ioas_id;
+	uint32_t stdev_id;
+	uint32_t device_id;
+};
+
+FIXTURE_SETUP(iommufd_device_resv_iova)
+{
+	self->fd = open("/dev/iommu", O_RDWR);
+	ASSERT_NE(-1, self->fd);
+	test_ioctl_ioas_alloc(&self->ioas_id);
+
+	test_cmd_mock_domain(self->ioas_id, &self->stdev_id,
+			     NULL, &self->device_id);
+}
+
+FIXTURE_TEARDOWN(iommufd_device_resv_iova)
+{
+	teardown_iommufd(self->fd, _metadata);
+}
+
+TEST_F(iommufd_device_resv_iova, dev_resv_iova_ranges)
+{
+	struct iommu_test_cmd test_cmd = {
+		.size = sizeof(test_cmd),
+		.op = IOMMU_TEST_OP_DEV_ADD_RESERVED,
+		.id = self->stdev_id,
+		.add_dev_reserved = { .start = PAGE_SIZE, .length = PAGE_SIZE },
+	};
+	struct iommu_test_cmd test_cmd_del = {
+		.size = sizeof(test_cmd_del),
+		.op = IOMMU_TEST_OP_DEV_DEL_RESERVED,
+		.id = self->stdev_id,
+	};
+	struct iommu_resv_iova_range *ranges = buffer;
+	struct iommu_resv_iova_ranges ranges_cmd = {
+		.size = sizeof(ranges_cmd),
+		.dev_id = self->device_id,
+		.num_iovas = BUFFER_SIZE / sizeof(*ranges),
+		.resv_iovas = (uintptr_t)ranges,
+	};
+
+	/* Range can be read */
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(0, ranges_cmd.num_iovas);
+
+	/* 1 range */
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_ADD_RESERVED),
+			&test_cmd));
+	ranges_cmd.num_iovas = BUFFER_SIZE / sizeof(*ranges);
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(1, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+
+	/* Buffer too small */
+	memset(ranges, 0, BUFFER_SIZE);
+	ranges_cmd.num_iovas = 0;
+	EXPECT_ERRNO(EMSGSIZE,
+		     ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(1, ranges_cmd.num_iovas);
+	EXPECT_EQ(0, ranges[0].start);
+	EXPECT_EQ(0, ranges[0].last);
+
+	/* 2 ranges */
+	test_cmd.add_dev_reserved.start = PAGE_SIZE * 4;
+	test_cmd.add_dev_reserved.length = PAGE_SIZE;
+
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_ADD_RESERVED),
+			&test_cmd));
+	ranges_cmd.num_iovas = BUFFER_SIZE / sizeof(*ranges);
+	ASSERT_EQ(0, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES, &ranges_cmd));
+	EXPECT_EQ(2, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+	EXPECT_EQ(PAGE_SIZE * 4, ranges[1].start);
+	EXPECT_EQ(PAGE_SIZE * 5 - 1, ranges[1].last);
+
+	/* Buffer too small */
+	memset(ranges, 0, BUFFER_SIZE);
+	ranges_cmd.num_iovas = 1;
+	EXPECT_ERRNO(EMSGSIZE, ioctl(self->fd, IOMMU_RESV_IOVA_RANGES,
+				     &ranges_cmd));
+	EXPECT_EQ(2, ranges_cmd.num_iovas);
+	EXPECT_EQ(PAGE_SIZE, ranges[0].start);
+	EXPECT_EQ(PAGE_SIZE * 2 - 1, ranges[0].last);
+	EXPECT_EQ(0, ranges[1].start);
+	EXPECT_EQ(0, ranges[1].last);
+
+	ASSERT_EQ(0,
+		  ioctl(self->fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_DEL_RESERVED),
+			&test_cmd_del));
+}
+
+FIXTURE(iommufd_device_pasid)
+{
+	int fd;
+	uint32_t ioas_id;
+	uint32_t hwpt_id;
+	uint32_t stdev_id;
+	uint32_t device_id;
+};
+
+FIXTURE_SETUP(iommufd_device_pasid)
+{
+	self->fd = open("/dev/iommu", O_RDWR);
+	ASSERT_NE(-1, self->fd);
+	test_ioctl_ioas_alloc(&self->ioas_id);
+
+	test_cmd_mock_domain(self->ioas_id, &self->stdev_id,
+			     &self->hwpt_id, &self->device_id);
+}
+
+FIXTURE_TEARDOWN(iommufd_device_pasid)
+{
+	teardown_iommufd(self->fd, _metadata);
+}
+
+TEST_F(iommufd_device_pasid, pasid_attach)
+{
+	if (self->device_id) {
+		uint32_t nested_hwpt_id[2] = {};
+		uint32_t parent_hwpt_id = 0;
+		uint32_t pasid = 100;
+		bool result;
+
+		/*
+		 * Attach self->ioas_id to pasid 100, should fail since
+		 * iommufd does not support it.
+		 */
+		test_err_cmd_pasid_attach(ENOENT, 100, self->ioas_id);
+
+		/* Allocate two nested hwpts sharing one common parent hwpt */
+		test_cmd_hwpt_alloc(self->device_id, self->ioas_id,
+				    &parent_hwpt_id);
+
+		test_cmd_hwpt_alloc_nested(self->device_id, parent_hwpt_id,
+					   &nested_hwpt_id[0]);
+		test_cmd_hwpt_alloc_nested(self->device_id, parent_hwpt_id,
+					   &nested_hwpt_id[1]);
+
+		/*
+		 * Attach hwpt_id to pasid 100, should succeed, domain should
+		 * be valid.
+		 */
+		test_cmd_pasid_attach(pasid, nested_hwpt_id[0]);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, nested_hwpt_id[0],
+						      &result));
+		EXPECT_EQ(1, result);
+
+		/*
+		 * Detach hwpt_id from pasid 100, and check if the pasid 100
+		 * has null domain
+		 */
+		test_cmd_pasid_detach(pasid);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, 0, &result));
+		EXPECT_EQ(1, result);
+
+		/* Replace tests */
+		pasid = 200;
+
+		/*
+		 * Replace pasid 200 without attaching it first,
+		 * should fail with -EINVAL.
+		 */
+		test_err_cmd_pasid_replace(EINVAL, pasid, parent_hwpt_id);
+
+		/*
+		 * Attach hwpt_id to pasid 200, should succeed, domain should
+		 * be valid.
+		 */
+		test_cmd_pasid_attach(pasid, parent_hwpt_id);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, parent_hwpt_id,
+						      &result));
+		EXPECT_EQ(1, result);
+
+		/* Replace hwpt for pasid 200, should succeed */
+		test_cmd_pasid_replace(pasid, nested_hwpt_id[0]);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, nested_hwpt_id[0],
+						      &result));
+		EXPECT_EQ(1, result);
+
+		/*
+		 * Replace pasid 200 with self->ioas_id, should fail since
+		 * iommufd does not support it
+		 */
+		test_err_cmd_pasid_attach(ENOENT, pasid, self->ioas_id);
+
+		/*
+		 * Replace hwpt for pasid 200, should succeed,
+		 * and have valid domain
+		 */
+		test_cmd_pasid_replace(pasid, nested_hwpt_id[1]);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, nested_hwpt_id[1],
+						      &result));
+		EXPECT_EQ(1, result);
+
+		/*
+		 * Detach hwpt_id from pasid 200, and check if the pasid 200
+		 * has null domain.
+		 */
+		test_cmd_pasid_detach(pasid);
+		ASSERT_EQ(0,
+			  test_cmd_pasid_check_domain(self->fd, self->stdev_id,
+						      pasid, 0, &result));
+		EXPECT_EQ(1, result);
+
+		test_ioctl_destroy(nested_hwpt_id[0]);
+		test_ioctl_destroy(nested_hwpt_id[1]);
+		test_ioctl_destroy(parent_hwpt_id);
 	}
 }
 

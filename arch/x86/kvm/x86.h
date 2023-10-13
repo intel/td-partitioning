@@ -363,6 +363,11 @@ static inline bool kvm_mpx_supported(void)
 		== (XFEATURE_MASK_BNDREGS | XFEATURE_MASK_BNDCSR);
 }
 
+static inline bool kvm_pasid_supported(void)
+{
+	return !!(kvm_caps.supported_xss & XFEATURE_MASK_PASID);
+}
+
 extern unsigned int min_timer_period_us;
 
 extern bool enable_vmware_backdoor;

@@ -115,10 +115,11 @@ int vfio_iommufd_physical_bind(struct vfio_device *vdev,
 {
 	struct iommufd_device *idev;
 
-	idev = iommufd_device_bind(ictx, vdev->dev, out_device_id);
+	idev = iommufd_device_bind(ictx, vdev->dev, out_device_id, 0);
 	if (IS_ERR(idev))
 		return PTR_ERR(idev);
 	vdev->iommufd_device = idev;
+	xa_init(&vdev->pasid_pts);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_bind);
@@ -126,6 +127,17 @@ EXPORT_SYMBOL_GPL(vfio_iommufd_physical_bind);
 void vfio_iommufd_physical_unbind(struct vfio_device *vdev)
 {
 	lockdep_assert_held(&vdev->dev_set->lock);
+
+	if (!xa_empty(&vdev->pasid_pts)) {
+		void *entry;
+		unsigned long index;
+
+		xa_for_each(&vdev->pasid_pts, index, entry) {
+			xa_erase(&vdev->pasid_pts, index);
+			iommufd_device_pasid_detach(vdev->iommufd_device, index);
+		}
+		xa_destroy(&vdev->pasid_pts);
+	}
 
 	if (vdev->iommufd_attached) {
 		iommufd_device_detach(vdev->iommufd_device);
@@ -167,6 +179,42 @@ void vfio_iommufd_physical_detach_ioas(struct vfio_device *vdev)
 	vdev->iommufd_attached = false;
 }
 EXPORT_SYMBOL_GPL(vfio_iommufd_physical_detach_ioas);
+
+int vfio_iommufd_physical_pasid_attach_ioas(struct vfio_device *vdev,
+					    u32 pasid, u32 pt_id)
+{
+	void *entry;
+	int rc;
+
+	lockdep_assert_held(&vdev->dev_set->lock);
+
+	if (WARN_ON(!vdev->iommufd_device))
+		return -EINVAL;
+
+	entry = xa_load(&vdev->pasid_pts, pasid);
+	if (xa_is_value(entry))
+		rc = iommufd_device_pasid_replace(vdev->iommufd_device, pasid, pt_id);
+	else
+		rc = iommufd_device_pasid_attach(vdev->iommufd_device, pasid, pt_id);
+	if (rc)
+		return rc;
+	xa_store(&vdev->pasid_pts, pasid, xa_mk_value(pt_id), GFP_KERNEL);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vfio_iommufd_physical_pasid_attach_ioas);
+
+void vfio_iommufd_physical_pasid_detach_ioas(struct vfio_device *vdev, u32 pasid)
+{
+	lockdep_assert_held(&vdev->dev_set->lock);
+
+	if (WARN_ON(!vdev->iommufd_device) ||
+	    !xa_is_value(xa_load(&vdev->pasid_pts, pasid)))
+		return;
+
+	iommufd_device_pasid_detach(vdev->iommufd_device, pasid);
+	xa_erase(&vdev->pasid_pts, pasid);
+}
+EXPORT_SYMBOL_GPL(vfio_iommufd_physical_pasid_detach_ioas);
 
 /*
  * The emulated standard ops mean that vfio_device is going to use the

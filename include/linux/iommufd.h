@@ -18,13 +18,26 @@ struct iommufd_access;
 struct file;
 struct iommu_group;
 
+/* caller should gurantee the DMA safety if config this flag in bind */
+#define IOMMUFD_BIND_FLAGS_BYPASS_DMA_OWNERSHIP	(1 << 0)
+
 struct iommufd_device *iommufd_device_bind(struct iommufd_ctx *ictx,
-					   struct device *dev, u32 *id);
+					   struct device *dev, u32 *id,
+					   unsigned int flags);
+struct iommufd_device *iommufd_device_bind_pasid(struct iommufd_ctx *ictx,
+						 struct device *dev,
+						 u32 pasid, u32 *id);
 void iommufd_device_unbind(struct iommufd_device *idev);
 
 int iommufd_device_attach(struct iommufd_device *idev, u32 *pt_id);
 int iommufd_device_replace(struct iommufd_device *idev, u32 *pt_id);
 void iommufd_device_detach(struct iommufd_device *idev);
+
+int iommufd_device_pasid_attach(struct iommufd_device *idev,
+				u32 pasid, u32 pt_id);
+int iommufd_device_pasid_replace(struct iommufd_device *idev,
+				 u32 pasid, u32 pt_id);
+void iommufd_device_pasid_detach(struct iommufd_device *idev, u32 pasid);
 
 struct iommufd_ctx *iommufd_device_to_ictx(struct iommufd_device *idev);
 u32 iommufd_device_to_id(struct iommufd_device *idev);

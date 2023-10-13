@@ -27,7 +27,6 @@
 #include "iommu.h"
 #include "../dma-iommu.h"
 #include "../irq_remapping.h"
-#include "../iommu-sva.h"
 #include "pasid.h"
 #include "cap_audit.h"
 #include "perfmon.h"
@@ -66,6 +65,22 @@
 /* page table handling */
 #define LEVEL_STRIDE		(9)
 #define LEVEL_MASK		(((u64)1 << LEVEL_STRIDE) - 1)
+
+#define DEFER_DEVICE_DOMAIN_INFO ((struct device_domain_info *)(-2))
+
+struct device_domain_info *get_domain_info(struct device *dev)
+{
+	struct device_domain_info *info;
+
+	if (!dev)
+		return NULL;
+
+	info = dev_iommu_priv_get(dev);
+	if (unlikely(info == DEFER_DEVICE_DOMAIN_INFO))
+		return NULL;
+
+	return info;
+}
 
 static inline int agaw_to_level(int agaw)
 {
@@ -282,7 +297,6 @@ static LIST_HEAD(dmar_satc_units);
 #define for_each_rmrr_units(rmrr) \
 	list_for_each_entry(rmrr, &dmar_rmrr_units, list)
 
-static void device_block_translation(struct device *dev);
 static void intel_iommu_domain_free(struct iommu_domain *domain);
 
 int dmar_disabled = !IS_ENABLED(CONFIG_INTEL_IOMMU_DEFAULT_ON);
@@ -560,7 +574,7 @@ static unsigned long domain_super_pgsize_bitmap(struct dmar_domain *domain)
 }
 
 /* Some capabilities may be different across iommus */
-static void domain_update_iommu_cap(struct dmar_domain *domain)
+void domain_update_iommu_cap(struct dmar_domain *domain)
 {
 	domain_update_iommu_coherency(domain);
 	domain->iommu_superpage = domain_update_iommu_superpage(domain, NULL);
@@ -881,7 +895,7 @@ void dmar_fault_dump_ptes(struct intel_iommu *iommu, u16 source_id,
 		return;
 	}
 	/* For request-without-pasid, get the pasid from context entry */
-	if (intel_iommu_sm && pasid == IOMMU_PASID_INVALID)
+	if (intel_iommu_sm && pasid == INVALID_IOASID)
 		pasid = IOMMU_NO_PASID;
 
 	dir_index = pasid >> PASID_PDE_SHIFT;
@@ -1512,10 +1526,10 @@ static void domain_flush_pasid_iotlb(struct intel_iommu *iommu,
 	spin_unlock_irqrestore(&domain->lock, flags);
 }
 
-static void iommu_flush_iotlb_psi(struct intel_iommu *iommu,
-				  struct dmar_domain *domain,
-				  unsigned long pfn, unsigned int pages,
-				  int ih, int map)
+void iommu_flush_iotlb_psi(struct intel_iommu *iommu,
+			   struct dmar_domain *domain,
+			   unsigned long pfn, unsigned int pages,
+			   int ih, int map)
 {
 	unsigned int aligned_pages = __roundup_pow_of_two(pages);
 	unsigned int mask = ilog2(aligned_pages);
@@ -1588,7 +1602,7 @@ static inline void __mapping_notify_one(struct intel_iommu *iommu,
 		iommu_flush_write_buffer(iommu);
 }
 
-static void intel_flush_iotlb_all(struct iommu_domain *domain)
+void intel_flush_iotlb_all(struct iommu_domain *domain)
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	struct iommu_domain_info *info;
@@ -1737,6 +1751,9 @@ static void free_dmar_iommu(struct intel_iommu *iommu)
 		if (ecap_prs(iommu->ecap))
 			intel_svm_finish_prq(iommu);
 	}
+	if (vccap_pasid(iommu->vccap))
+		ioasid_unregister_allocator(&iommu->pasid_allocator);
+
 #endif
 }
 
@@ -1778,8 +1795,7 @@ static struct dmar_domain *alloc_domain(unsigned int type)
 	return domain;
 }
 
-static int domain_attach_iommu(struct dmar_domain *domain,
-			       struct intel_iommu *iommu)
+int domain_attach_iommu(struct dmar_domain *domain, struct intel_iommu *iommu)
 {
 	struct iommu_domain_info *info, *curr;
 	unsigned long ndomains;
@@ -1828,8 +1844,7 @@ err_unlock:
 	return ret;
 }
 
-static void domain_detach_iommu(struct dmar_domain *domain,
-				struct intel_iommu *iommu)
+void domain_detach_iommu(struct dmar_domain *domain, struct intel_iommu *iommu)
 {
 	struct iommu_domain_info *info;
 
@@ -1865,7 +1880,7 @@ static void domain_exit(struct dmar_domain *domain)
 		LIST_HEAD(freelist);
 
 		domain_unmap(domain, 0, DOMAIN_MAX_PFN(domain->gaw), &freelist);
-		put_pages_list(&freelist);
+		iommu_free_pgtbl_pages(&domain->domain, &freelist);
 	}
 
 	if (WARN_ON(!list_empty(&domain->devices)))
@@ -2187,6 +2202,7 @@ __domain_mapping(struct dmar_domain *domain, unsigned long iov_pfn,
 	struct dma_pte *first_pte = NULL, *pte = NULL;
 	unsigned int largepage_lvl = 0;
 	unsigned long lvl_pages = 0;
+	unsigned long flags;
 	phys_addr_t pteval;
 	u64 attr;
 
@@ -2195,6 +2211,18 @@ __domain_mapping(struct dmar_domain *domain, unsigned long iov_pfn,
 
 	if ((prot & (DMA_PTE_READ|DMA_PTE_WRITE)) == 0)
 		return -EINVAL;
+
+	if (!(prot & DMA_PTE_WRITE) && !domain->read_only_mapped) {
+		spin_lock_irqsave(&domain->lock, flags);
+		if (domain->set_nested) {
+			pr_err_ratelimited("No read-only mapping permitted\n");
+			spin_unlock_irqrestore(&domain->lock, flags);
+			return -EINVAL;
+		}
+
+		domain->read_only_mapped = true;
+		spin_unlock_irqrestore(&domain->lock, flags);
+	}
 
 	attr = prot & (DMA_PTE_READ | DMA_PTE_WRITE | DMA_PTE_SNP);
 	attr |= DMA_FL_PTE_PRESENT;
@@ -2751,6 +2779,85 @@ out_unmap:
 	return ret;
 }
 
+#ifdef CONFIG_INTEL_IOMMU_SVM
+static ioasid_t intel_vcmd_ioasid_alloc(ioasid_t min, ioasid_t max, void *data)
+{
+	struct intel_iommu *iommu = data;
+	ioasid_t ioasid;
+
+	if (!iommu)
+		return INVALID_IOASID;
+	/*
+	 * VT-d virtual command interface always uses the full 20 bit
+	 * PASID range. Host can partition guest PASID range based on
+	 * policies but it is out of guest's control.
+	 */
+	if (min < 1 || max > intel_pasid_max_id)
+		return INVALID_IOASID;
+
+	if (vcmd_alloc_pasid(iommu, &ioasid))
+		return INVALID_IOASID;
+
+	return ioasid;
+}
+
+static void intel_vcmd_ioasid_free(ioasid_t ioasid, void *data)
+{
+	struct intel_iommu *iommu = data;
+
+	if (!iommu)
+		return;
+	/*
+	 * Sanity check the ioasid owner is done at upper layer, e.g. VFIO
+	 * We can only free the PASID when all the devices are unbound.
+	 */
+	if (ioasid_find(NULL, ioasid, NULL)) {
+		pr_alert("Cannot free active IOASID %d\n", ioasid);
+		return;
+	}
+	vcmd_free_pasid(iommu, ioasid);
+}
+
+static void register_pasid_allocator(struct intel_iommu *iommu)
+{
+	/*
+	 * If we are running in the host, no need for custom allocator
+	 * in that PASIDs are allocated from the host system-wide.
+	 */
+	if (!cap_caching_mode(iommu->cap))
+		return;
+
+	if (!sm_supported(iommu)) {
+		pr_warn("VT-d Scalable Mode not enabled, no PASID allocation\n");
+		return;
+	}
+
+	/*
+	 * Register a custom PASID allocator if we are running in a guest,
+	 * guest PASID must be obtained via virtual command interface.
+	 * There can be multiple vIOMMUs in each guest but only one allocator
+	 * is active. All vIOMMU allocators will eventually be calling the same
+	 * host allocator.
+	 */
+	if (!vccap_pasid(iommu->vccap))
+		return;
+
+	pr_info("Register custom PASID allocator\n");
+	iommu->pasid_allocator.alloc = intel_vcmd_ioasid_alloc;
+	iommu->pasid_allocator.free = intel_vcmd_ioasid_free;
+	iommu->pasid_allocator.pdata = (void *)iommu;
+	if (ioasid_register_allocator(&iommu->pasid_allocator)) {
+		pr_warn("Custom PASID allocator failed, scalable mode disabled\n");
+		/*
+		 * Disable scalable mode on this IOMMU if there
+		 * is no custom allocator. Mixing SM capable vIOMMU
+		 * and non-SM vIOMMU are not supported.
+		 */
+		intel_iommu_sm = 0;
+	}
+}
+#endif
+
 static int __init init_dmars(void)
 {
 	struct dmar_drhd_unit *drhd;
@@ -2839,6 +2946,9 @@ static int __init init_dmars(void)
 	 */
 	for_each_active_iommu(iommu, drhd) {
 		iommu_flush_write_buffer(iommu);
+#ifdef CONFIG_INTEL_IOMMU_SVM
+		register_pasid_allocator(iommu);
+#endif
 		iommu_set_root_entry(iommu);
 	}
 
@@ -3935,11 +4045,20 @@ static void dmar_remove_one_dev_info(struct device *dev)
 	struct dmar_domain *domain = info->domain;
 	struct intel_iommu *iommu = info->iommu;
 	unsigned long flags;
+	struct dev_pasid_info *dev_pasid;
 
 	if (!dev_is_real_dma_subdevice(info->dev)) {
-		if (dev_is_pci(info->dev) && sm_supported(iommu))
+		if (dev_is_pci(info->dev) && sm_supported(iommu)) {
 			intel_pasid_tear_down_entry(iommu, info->dev,
 					IOMMU_NO_PASID, false);
+
+			/* TODO: intel_pasid_free_table is called after this func.
+			 * Not sure if this tear down is required.
+			 */
+			list_for_each_entry(dev_pasid, &domain->dev_pasids, link_domain)
+				intel_pasid_tear_down_entry(iommu, info->dev,
+						dev_pasid->pasid, false);
+		}
 
 		iommu_disable_pci_caps(info);
 		domain_context_clear(info);
@@ -3958,7 +4077,7 @@ static void dmar_remove_one_dev_info(struct device *dev)
  * all DMA requests without PASID from the device are blocked. If the page
  * table has been set, clean up the data structures.
  */
-static void device_block_translation(struct device *dev)
+void device_block_translation(struct device *dev)
 {
 	struct device_domain_info *info = dev_iommu_priv_get(dev);
 	struct intel_iommu *iommu = info->iommu;
@@ -4058,14 +4177,33 @@ static struct iommu_domain *intel_iommu_domain_alloc(unsigned type)
 	return NULL;
 }
 
+static struct iommu_domain *
+intel_iommu_domain_alloc_user(struct device *dev,
+			      enum iommu_hwpt_type hwpt_type,
+			      struct iommu_domain *parent,
+			      const union iommu_domain_user_data *user_data)
+{
+	if (hwpt_type != IOMMU_HWPT_TYPE_DEFAULT &&
+	    hwpt_type != IOMMU_HWPT_TYPE_VTD_S1)
+		return ERR_PTR(-EINVAL);
+
+	if ((hwpt_type == IOMMU_HWPT_TYPE_DEFAULT) == !!parent)
+		return ERR_PTR(-EINVAL);
+
+	if (parent)
+		return intel_nested_domain_alloc(parent, user_data);
+	else
+		return iommu_domain_alloc(dev->bus);
+}
+
 static void intel_iommu_domain_free(struct iommu_domain *domain)
 {
 	if (domain != &si_domain->domain && domain != &blocking_domain)
 		domain_exit(to_dmar_domain(domain));
 }
 
-static int prepare_domain_attach_device(struct iommu_domain *domain,
-					struct device *dev)
+int prepare_domain_attach_device(struct iommu_domain *domain,
+				 struct device *dev)
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	struct intel_iommu *iommu;
@@ -4074,6 +4212,10 @@ static int prepare_domain_attach_device(struct iommu_domain *domain,
 	iommu = device_to_iommu(dev, NULL, NULL);
 	if (!iommu)
 		return -ENODEV;
+
+	if (domain->flags & IOMMU_DOMAIN_F_ENFORCE_DIRTY &&
+	    !ecap_slads(iommu->ecap))
+		return -EINVAL;
 
 	if (dmar_domain->force_snooping && !ecap_sc_support(iommu->ecap))
 		return -EINVAL;
@@ -4243,7 +4385,7 @@ static void intel_iommu_tlb_sync(struct iommu_domain *domain,
 				      start_pfn, nrpages,
 				      list_empty(&gather->freelist), 0);
 
-	put_pages_list(&gather->freelist);
+	iommu_free_pgtbl_pages(domain, &gather->freelist);
 }
 
 static phys_addr_t intel_iommu_iova_to_phys(struct iommu_domain *domain,
@@ -4299,7 +4441,7 @@ static void domain_set_force_snooping(struct dmar_domain *domain)
 						     IOMMU_NO_PASID);
 }
 
-static bool intel_iommu_enforce_cache_coherency(struct iommu_domain *domain)
+bool intel_iommu_enforce_cache_coherency(struct iommu_domain *domain)
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	unsigned long flags;
@@ -4332,6 +4474,9 @@ static bool intel_iommu_capable(struct device *dev, enum iommu_cap cap)
 		return dmar_platform_optin();
 	case IOMMU_CAP_ENFORCE_CACHE_COHERENCY:
 		return ecap_sc_support(info->iommu->ecap);
+	case IOMMU_CAP_DIRTY:
+		return sm_supported(info->iommu) &&
+			ecap_slads(info->iommu->ecap);
 	default:
 		return false;
 	}
@@ -4488,11 +4633,85 @@ static void intel_iommu_get_resv_regions(struct device *device,
 	list_add_tail(&reg->list, head);
 }
 
+int intel_iommu_enable_pasid(struct intel_iommu *iommu, struct device *dev)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct context_entry *context;
+	struct dmar_domain *domain;
+	unsigned long flags;
+	u64 ctx_lo;
+	int ret = 0;
+
+	domain = info->domain;
+	if (!domain)
+		return -EINVAL;
+
+	spin_lock(&iommu->lock);
+
+	if (!info->pasid_supported)
+		goto out;
+
+	ret = -EINVAL;
+
+	spin_lock_irqsave(&domain->lock, flags);
+	context = iommu_context_addr(iommu, info->bus, info->devfn, 0);
+	if (WARN_ON(!context))
+		goto out;
+
+	ctx_lo = context[0].lo;
+
+	if (!(ctx_lo & CONTEXT_PASIDE)) {
+		u16 did = context_domain_id(context);
+
+		ctx_lo |= CONTEXT_PASIDE;
+		context[0].lo = ctx_lo;
+		wmb();
+		iommu->flush.flush_context(iommu,
+					   did,
+					   PCI_DEVID(info->bus, info->devfn),
+					   DMA_CCMD_MASK_NOBIT,
+					   DMA_CCMD_DEVICE_INVL);
+	}
+	spin_unlock_irqrestore(&domain->lock, flags);
+
+	/* Enable PASID support in the device, if it wasn't already */
+	if (!info->pasid_enabled)
+		iommu_enable_pci_caps(info);
+
+	ret = 0;
+
+ out:
+	spin_unlock(&iommu->lock);
+
+	return ret;
+}
+
 static struct iommu_group *intel_iommu_device_group(struct device *dev)
 {
 	if (dev_is_pci(dev))
 		return pci_device_group(dev);
 	return generic_device_group(dev);
+}
+
+static int intel_iommu_enable_only_pasid(struct device *dev)
+{
+	struct device_domain_info *info = dev_iommu_priv_get(dev);
+	struct intel_iommu *iommu;
+
+	if (!info || dmar_disabled)
+		return -EINVAL;
+
+	iommu = info->iommu;
+	if (!iommu)
+		return -EINVAL;
+
+	if (intel_iommu_enable_pasid(iommu, dev))
+		return -ENODEV;
+
+	if (!info->pasid_enabled)
+		return -EINVAL;
+
+	return 0;
 }
 
 static int intel_iommu_enable_sva(struct device *dev)
@@ -4559,23 +4778,14 @@ static int intel_iommu_enable_iopf(struct device *dev)
 	if (ret)
 		return ret;
 
-	ret = iommu_register_device_fault_handler(dev, iommu_queue_iopf, dev);
-	if (ret)
-		goto iopf_remove_device;
-
 	ret = pci_enable_pri(pdev, PRQ_DEPTH);
-	if (ret)
-		goto iopf_unregister_handler;
+	if (ret) {
+		iopf_queue_remove_device(iommu->iopf_queue, dev);
+		return ret;
+	}
 	info->pri_enabled = 1;
 
 	return 0;
-
-iopf_unregister_handler:
-	iommu_unregister_device_fault_handler(dev);
-iopf_remove_device:
-	iopf_queue_remove_device(iommu->iopf_queue, dev);
-
-	return ret;
 }
 
 static int intel_iommu_disable_iopf(struct device *dev)
@@ -4602,7 +4812,6 @@ static int intel_iommu_disable_iopf(struct device *dev)
 	 * fault handler and removing device from iopf queue should never
 	 * fail.
 	 */
-	WARN_ON(iommu_unregister_device_fault_handler(dev));
 	WARN_ON(iopf_queue_remove_device(iommu->iopf_queue, dev));
 
 	return 0;
@@ -4617,6 +4826,9 @@ intel_iommu_dev_enable_feat(struct device *dev, enum iommu_dev_features feat)
 
 	case IOMMU_DEV_FEAT_SVA:
 		return intel_iommu_enable_sva(dev);
+
+	case IOMMU_DEV_FEAT_PASID:
+		return intel_iommu_enable_only_pasid(dev);
 
 	default:
 		return -ENODEV;
@@ -4775,22 +4987,135 @@ static void *intel_iommu_hw_info(struct device *dev, u32 *length, u32 *type)
 	struct device_domain_info *info = dev_iommu_priv_get(dev);
 	struct intel_iommu *iommu = info->iommu;
 	struct iommu_hw_info_vtd *vtd;
+	u64 addr_width, cap_addr_mask;
 
 	vtd = kzalloc(sizeof(*vtd), GFP_KERNEL);
 	if (!vtd)
 		return ERR_PTR(-ENOMEM);
 
+	vtd->flags = IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17;
 	vtd->cap_reg = iommu->cap;
 	vtd->ecap_reg = iommu->ecap;
 	*length = sizeof(*vtd);
 	*type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
+
+	/* check if this iommu agaw is sufficient for max mapped address */
+	addr_width = agaw_to_width(iommu->agaw);
+	if (addr_width > cap_mgaw(iommu->cap))
+		addr_width = cap_mgaw(iommu->cap);
+
+	if (!cpu_feature_enabled(X86_FEATURE_LA57) &&
+	    addr_width == ADDR_WIDTH_5LEVEL)
+		addr_width = ADDR_WIDTH_4LEVEL;
+
+	cap_addr_mask = (0x3fULL << 16);
+	vtd->cap_reg &= ~cap_addr_mask;
+	vtd->cap_reg |= ((addr_width & 0x3fULL) << 16);
+
 	return vtd;
+}
+
+static int intel_iommu_set_dirty_tracking(struct iommu_domain *domain,
+					  bool enable)
+{
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
+	struct device_domain_info *info;
+	struct dev_pasid_info *dev_pasid;
+	int ret = -EINVAL;
+
+	spin_lock(&dmar_domain->lock);
+	if (!(dmar_domain->dirty_tracking ^ enable) ||
+	    (list_empty(&dmar_domain->devices) &&
+		list_empty(&dmar_domain->dev_pasids))) {
+		spin_unlock(&dmar_domain->lock);
+		return 0;
+	}
+
+	list_for_each_entry(info, &dmar_domain->devices, link) {
+		/* First-level page table always enables dirty bit*/
+		if (dmar_domain->use_first_level) {
+			ret = 0;
+			break;
+		}
+
+		ret = intel_pasid_setup_dirty_tracking(info->iommu, info->domain,
+						     info->dev, IOMMU_NO_PASID,
+						     enable);
+		if (ret)
+			break;
+
+	}
+
+	list_for_each_entry(dev_pasid, &dmar_domain->dev_pasids, link_domain) {
+		/* First-level page table always enables dirty bit*/
+		if (dmar_domain->use_first_level) {
+			ret = 0;
+			break;
+		}
+
+		info = get_domain_info(dev_pasid->dev);
+		ret = intel_pasid_setup_dirty_tracking(info->iommu, info->domain,
+						     info->dev, IOMMU_NO_PASID,
+						     enable);
+		if (ret)
+			break;
+
+	}
+
+	if (!ret)
+		dmar_domain->dirty_tracking = enable;
+	spin_unlock(&dmar_domain->lock);
+
+	return ret;
+}
+
+static int intel_iommu_read_and_clear_dirty(struct iommu_domain *domain,
+					    unsigned long iova, size_t size,
+					    unsigned long flags,
+					    struct iommu_dirty_bitmap *dirty)
+{
+	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
+	unsigned long end = iova + size - 1;
+	unsigned long pgsize;
+	bool ad_enabled;
+
+	spin_lock(&dmar_domain->lock);
+	ad_enabled = dmar_domain->dirty_tracking;
+	spin_unlock(&dmar_domain->lock);
+
+	if (!ad_enabled && dirty->bitmap)
+		return -EINVAL;
+
+	rcu_read_lock();
+	do {
+		struct dma_pte *pte;
+		int lvl = 0;
+
+		pte = pfn_to_dma_pte(dmar_domain, iova >> VTD_PAGE_SHIFT, &lvl,
+				     GFP_ATOMIC);
+		pgsize = level_size(lvl) << VTD_PAGE_SHIFT;
+		if (!pte || !dma_pte_present(pte)) {
+			iova += pgsize;
+			continue;
+		}
+
+		/* It is writable, set the bitmap */
+		if (((flags & IOMMU_DIRTY_NO_CLEAR) &&
+				dma_sl_pte_dirty(pte)) ||
+		    dma_sl_pte_test_and_clear_dirty(pte))
+			iommu_dirty_bitmap_record(dirty, iova, pgsize);
+		iova += pgsize;
+	} while (iova < end);
+	rcu_read_unlock();
+
+	return 0;
 }
 
 const struct iommu_ops intel_iommu_ops = {
 	.capable		= intel_iommu_capable,
 	.hw_info		= intel_iommu_hw_info,
 	.domain_alloc		= intel_iommu_domain_alloc,
+	.domain_alloc_user	= intel_iommu_domain_alloc_user,
 	.probe_device		= intel_iommu_probe_device,
 	.probe_finalize		= intel_iommu_probe_finalize,
 	.release_device		= intel_iommu_release_device,
@@ -4802,6 +5127,7 @@ const struct iommu_ops intel_iommu_ops = {
 	.def_domain_type	= device_def_domain_type,
 	.remove_dev_pasid	= intel_iommu_remove_dev_pasid,
 	.pgsize_bitmap		= SZ_4K,
+	.supported_flags	= IOMMU_DOMAIN_F_ENFORCE_DIRTY,
 #ifdef CONFIG_INTEL_IOMMU_SVM
 	.page_response		= intel_svm_page_response,
 #endif
@@ -4816,6 +5142,8 @@ const struct iommu_ops intel_iommu_ops = {
 		.iova_to_phys		= intel_iommu_iova_to_phys,
 		.free			= intel_iommu_domain_free,
 		.enforce_cache_coherency = intel_iommu_enforce_cache_coherency,
+		.set_dirty_tracking	= intel_iommu_set_dirty_tracking,
+		.read_and_clear_dirty   = intel_iommu_read_and_clear_dirty,
 	}
 };
 

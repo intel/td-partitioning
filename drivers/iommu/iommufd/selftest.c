@@ -87,7 +87,9 @@ void iommufd_test_syz_conv_iova_id(struct iommufd_ucmd *ucmd,
 
 struct mock_iommu_domain {
 	struct iommu_domain domain;
+	struct mock_iommu_domain *parent;
 	struct xarray pfns;
+	u32 iotlb;
 };
 
 enum selftest_obj_type {
@@ -96,6 +98,9 @@ enum selftest_obj_type {
 
 struct mock_dev {
 	struct device dev;
+	struct rw_semaphore reserved_rwsem;
+	struct rb_root_cached reserved_itree;
+	u32 dev_data;
 };
 
 struct selftest_obj {
@@ -146,24 +151,79 @@ static void *mock_domain_hw_info(struct device *dev, u32 *length, u32 *type)
 	return info;
 }
 
-static struct iommu_domain *mock_domain_alloc(unsigned int iommu_domain_type)
+static const struct iommu_ops mock_ops;
+static struct iommu_domain_ops domain_nested_ops;
+
+static struct iommu_domain *
+__mock_domain_alloc(unsigned int iommu_domain_type,
+		    struct mock_iommu_domain *mock_parent,
+		    const struct iommu_hwpt_selftest *user_cfg)
 {
 	struct mock_iommu_domain *mock;
 
 	if (iommu_domain_type == IOMMU_DOMAIN_BLOCKED)
 		return &mock_blocking_domain;
 
-	if (iommu_domain_type != IOMMU_DOMAIN_UNMANAGED)
-		return NULL;
-
 	mock = kzalloc(sizeof(*mock), GFP_KERNEL);
 	if (!mock)
-		return NULL;
-	mock->domain.geometry.aperture_start = MOCK_APERTURE_START;
-	mock->domain.geometry.aperture_end = MOCK_APERTURE_LAST;
+		return ERR_PTR(-ENOMEM);
+	mock->parent = mock_parent;
+	mock->domain.type = iommu_domain_type;
 	mock->domain.pgsize_bitmap = MOCK_IO_PAGE_SIZE;
-	xa_init(&mock->pfns);
+	if (mock_parent) {
+		mock->iotlb = user_cfg->test_config;
+		mock->domain.ops = &domain_nested_ops;
+	} else {
+		mock->domain.geometry.aperture_start = MOCK_APERTURE_START;
+		mock->domain.geometry.aperture_end = MOCK_APERTURE_LAST;
+		mock->domain.ops = mock_ops.default_domain_ops;
+		xa_init(&mock->pfns);
+	}
 	return &mock->domain;
+}
+
+static struct iommu_domain *mock_domain_alloc(unsigned int iommu_domain_type)
+{
+	struct iommu_domain *domain;
+
+	if (WARN_ON(iommu_domain_type != IOMMU_DOMAIN_BLOCKED &&
+		    iommu_domain_type != IOMMU_DOMAIN_UNMANAGED))
+		return NULL;
+	domain = __mock_domain_alloc(IOMMU_DOMAIN_UNMANAGED, NULL, NULL);
+	if (IS_ERR(domain))
+		domain = NULL;
+	return domain;
+}
+
+static struct iommu_domain *mock_domain_alloc_user(struct device *dev,
+						   enum iommu_hwpt_type hwpt_type,
+						   struct iommu_domain *parent,
+						   const union iommu_domain_user_data *user_data)
+{
+	const struct iommu_hwpt_selftest *user_cfg = (struct iommu_hwpt_selftest *)user_data;
+	unsigned int iommu_domain_type = IOMMU_DOMAIN_UNMANAGED;
+	struct mock_iommu_domain *mock_parent = NULL;
+
+	/* Check union iommu_domain_user_data in include/linux/iommu.h */
+	static_assert(sizeof(struct iommu_hwpt_selftest) <= 16);
+
+	if (hwpt_type != IOMMU_HWPT_TYPE_DEFAULT &&
+	    hwpt_type != IOMMU_HWPT_TYPE_SELFTTEST)
+		return ERR_PTR(-EINVAL);
+
+	if (parent) {
+		if (hwpt_type != IOMMU_HWPT_TYPE_SELFTTEST)
+			return ERR_PTR(-EINVAL);
+		if (parent->ops != mock_ops.default_domain_ops)
+			return ERR_PTR(-EINVAL);
+		if (!user_cfg || !(user_cfg->flags & IOMMU_TEST_FLAG_NESTED))
+			return ERR_PTR(-EINVAL);
+		iommu_domain_type = IOMMU_DOMAIN_NESTED;
+		mock_parent = container_of(parent,
+					   struct mock_iommu_domain, domain);
+	}
+
+	return __mock_domain_alloc(iommu_domain_type, mock_parent, user_cfg);
 }
 
 static void mock_domain_free(struct iommu_domain *domain)
@@ -302,15 +362,89 @@ static struct iommu_device *mock_probe_device(struct device *dev)
 	return &mock_iommu_device;
 }
 
+static void iommufd_test_get_resv_regions(struct device *dev,
+					  struct list_head *head)
+{
+	struct mock_dev *mdev = container_of(dev, struct mock_dev, dev);
+	struct interval_tree_node *reserved, *next;
+
+	down_read(&mdev->reserved_rwsem);
+	for (reserved = interval_tree_iter_first(&mdev->reserved_itree, 0, ULONG_MAX);
+	     reserved; reserved = next) {
+		struct iommu_resv_region *resv;
+
+		next = interval_tree_iter_next(reserved, 0, ULONG_MAX);
+		/* Only adds IOMMU_RESV_DIRECT so far */
+		resv = iommu_alloc_resv_region(reserved->start,
+					       reserved->last + 1 - reserved->start,
+					       IOMMU_READ | IOMMU_WRITE,
+					       IOMMU_RESV_DIRECT,
+					       GFP_ATOMIC);
+		if (!resv)
+			break;
+
+		list_add_tail(&resv->list, head);
+	}
+	up_read(&mdev->reserved_rwsem);
+}
+
+static int mock_domain_set_dev_user_data(struct device *dev,
+					 const void *user_data)
+{
+	struct mock_dev *mdev = container_of(dev, struct mock_dev, dev);
+	const struct iommu_test_device_data *data = user_data;
+
+	mdev->dev_data = data->val;
+	return 0;
+}
+
+static void mock_domain_unset_dev_user_data(struct device *dev)
+{
+	struct mock_dev *mdev = container_of(dev, struct mock_dev, dev);
+
+	mdev->dev_data = 0;
+}
+
+static void mock_iommu_remove_dev_pasid(struct device *dev, ioasid_t pasid)
+{
+	struct iommu_domain *domain;
+
+	/* Domain type specific cleanup: */
+	domain = iommu_get_domain_for_dev_pasid(dev, pasid, 0);
+	if (domain) {
+		switch (domain->type) {
+		case IOMMU_DOMAIN_NESTED:
+		case IOMMU_DOMAIN_UNMANAGED:
+			break;
+		default:
+			/* should never reach here */
+			WARN_ON(1);
+			break;
+		}
+	}
+}
+
+static int mock_domain_set_dev_pasid_nop(struct iommu_domain *domain,
+					 struct device *dev, ioasid_t pasid)
+{
+	return 0;
+}
+
 static const struct iommu_ops mock_ops = {
 	.owner = THIS_MODULE,
 	.pgsize_bitmap = MOCK_IO_PAGE_SIZE,
 	.hw_info = mock_domain_hw_info,
 	.domain_alloc = mock_domain_alloc,
+	.domain_alloc_user = mock_domain_alloc_user,
 	.capable = mock_domain_capable,
+	.get_resv_regions = iommufd_test_get_resv_regions,
 	.set_platform_dma_ops = mock_domain_set_plaform_dma_ops,
 	.device_group = generic_device_group,
 	.probe_device = mock_probe_device,
+	.set_dev_user_data = mock_domain_set_dev_user_data,
+	.unset_dev_user_data = mock_domain_unset_dev_user_data,
+	.dev_user_data_len = sizeof(struct iommu_test_device_data),
+	.remove_dev_pasid = mock_iommu_remove_dev_pasid,
 	.default_domain_ops =
 		&(struct iommu_domain_ops){
 			.free = mock_domain_free,
@@ -318,7 +452,33 @@ static const struct iommu_ops mock_ops = {
 			.map_pages = mock_domain_map_pages,
 			.unmap_pages = mock_domain_unmap_pages,
 			.iova_to_phys = mock_domain_iova_to_phys,
+			.set_dev_pasid = mock_domain_set_dev_pasid_nop,
 		},
+};
+
+static int mock_domain_cache_invalidate_user(struct iommu_domain *domain,
+					     void *user_data)
+{
+	struct iommu_hwpt_invalidate_selftest *inv_info = user_data;
+	struct mock_iommu_domain *mock =
+		container_of(domain, struct mock_iommu_domain, domain);
+
+	if (domain->type != IOMMU_DOMAIN_NESTED || !mock->parent)
+		return -EINVAL;
+
+	if (inv_info->flags & IOMMU_TEST_INVALIDATE_ALL)
+		mock->iotlb = 0;
+
+	return 0;
+}
+
+static struct iommu_domain_ops domain_nested_ops = {
+	.free = mock_domain_free,
+	.attach_dev = mock_domain_nop_attach,
+	.cache_invalidate_user = mock_domain_cache_invalidate_user,
+	.cache_invalidate_user_data_len =
+		sizeof(struct iommu_hwpt_invalidate_selftest),
+	.set_dev_pasid = mock_domain_set_dev_pasid_nop,
 };
 
 static inline struct iommufd_hw_pagetable *
@@ -333,7 +493,10 @@ get_md_pagetable(struct iommufd_ucmd *ucmd, u32 mockpt_id,
 	if (IS_ERR(obj))
 		return ERR_CAST(obj);
 	hwpt = container_of(obj, struct iommufd_hw_pagetable, obj);
-	if (hwpt->domain->ops != mock_ops.default_domain_ops) {
+	if ((hwpt->domain->type == IOMMU_DOMAIN_UNMANAGED &&
+	     hwpt->domain->ops != mock_ops.default_domain_ops) ||
+	    (hwpt->domain->type == IOMMU_DOMAIN_NESTED &&
+	     hwpt->domain->ops != &domain_nested_ops)) {
 		iommufd_put_object(&hwpt->obj);
 		return ERR_PTR(-EINVAL);
 	}
@@ -380,6 +543,10 @@ static struct mock_dev *mock_dev_create(void)
 	if (rc)
 		goto err_put;
 
+	/* Reserve range related fields */
+	init_rwsem(&mdev->reserved_rwsem);
+	mdev->reserved_itree = RB_ROOT_CACHED;
+
 	rc = device_add(&mdev->dev);
 	if (rc)
 		goto err_put;
@@ -390,8 +557,20 @@ err_put:
 	return ERR_PTR(rc);
 }
 
+static void mock_dev_remove_reserved_iovas(struct mock_dev *mdev)
+{
+	struct interval_tree_node *node;
+
+	while ((node = interval_tree_iter_first(&mdev->reserved_itree, 0,
+						ULONG_MAX))) {
+		interval_tree_remove(node, &mdev->reserved_itree);
+		kfree(node);
+	}
+}
+
 static void mock_dev_destroy(struct mock_dev *mdev)
 {
+	mock_dev_remove_reserved_iovas(mdev);
 	device_unregister(&mdev->dev);
 }
 
@@ -424,7 +603,7 @@ static int iommufd_test_mock_domain(struct iommufd_ucmd *ucmd,
 	}
 
 	idev = iommufd_device_bind(ucmd->ictx, &sobj->idev.mock_dev->dev,
-				   &idev_id);
+				   &idev_id, 0);
 	if (IS_ERR(idev)) {
 		rc = PTR_ERR(idev);
 		goto out_mdev;
@@ -456,29 +635,39 @@ out_sobj:
 	return rc;
 }
 
-/* Replace the mock domain with a manually allocated hw_pagetable */
-static int iommufd_test_mock_domain_replace(struct iommufd_ucmd *ucmd,
-					    unsigned int device_id, u32 pt_id,
-					    struct iommu_test_cmd *cmd)
+static struct selftest_obj *iommufd_test_get_device(struct iommufd_ctx *ictx,
+						    u32 id)
 {
 	struct iommufd_object *dev_obj;
 	struct selftest_obj *sobj;
-	int rc;
 
 	/*
 	 * Prefer to use the OBJ_SELFTEST because the destroy_rwsem will ensure
 	 * it doesn't race with detach, which is not allowed.
 	 */
-	dev_obj =
-		iommufd_get_object(ucmd->ictx, device_id, IOMMUFD_OBJ_SELFTEST);
+	dev_obj = iommufd_get_object(ictx, id, IOMMUFD_OBJ_SELFTEST);
 	if (IS_ERR(dev_obj))
-		return PTR_ERR(dev_obj);
+		return (struct selftest_obj *)dev_obj;
 
 	sobj = container_of(dev_obj, struct selftest_obj, obj);
 	if (sobj->type != TYPE_IDEV) {
-		rc = -EINVAL;
-		goto out_dev_obj;
+		iommufd_put_object(dev_obj);
+		return ERR_PTR(-EINVAL);
 	}
+	return sobj;
+}
+
+/* Replace the mock domain with a manually allocated hw_pagetable */
+static int iommufd_test_mock_domain_replace(struct iommufd_ucmd *ucmd,
+					    unsigned int device_id, u32 pt_id,
+					    struct iommu_test_cmd *cmd)
+{
+	struct selftest_obj *sobj;
+	int rc;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, device_id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
 
 	rc = iommufd_device_replace(sobj->idev.idev, &pt_id);
 	if (rc)
@@ -488,7 +677,7 @@ static int iommufd_test_mock_domain_replace(struct iommufd_ucmd *ucmd,
 	rc = iommufd_ucmd_respond(ucmd, sizeof(*cmd));
 
 out_dev_obj:
-	iommufd_put_object(dev_obj);
+	iommufd_put_object(&sobj->obj);
 	return rc;
 }
 
@@ -508,6 +697,64 @@ static int iommufd_test_add_reserved(struct iommufd_ucmd *ucmd,
 	up_write(&ioas->iopt.iova_rwsem);
 	iommufd_put_object(&ioas->obj);
 	return rc;
+}
+
+static int mock_dev_add_reserved_iova(struct mock_dev *mdev,
+				      unsigned long start, unsigned long last)
+{
+	struct interval_tree_node *reserved;
+
+	if (interval_tree_iter_first(&mdev->reserved_itree, start, last))
+		return -EADDRINUSE;
+
+	reserved = kzalloc(sizeof(*reserved), GFP_KERNEL_ACCOUNT);
+	if (!reserved)
+		return -ENOMEM;
+	reserved->start = start;
+	reserved->last = last;
+	interval_tree_insert(reserved, &mdev->reserved_itree);
+	return 0;
+}
+
+/* Add a reserved IOVA region to a device */
+static int iommufd_test_dev_add_reserved(struct iommufd_ucmd *ucmd,
+					 unsigned int device_id,
+					 unsigned long start, size_t length)
+{
+	struct selftest_obj *sobj;
+	struct mock_dev *mdev;
+	int rc;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, device_id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	mdev = sobj->idev.mock_dev;
+	down_write(&mdev->reserved_rwsem);
+	rc = mock_dev_add_reserved_iova(sobj->idev.mock_dev,
+					start, start + length - 1);
+	up_write(&mdev->reserved_rwsem);
+	iommufd_put_object(&sobj->obj);
+	return rc;
+}
+
+/* Remove all reserved IOVA regions of a device */
+static int iommufd_test_dev_del_reserved(struct iommufd_ucmd *ucmd,
+					 unsigned int device_id)
+{
+	struct selftest_obj *sobj;
+	struct mock_dev *mdev;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, device_id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	mdev = sobj->idev.mock_dev;
+	down_write(&mdev->reserved_rwsem);
+	mock_dev_remove_reserved_iovas(mdev);
+	up_write(&mdev->reserved_rwsem);
+	iommufd_put_object(&sobj->obj);
+	return 0;
 }
 
 /* Check that every pfn under each iova matches the pfn under a user VA */
@@ -598,6 +845,43 @@ static int iommufd_test_md_check_refs(struct iommufd_ucmd *ucmd,
 		uptr += PAGE_SIZE;
 	}
 	return 0;
+}
+
+static int iommufd_test_md_check_iotlb(struct iommufd_ucmd *ucmd,
+				       u32 mockpt_id, u32 iotlb)
+{
+	struct iommufd_hw_pagetable *hwpt;
+	struct mock_iommu_domain *mock;
+	int rc = 0;
+
+	hwpt = get_md_pagetable(ucmd, mockpt_id, &mock);
+	if (IS_ERR(hwpt))
+		return PTR_ERR(hwpt);
+
+	mock = container_of(hwpt->domain, struct mock_iommu_domain, domain);
+
+	if (iotlb != mock->iotlb)
+		rc = -EINVAL;
+	iommufd_put_object(&hwpt->obj);
+	return rc;
+}
+
+static int iommufd_test_dev_check_data(struct iommufd_ucmd *ucmd,
+				       u32 dev_id, u32 val)
+{
+	struct iommufd_device *idev;
+	struct mock_dev *mdev;
+	int rc = 0;
+
+	idev = iommufd_get_device(ucmd, dev_id);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
+	mdev = container_of(idev->dev, struct mock_dev, dev);
+
+	if (mdev->dev_data != val)
+		rc = -EINVAL;
+	iommufd_put_object(&idev->obj);
+	return rc;
 }
 
 struct selftest_access {
@@ -977,6 +1261,96 @@ static_assert((unsigned int)MOCK_ACCESS_RW_WRITE == IOMMUFD_ACCESS_RW_WRITE);
 static_assert((unsigned int)MOCK_ACCESS_RW_SLOW_PATH ==
 	      __IOMMUFD_ACCESS_RW_SLOW_PATH);
 
+static int iommufd_test_pasid_attach(struct iommufd_ucmd *ucmd,
+				     struct iommu_test_cmd *cmd)
+{
+	struct selftest_obj *sobj;
+	int rc;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, cmd->id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	rc = iommufd_device_pasid_attach(sobj->idev.idev,
+					 cmd->pasid_attach.pasid,
+					 cmd->pasid_attach.pt_id);
+	iommufd_put_object(&sobj->obj);
+	return rc;
+}
+
+static int iommufd_test_pasid_replace(struct iommufd_ucmd *ucmd,
+				      struct iommu_test_cmd *cmd)
+{
+	struct selftest_obj *sobj;
+	int rc;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, cmd->id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	rc = iommufd_device_pasid_replace(sobj->idev.idev,
+					  cmd->pasid_attach.pasid,
+					  cmd->pasid_attach.pt_id);
+	iommufd_put_object(&sobj->obj);
+	return rc;
+}
+
+static int iommufd_test_pasid_detach(struct iommufd_ucmd *ucmd,
+				     struct iommu_test_cmd *cmd)
+{
+	struct selftest_obj *sobj;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, cmd->id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	iommufd_device_pasid_detach(sobj->idev.idev,
+				    cmd->pasid_detach.pasid);
+	iommufd_put_object(&sobj->obj);
+	return 0;
+}
+
+static int iommufd_test_pasid_check_domain(struct iommufd_ucmd *ucmd,
+					   struct iommu_test_cmd *cmd)
+{
+	struct iommu_domain *attached_domain, *expect_domain = NULL;
+	struct iommufd_hw_pagetable *hwpt = NULL;
+	struct selftest_obj *sobj;
+	struct mock_dev *mdev;
+	bool result;
+	int rc = 0;
+
+	sobj = iommufd_test_get_device(ucmd->ictx, cmd->id);
+	if (IS_ERR(sobj))
+		return PTR_ERR(sobj);
+
+	mdev = sobj->idev.mock_dev;
+
+	attached_domain = iommu_get_domain_for_dev_pasid(&mdev->dev,
+							 cmd->pasid_check.pasid, 0);
+	if (IS_ERR(attached_domain))
+		attached_domain = NULL;
+
+	if (cmd->pasid_check.hwpt_id) {
+		hwpt = iommufd_get_hwpt(ucmd, cmd->pasid_check.hwpt_id);
+		if (IS_ERR(hwpt)) {
+			rc = PTR_ERR(hwpt);
+			goto out_put_dev;
+		}
+		expect_domain = hwpt->domain;
+	}
+
+	result = (attached_domain == expect_domain) ? 1 : 0;
+	if (copy_to_user(u64_to_user_ptr(cmd->pasid_check.out_result_ptr),
+			 &result, sizeof(result)))
+		rc = -EFAULT;
+	if (hwpt)
+		iommufd_put_object(&hwpt->obj);
+out_put_dev:
+	iommufd_put_object(&sobj->obj);
+	return rc;
+}
+
 void iommufd_selftest_destroy(struct iommufd_object *obj)
 {
 	struct selftest_obj *sobj = container_of(obj, struct selftest_obj, obj);
@@ -999,6 +1373,12 @@ int iommufd_test(struct iommufd_ucmd *ucmd)
 		return iommufd_test_add_reserved(ucmd, cmd->id,
 						 cmd->add_reserved.start,
 						 cmd->add_reserved.length);
+	case IOMMU_TEST_OP_DEV_ADD_RESERVED:
+		return iommufd_test_dev_add_reserved(ucmd, cmd->id,
+						     cmd->add_dev_reserved.start,
+						     cmd->add_dev_reserved.length);
+	case IOMMU_TEST_OP_DEV_DEL_RESERVED:
+		return iommufd_test_dev_del_reserved(ucmd, cmd->id);
 	case IOMMU_TEST_OP_MOCK_DOMAIN:
 		return iommufd_test_mock_domain(ucmd, cmd);
 	case IOMMU_TEST_OP_MOCK_DOMAIN_REPLACE:
@@ -1013,6 +1393,12 @@ int iommufd_test(struct iommufd_ucmd *ucmd)
 		return iommufd_test_md_check_refs(
 			ucmd, u64_to_user_ptr(cmd->check_refs.uptr),
 			cmd->check_refs.length, cmd->check_refs.refs);
+	case IOMMU_TEST_OP_MD_CHECK_IOTLB:
+		return iommufd_test_md_check_iotlb(ucmd, cmd->id,
+						   cmd->check_iotlb.iotlb);
+	case IOMMU_TEST_OP_DEV_CHECK_DATA:
+		return iommufd_test_dev_check_data(ucmd, cmd->id,
+						   cmd->check_dev_data.val);
 	case IOMMU_TEST_OP_CREATE_ACCESS:
 		return iommufd_test_create_access(ucmd, cmd->id,
 						  cmd->create_access.flags);
@@ -1041,6 +1427,14 @@ int iommufd_test(struct iommufd_ucmd *ucmd)
 			return -EINVAL;
 		iommufd_test_memory_limit = cmd->memory_limit.limit;
 		return 0;
+	case IOMMU_TEST_OP_PASID_ATTACH:
+		return iommufd_test_pasid_attach(ucmd, cmd);
+	case IOMMU_TEST_OP_PASID_REPLACE:
+		return iommufd_test_pasid_replace(ucmd, cmd);
+	case IOMMU_TEST_OP_PASID_DETACH:
+		return iommufd_test_pasid_detach(ucmd, cmd);
+	case IOMMU_TEST_OP_PASID_CHECK_DOMAIN:
+		return iommufd_test_pasid_check_domain(ucmd, cmd);
 	default:
 		return -EOPNOTSUPP;
 	}

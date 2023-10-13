@@ -13,7 +13,10 @@
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/of.h>
-#include <uapi/linux/iommu.h>
+#include <linux/ioasid.h>
+#include <uapi/linux/iommufd.h>
+#include <linux/ioasid_def.h>
+#include <linux/iova_bitmap.h>
 
 #define IOMMU_READ	(1 << 0)
 #define IOMMU_WRITE	(1 << 1)
@@ -41,6 +44,8 @@ struct notifier_block;
 struct iommu_sva;
 struct iommu_fault_event;
 struct iommu_dma_cookie;
+struct iopf_group;
+struct iopf_queue;
 
 /* iommu fault flags */
 #define IOMMU_FAULT_READ	0x0
@@ -48,7 +53,7 @@ struct iommu_dma_cookie;
 
 typedef int (*iommu_fault_handler_t)(struct iommu_domain *,
 			struct device *, unsigned long, int, void *);
-typedef int (*iommu_dev_fault_handler_t)(struct iommu_fault *, void *);
+typedef int (*iommu_iopf_handler_t)(struct iopf_group *group);
 
 struct iommu_domain_geometry {
 	dma_addr_t aperture_start; /* First address that can be mapped    */
@@ -65,7 +70,16 @@ struct iommu_domain_geometry {
 
 #define __IOMMU_DOMAIN_SVA	(1U << 4)  /* Shared process address space */
 
+#define __IOMMU_DOMAIN_NESTED	(1U << 5)  /* User-managed address space nested
+					      on a stage-2 translation        */
+
 #define IOMMU_DOMAIN_ALLOC_FLAGS ~__IOMMU_DOMAIN_DMA_FQ
+
+/* Domain feature flags that do not define domain types */
+#define IOMMU_DOMAIN_F_ENFORCE_DIRTY	(1U << 6)  /* Enforce attachment
+						    * of dirty tracking
+						    * supported devices	  */
+
 /*
  * This are the possible domain-types
  *
@@ -91,15 +105,16 @@ struct iommu_domain_geometry {
 				 __IOMMU_DOMAIN_DMA_API |	\
 				 __IOMMU_DOMAIN_DMA_FQ)
 #define IOMMU_DOMAIN_SVA	(__IOMMU_DOMAIN_SVA)
+#define IOMMU_DOMAIN_NESTED	(__IOMMU_DOMAIN_NESTED)
 
 struct iommu_domain {
 	unsigned type;
+	unsigned int flags;
 	const struct iommu_domain_ops *ops;
 	unsigned long pgsize_bitmap;	/* Bitmap of page sizes in use */
 	struct iommu_domain_geometry geometry;
 	struct iommu_dma_cookie *iova_cookie;
-	enum iommu_page_response_code (*iopf_handler)(struct iommu_fault *fault,
-						      void *data);
+	iommu_iopf_handler_t iopf_handler;
 	void *fault_data;
 	union {
 		struct {
@@ -111,6 +126,7 @@ struct iommu_domain {
 			int users;
 		};
 	};
+	unsigned long concurrent_traversal:1;
 };
 
 static inline bool iommu_is_dma_domain(struct iommu_domain *domain)
@@ -133,6 +149,7 @@ enum iommu_cap {
 	 * usefully support the non-strict DMA flush queue.
 	 */
 	IOMMU_CAP_DEFERRED_FLUSH,
+	IOMMU_CAP_DIRTY,		/* IOMMU supports dirty tracking */
 };
 
 /* These are the possible reserved region types */
@@ -194,11 +211,12 @@ struct iommu_iort_rmr_data {
 enum iommu_dev_features {
 	IOMMU_DEV_FEAT_SVA,
 	IOMMU_DEV_FEAT_IOPF,
+	IOMMU_DEV_FEAT_PASID,
 };
 
 #define IOMMU_NO_PASID	(0U) /* Reserved for DMA w/o PASID */
 #define IOMMU_FIRST_GLOBAL_PASID	(1U) /*starting range for allocation */
-#define IOMMU_PASID_INVALID	(-1U)
+#define IOMMU_PASID_INVALID	((ioasid_t)-1)
 typedef unsigned int ioasid_t;
 
 #ifdef CONFIG_IOMMU_API
@@ -227,6 +245,31 @@ struct iommu_iotlb_gather {
 	bool			queued;
 };
 
+/*
+ * The user data to allocate a specific type user iommu domain
+ *
+ * This includes the corresponding driver data structures in
+ * include/uapi/linux/iommufd.h.
+ */
+union iommu_domain_user_data {
+#ifdef CONFIG_IOMMUFD_TEST
+	__u64 test[2];
+#endif
+	struct iommu_hwpt_vtd_s1 vtd;
+	struct iommu_hwpt_arm_smmuv3 smmuv3;
+};
+
+/**
+ * struct iommu_dirty_bitmap - Dirty IOVA bitmap state
+ *
+ * @bitmap: IOVA bitmap
+ * @gather: Range information for a pending IOTLB flush
+ */
+struct iommu_dirty_bitmap {
+	struct iova_bitmap *bitmap;
+	struct iommu_iotlb_gather *gather;
+};
+
 /**
  * struct iommu_ops - iommu ops and capabilities
  * @capable: check capability
@@ -235,6 +278,13 @@ struct iommu_iotlb_gather {
  *           use. The information type is one of enum iommu_hw_info_type defined
  *           in include/uapi/linux/iommufd.h.
  * @domain_alloc: allocate iommu domain
+ * @domain_alloc_user: allocate a user iommu domain corresponding to the input
+ *                     @hwpt_type that is defined as enum iommu_hwpt_type in the
+ *                     include/uapi/linux/iommufd.h. A returning domain will be
+ *                     set to an IOMMU_DOMAIN_NESTED type, upon valid @user_data
+ *                     and @parent that is a kernel-managed domain. Otherwise,
+ *                     it will be set to an IOMMU_DOMAIN_UNMANAGED type. Return
+ *                     ERR_PTR on allocation failure.
  * @probe_device: Add device to iommu driver handling
  * @release_device: Remove device from iommu driver handling
  * @probe_finalize: Do final setup work after the device is added to an IOMMU
@@ -258,7 +308,17 @@ struct iommu_iotlb_gather {
  * @remove_dev_pasid: Remove any translation configurations of a specific
  *                    pasid, so that any DMA transactions with this pasid
  *                    will be blocked by the hardware.
+ * @set/unset_dev_user_data: set/unset an iommu specific device data from user
+ *                           space. The user device data info will be used by
+ *                           the driver to take care of user space requests.
+ *                           The device data structure must be defined in
+ *                           include/uapi/linux/iommufd.h.
+ * @dev_user_data_len: Length of the device data from user space (in bytes),
+ *                     simply the "sizeof" the data structure defined in the
+ *                     include/uapi/linux/iommufd.h. This is used by iommufd
+ *                     core to run a data length validation.
  * @pgsize_bitmap: bitmap of all possible supported page sizes
+ * @flags: All non domain type supported features
  * @owner: Driver module providing these ops
  */
 struct iommu_ops {
@@ -267,6 +327,10 @@ struct iommu_ops {
 
 	/* Domain allocation and freeing by the iommu driver */
 	struct iommu_domain *(*domain_alloc)(unsigned iommu_domain_type);
+	struct iommu_domain *(*domain_alloc_user)(struct device *dev,
+						  enum iommu_hwpt_type hwpt_type,
+						  struct iommu_domain *parent,
+						  const union iommu_domain_user_data *user_data);
 
 	struct iommu_device *(*probe_device)(struct device *dev);
 	void (*release_device)(struct device *dev);
@@ -291,8 +355,13 @@ struct iommu_ops {
 	int (*def_domain_type)(struct device *dev);
 	void (*remove_dev_pasid)(struct device *dev, ioasid_t pasid);
 
+	int (*set_dev_user_data)(struct device *dev, const void *user_data);
+	void (*unset_dev_user_data)(struct device *dev);
+	size_t dev_user_data_len;
+
 	const struct iommu_domain_ops *default_domain_ops;
 	unsigned long pgsize_bitmap;
+	unsigned long supported_flags;
 	struct module *owner;
 };
 
@@ -321,13 +390,23 @@ struct iommu_ops {
  * @iotlb_sync_map: Sync mappings created recently using @map to the hardware
  * @iotlb_sync: Flush all queued ranges from the hardware TLBs and empty flush
  *            queue
+ * @cache_invalidate_user: Flush hardware TLBs caching user space IO mappings
+ * @cache_invalidate_user_data_len: Defined length of input user data for the
+ *                                  cache_invalidate_user op, being sizeof the
+ *                                  structure in include/uapi/linux/iommufd.h
  * @iova_to_phys: translate iova to physical address
  * @enforce_cache_coherency: Prevent any kind of DMA from bypassing IOMMU_CACHE,
  *                           including no-snoop TLPs on PCIe or other platform
  *                           specific mechanisms.
- * @enable_nesting: Enable nesting
  * @set_pgtable_quirks: Set io page table quirks (IO_PGTABLE_QUIRK_*)
  * @free: Release the domain after use.
+ * @get_msi_mapping_domain: Return the related iommu_domain that should hold the
+ *                          MSI cookie and accept mapping(s).
+ * @set_dirty_tracking: Enable or Disable dirty tracking on the iommu domain
+ * @read_and_clear_dirty: Walk IOMMU page tables for dirtied PTEs marshalled
+ *                        into a bitmap, with a bit represented as a page.
+ *                        Reads the dirty PTE bits and clears it from IO
+ *                        pagetables.
  */
 struct iommu_domain_ops {
 	int (*attach_dev)(struct iommu_domain *domain, struct device *dev);
@@ -350,16 +429,25 @@ struct iommu_domain_ops {
 			       size_t size);
 	void (*iotlb_sync)(struct iommu_domain *domain,
 			   struct iommu_iotlb_gather *iotlb_gather);
+	int (*cache_invalidate_user)(struct iommu_domain *domain,
+				     void *user_data);
+	const size_t cache_invalidate_user_data_len;
 
 	phys_addr_t (*iova_to_phys)(struct iommu_domain *domain,
 				    dma_addr_t iova);
 
 	bool (*enforce_cache_coherency)(struct iommu_domain *domain);
-	int (*enable_nesting)(struct iommu_domain *domain);
 	int (*set_pgtable_quirks)(struct iommu_domain *domain,
 				  unsigned long quirks);
 
 	void (*free)(struct iommu_domain *domain);
+	struct iommu_domain *
+		(*get_msi_mapping_domain)(struct iommu_domain *domain);
+	int (*set_dirty_tracking)(struct iommu_domain *domain, bool enabled);
+	int (*read_and_clear_dirty)(struct iommu_domain *domain,
+				    unsigned long iova, size_t size,
+				    unsigned long flags,
+				    struct iommu_dirty_bitmap *dirty);
 };
 
 /**
@@ -394,14 +482,10 @@ struct iommu_fault_event {
 
 /**
  * struct iommu_fault_param - per-device IOMMU fault data
- * @handler: Callback function to handle IOMMU faults at device level
- * @data: handler private data
  * @faults: holds the pending faults which needs response
  * @lock: protect pending faults list
  */
 struct iommu_fault_param {
-	iommu_dev_fault_handler_t handler;
-	void *data;
 	struct list_head faults;
 	struct mutex lock;
 };
@@ -435,6 +519,19 @@ struct dev_iommu {
 	u32				require_direct:1;
 };
 
+struct iopf_fault {
+	struct iommu_fault		fault;
+	struct list_head		list;
+};
+
+struct iopf_group {
+	struct iopf_fault		last_fault;
+	struct list_head		faults;
+	struct work_struct		work;
+	struct device			*dev;
+	void				*data;
+};
+
 int iommu_device_register(struct iommu_device *iommu,
 			  const struct iommu_ops *ops,
 			  struct device *hwdev);
@@ -466,6 +563,9 @@ extern bool iommu_present(const struct bus_type *bus);
 extern bool device_iommu_capable(struct device *dev, enum iommu_cap cap);
 extern bool iommu_group_has_isolated_msi(struct iommu_group *group);
 extern struct iommu_domain *iommu_domain_alloc(const struct bus_type *bus);
+extern int iommu_domain_set_flags(struct iommu_domain *domain,
+				  const struct bus_type *bus,
+				  unsigned long flags);
 extern void iommu_domain_free(struct iommu_domain *domain);
 extern int iommu_attach_device(struct iommu_domain *domain,
 			       struct device *dev);
@@ -488,6 +588,8 @@ extern ssize_t iommu_map_sg(struct iommu_domain *domain, unsigned long iova,
 extern phys_addr_t iommu_iova_to_phys(struct iommu_domain *domain, dma_addr_t iova);
 extern void iommu_set_fault_handler(struct iommu_domain *domain,
 			iommu_fault_handler_t handler, void *token);
+void iommu_domain_set_iopf_handler(struct iommu_domain *domain,
+				   iommu_iopf_handler_t handler, void *data);
 
 extern void iommu_get_resv_regions(struct device *dev, struct list_head *list);
 extern void iommu_put_resv_regions(struct device *dev, struct list_head *list);
@@ -518,11 +620,6 @@ extern int iommu_group_for_each_dev(struct iommu_group *group, void *data,
 extern struct iommu_group *iommu_group_get(struct device *dev);
 extern struct iommu_group *iommu_group_ref_get(struct iommu_group *group);
 extern void iommu_group_put(struct iommu_group *group);
-extern int iommu_register_device_fault_handler(struct device *dev,
-					iommu_dev_fault_handler_t handler,
-					void *data);
-
-extern int iommu_unregister_device_fault_handler(struct device *dev);
 
 extern int iommu_report_device_fault(struct device *dev,
 				     struct iommu_fault_event *evt);
@@ -532,7 +629,6 @@ extern int iommu_page_response(struct device *dev,
 extern int iommu_group_id(struct iommu_group *group);
 extern struct iommu_domain *iommu_group_default_domain(struct iommu_group *);
 
-int iommu_enable_nesting(struct iommu_domain *domain);
 int iommu_set_pgtable_quirks(struct iommu_domain *domain,
 		unsigned long quirks);
 
@@ -632,6 +728,28 @@ static inline bool iommu_iotlb_gather_queued(struct iommu_iotlb_gather *gather)
 	return gather && gather->queued;
 }
 
+static inline void iommu_dirty_bitmap_init(struct iommu_dirty_bitmap *dirty,
+					   struct iova_bitmap *bitmap,
+					   struct iommu_iotlb_gather *gather)
+{
+	if (gather)
+		iommu_iotlb_gather_init(gather);
+
+	dirty->bitmap = bitmap;
+	dirty->gather = gather;
+}
+
+static inline void
+iommu_dirty_bitmap_record(struct iommu_dirty_bitmap *dirty, unsigned long iova,
+			  unsigned long length)
+{
+	if (dirty->bitmap)
+		iova_bitmap_set(dirty->bitmap, iova, length);
+
+	if (dirty->gather)
+		iommu_iotlb_gather_add_range(dirty->gather, iova, length);
+}
+
 /* PCI device grouping function */
 extern struct iommu_group *pci_device_group(struct device *dev);
 /* Generic device grouping function */
@@ -661,6 +779,9 @@ struct iommu_fwspec {
 
 /* ATS is supported */
 #define IOMMU_FWSPEC_PCI_RC_ATS			(1 << 0)
+
+/* Read but do not clear any dirty bits */
+#define IOMMU_DIRTY_NO_CLEAR			(1 << 0)
 
 /**
  * struct iommu_sva - handle to a device-mm bond
@@ -703,6 +824,12 @@ static inline void dev_iommu_priv_set(struct device *dev, void *priv)
 	dev->iommu->priv = priv;
 }
 
+static inline void domain_set_concurrent_traversal(struct iommu_domain *domain,
+						   bool value)
+{
+	domain->concurrent_traversal = value;
+}
+
 int iommu_probe_device(struct device *dev);
 
 int iommu_dev_enable_feature(struct device *dev, enum iommu_dev_features f);
@@ -729,6 +856,8 @@ iommu_get_domain_for_dev_pasid(struct device *dev, ioasid_t pasid,
 			       unsigned int type);
 ioasid_t iommu_alloc_global_pasid(struct device *dev);
 void iommu_free_global_pasid(ioasid_t pasid);
+void iommu_free_pgtbl_pages(struct iommu_domain *domain,
+			    struct list_head *pages);
 #else /* CONFIG_IOMMU_API */
 
 struct iommu_ops {};
@@ -751,6 +880,13 @@ static inline bool device_iommu_capable(struct device *dev, enum iommu_cap cap)
 static inline struct iommu_domain *iommu_domain_alloc(const struct bus_type *bus)
 {
 	return NULL;
+}
+
+static inline int iommu_domain_set_flags(struct iommu_domain *domain,
+					 const struct bus_type *bus,
+					 unsigned long flags)
+{
+	return -ENODEV;
 }
 
 static inline void iommu_domain_free(struct iommu_domain *domain)
@@ -815,6 +951,12 @@ static inline phys_addr_t iommu_iova_to_phys(struct iommu_domain *domain, dma_ad
 
 static inline void iommu_set_fault_handler(struct iommu_domain *domain,
 				iommu_fault_handler_t handler, void *token)
+{
+}
+
+static inline void iommu_domain_set_iopf_handler(struct iommu_domain *domain,
+						 iommu_iopf_handler_t handler,
+						 void *data)
 {
 }
 
@@ -904,19 +1046,6 @@ static inline struct iommu_group *iommu_group_get(struct device *dev)
 
 static inline void iommu_group_put(struct iommu_group *group)
 {
-}
-
-static inline
-int iommu_register_device_fault_handler(struct device *dev,
-					iommu_dev_fault_handler_t handler,
-					void *data)
-{
-	return -ENODEV;
-}
-
-static inline int iommu_unregister_device_fault_handler(struct device *dev)
-{
-	return 0;
 }
 
 static inline
@@ -1183,7 +1312,7 @@ static inline bool tegra_dev_iommu_get_stream_id(struct device *dev, u32 *stream
 #ifdef CONFIG_IOMMU_SVA
 static inline void mm_pasid_init(struct mm_struct *mm)
 {
-	mm->pasid = IOMMU_PASID_INVALID;
+	mm->pasid = INVALID_IOASID;
 }
 static inline bool mm_valid_pasid(struct mm_struct *mm)
 {
@@ -1194,6 +1323,7 @@ struct iommu_sva *iommu_sva_bind_device(struct device *dev,
 					struct mm_struct *mm);
 void iommu_sva_unbind_device(struct iommu_sva *handle);
 u32 iommu_sva_get_pasid(struct iommu_sva *handle);
+int iommu_sva_handle_iopf_group(struct iopf_group *group);
 #else
 static inline struct iommu_sva *
 iommu_sva_bind_device(struct device *dev, struct mm_struct *mm)
@@ -1212,6 +1342,69 @@ static inline u32 iommu_sva_get_pasid(struct iommu_sva *handle)
 static inline void mm_pasid_init(struct mm_struct *mm) {}
 static inline bool mm_valid_pasid(struct mm_struct *mm) { return false; }
 static inline void mm_pasid_drop(struct mm_struct *mm) {}
+static inline int iommu_sva_handle_iopf_group(struct iopf_group *group)
+{
+	return -ENODEV;
+}
 #endif /* CONFIG_IOMMU_SVA */
 
+#ifdef CONFIG_IOMMU_IOPF
+int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev);
+int iopf_queue_add_device(struct iopf_queue *queue, struct device *dev);
+int iopf_queue_remove_device(struct iopf_queue *queue,
+			     struct device *dev);
+int iopf_queue_flush_dev(struct device *dev);
+struct iopf_queue *iopf_queue_alloc(const char *name);
+void iopf_queue_free(struct iopf_queue *queue);
+int iopf_queue_discard_partial(struct iopf_queue *queue);
+void iopf_free_group(struct iopf_group *group);
+int iopf_queue_work(struct iopf_group *group, work_func_t func);
+int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
+			enum iommu_page_response_code status);
+#else /* CONFIG_IOMMU_IOPF */
+static inline int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
+{
+	return -ENODEV;
+}
+
+static inline int iopf_queue_add_device(struct iopf_queue *queue,
+					struct device *dev)
+{
+	return -ENODEV;
+}
+
+static inline int iopf_queue_remove_device(struct iopf_queue *queue,
+					   struct device *dev)
+{
+	return -ENODEV;
+}
+
+static inline int iopf_queue_flush_dev(struct device *dev)
+{
+	return -ENODEV;
+}
+
+static inline struct iopf_queue *iopf_queue_alloc(const char *name)
+{
+	return NULL;
+}
+
+static inline void iopf_queue_free(struct iopf_queue *queue)
+{
+}
+
+static inline int iopf_queue_discard_partial(struct iopf_queue *queue)
+{
+	return -ENODEV;
+}
+
+static inline void iopf_free_group(struct iopf_group *group)
+{
+}
+
+static inline int iopf_queue_work(struct iopf_group *group, work_func_t func)
+{
+	return -ENODEV;
+}
+#endif /* CONFIG_IOMMU_IOPF */
 #endif /* __LINUX_IOMMU_H */

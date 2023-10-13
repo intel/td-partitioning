@@ -32,16 +32,13 @@
 #include <trace/events/iommu.h>
 #include <linux/sched/mm.h>
 #include <linux/msi.h>
+#include <linux/ioasid.h>
 
 #include "dma-iommu.h"
 #include "iommu-priv.h"
 
-#include "iommu-sva.h"
-#include "iommu-priv.h"
-
 static struct kset *iommu_group_kset;
 static DEFINE_IDA(iommu_group_ida);
-static DEFINE_IDA(iommu_global_pasid_ida);
 
 static unsigned int iommu_def_domain_type __read_mostly;
 static bool iommu_dma_strict __read_mostly = IS_ENABLED(CONFIG_IOMMU_DEFAULT_DMA_STRICT);
@@ -335,20 +332,28 @@ int iommu_device_register_bus(struct iommu_device *iommu,
 EXPORT_SYMBOL_GPL(iommu_device_register_bus);
 #endif
 
-static struct dev_iommu *dev_iommu_get(struct device *dev)
+static int dev_iommu_get(struct device *dev)
 {
 	struct dev_iommu *param = dev->iommu;
 
 	if (param)
-		return param;
+		return 0;
 
 	param = kzalloc(sizeof(*param), GFP_KERNEL);
 	if (!param)
-		return NULL;
+		return -ENOMEM;
 
 	mutex_init(&param->lock);
+	param->fault_param = kzalloc(sizeof(*param->fault_param), GFP_KERNEL);
+	if (!param->fault_param) {
+		kfree(param);
+		return -ENOMEM;
+	}
+	mutex_init(&param->fault_param->lock);
+	INIT_LIST_HEAD(&param->fault_param->faults);
 	dev->iommu = param;
-	return param;
+
+	return 0;
 }
 
 static void dev_iommu_free(struct device *dev)
@@ -360,6 +365,12 @@ static void dev_iommu_free(struct device *dev)
 		fwnode_handle_put(param->fwspec->iommu_fwnode);
 		kfree(param->fwspec);
 	}
+	/*
+	 * All pending faults should have been drained before
+	 * device release.
+	 */
+	WARN_ON_ONCE(!list_empty(&param->fault_param->faults));
+	kfree(param->fault_param);
 	kfree(param);
 }
 
@@ -391,8 +402,9 @@ static int iommu_init_device(struct device *dev, const struct iommu_ops *ops)
 	struct iommu_group *group;
 	int ret;
 
-	if (!dev_iommu_get(dev))
-		return -ENOMEM;
+	ret = dev_iommu_get(dev);
+	if (ret)
+		return ret;
 
 	if (!try_module_get(ops->owner)) {
 		ret = -EINVAL;
@@ -1295,98 +1307,6 @@ void iommu_group_put(struct iommu_group *group)
 EXPORT_SYMBOL_GPL(iommu_group_put);
 
 /**
- * iommu_register_device_fault_handler() - Register a device fault handler
- * @dev: the device
- * @handler: the fault handler
- * @data: private data passed as argument to the handler
- *
- * When an IOMMU fault event is received, this handler gets called with the
- * fault event and data as argument. The handler should return 0 on success. If
- * the fault is recoverable (IOMMU_FAULT_PAGE_REQ), the consumer should also
- * complete the fault by calling iommu_page_response() with one of the following
- * response code:
- * - IOMMU_PAGE_RESP_SUCCESS: retry the translation
- * - IOMMU_PAGE_RESP_INVALID: terminate the fault
- * - IOMMU_PAGE_RESP_FAILURE: terminate the fault and stop reporting
- *   page faults if possible.
- *
- * Return 0 if the fault handler was installed successfully, or an error.
- */
-int iommu_register_device_fault_handler(struct device *dev,
-					iommu_dev_fault_handler_t handler,
-					void *data)
-{
-	struct dev_iommu *param = dev->iommu;
-	int ret = 0;
-
-	if (!param)
-		return -EINVAL;
-
-	mutex_lock(&param->lock);
-	/* Only allow one fault handler registered for each device */
-	if (param->fault_param) {
-		ret = -EBUSY;
-		goto done_unlock;
-	}
-
-	get_device(dev);
-	param->fault_param = kzalloc(sizeof(*param->fault_param), GFP_KERNEL);
-	if (!param->fault_param) {
-		put_device(dev);
-		ret = -ENOMEM;
-		goto done_unlock;
-	}
-	param->fault_param->handler = handler;
-	param->fault_param->data = data;
-	mutex_init(&param->fault_param->lock);
-	INIT_LIST_HEAD(&param->fault_param->faults);
-
-done_unlock:
-	mutex_unlock(&param->lock);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(iommu_register_device_fault_handler);
-
-/**
- * iommu_unregister_device_fault_handler() - Unregister the device fault handler
- * @dev: the device
- *
- * Remove the device fault handler installed with
- * iommu_register_device_fault_handler().
- *
- * Return 0 on success, or an error.
- */
-int iommu_unregister_device_fault_handler(struct device *dev)
-{
-	struct dev_iommu *param = dev->iommu;
-	int ret = 0;
-
-	if (!param)
-		return -EINVAL;
-
-	mutex_lock(&param->lock);
-
-	if (!param->fault_param)
-		goto unlock;
-
-	/* we cannot unregister handler if there are pending faults */
-	if (!list_empty(&param->fault_param->faults)) {
-		ret = -EBUSY;
-		goto unlock;
-	}
-
-	kfree(param->fault_param);
-	param->fault_param = NULL;
-	put_device(dev);
-unlock:
-	mutex_unlock(&param->lock);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(iommu_unregister_device_fault_handler);
-
-/**
  * iommu_report_device_fault() - Report fault event to device driver
  * @dev: the device
  * @evt: fault event data
@@ -1410,10 +1330,6 @@ int iommu_report_device_fault(struct device *dev, struct iommu_fault_event *evt)
 	/* we only report device fault if there is a handler registered */
 	mutex_lock(&param->lock);
 	fparam = param->fault_param;
-	if (!fparam || !fparam->handler) {
-		ret = -EINVAL;
-		goto done_unlock;
-	}
 
 	if (evt->fault.type == IOMMU_FAULT_PAGE_REQ &&
 	    (evt->fault.prm.flags & IOMMU_FAULT_PAGE_REQUEST_LAST_PAGE)) {
@@ -1428,7 +1344,7 @@ int iommu_report_device_fault(struct device *dev, struct iommu_fault_event *evt)
 		mutex_unlock(&fparam->lock);
 	}
 
-	ret = fparam->handler(&evt->fault, fparam->data);
+	ret = iommu_queue_iopf(&evt->fault, dev);
 	if (ret && evt_pending) {
 		mutex_lock(&fparam->lock);
 		list_del(&evt_pending->list);
@@ -1969,6 +1885,23 @@ void iommu_set_fault_handler(struct iommu_domain *domain,
 }
 EXPORT_SYMBOL_GPL(iommu_set_fault_handler);
 
+/**
+ * iommu_domain_set_iopf_handler() - set io page fault handler for a domain
+ * @domain: iommu domain
+ * @handler: fault handler
+ * @data: user data, will be passed back to the fault handler
+ *
+ * This function should be used by iommu domain users which want to be notified
+ * whenever an IOMMU I/O page fault happens.
+ */
+void iommu_domain_set_iopf_handler(struct iommu_domain *domain,
+				   iommu_iopf_handler_t handler, void *data)
+{
+	domain->iopf_handler = handler;
+	domain->fault_data = data;
+}
+EXPORT_SYMBOL_GPL(iommu_domain_set_iopf_handler);
+
 static struct iommu_domain *__iommu_domain_alloc(const struct bus_type *bus,
 						 unsigned type)
 {
@@ -2005,6 +1938,17 @@ struct iommu_domain *iommu_domain_alloc(const struct bus_type *bus)
 	return __iommu_domain_alloc(bus, IOMMU_DOMAIN_UNMANAGED);
 }
 EXPORT_SYMBOL_GPL(iommu_domain_alloc);
+
+int iommu_domain_set_flags(struct iommu_domain *domain,
+			   const struct bus_type *bus, unsigned long val)
+{
+	if (!(val & bus->iommu_ops->supported_flags))
+		return -EINVAL;
+
+	domain->flags |= val;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iommu_domain_set_flags);
 
 void iommu_domain_free(struct iommu_domain *domain)
 {
@@ -2723,16 +2667,6 @@ static int __init iommu_init(void)
 }
 core_initcall(iommu_init);
 
-int iommu_enable_nesting(struct iommu_domain *domain)
-{
-	if (domain->type != IOMMU_DOMAIN_UNMANAGED)
-		return -EINVAL;
-	if (!domain->ops->enable_nesting)
-		return -EINVAL;
-	return domain->ops->enable_nesting(domain);
-}
-EXPORT_SYMBOL_GPL(iommu_enable_nesting);
-
 int iommu_set_pgtable_quirks(struct iommu_domain *domain,
 		unsigned long quirk)
 {
@@ -2840,12 +2774,14 @@ int iommu_fwspec_init(struct device *dev, struct fwnode_handle *iommu_fwnode,
 		      const struct iommu_ops *ops)
 {
 	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+	int ret;
 
 	if (fwspec)
 		return ops == fwspec->ops ? 0 : -EINVAL;
 
-	if (!dev_iommu_get(dev))
-		return -ENOMEM;
+	ret = dev_iommu_get(dev);
+	if (ret)
+		return ret;
 
 	/* Preallocate for the overwhelmingly common case of 1 ID */
 	fwspec = kzalloc(struct_size(fwspec, ids, 1), GFP_KERNEL);
@@ -3392,6 +3328,27 @@ static void __iommu_remove_group_pasid(struct iommu_group *group,
 	}
 }
 
+static int __iommu_group_attach_pasid(struct iommu_domain *domain,
+				      struct iommu_group *group, ioasid_t pasid)
+{
+	void *curr;
+	int ret;
+
+	lockdep_assert_held(&group->mutex);
+
+	curr = xa_cmpxchg(&group->pasid_array, pasid, NULL, domain, GFP_KERNEL);
+	if (curr)
+		return xa_err(curr) ? : -EBUSY;
+
+	ret = __iommu_set_group_pasid(domain, group, pasid);
+	if (ret) {
+		__iommu_remove_group_pasid(group, pasid);
+		xa_erase(&group->pasid_array, pasid);
+	}
+
+	return ret;
+}
+
 /*
  * iommu_attach_device_pasid() - Attach a domain to pasid of device
  * @domain: the iommu domain.
@@ -3404,7 +3361,6 @@ int iommu_attach_device_pasid(struct iommu_domain *domain,
 			      struct device *dev, ioasid_t pasid)
 {
 	struct iommu_group *group;
-	void *curr;
 	int ret;
 
 	if (!domain->ops->set_dev_pasid)
@@ -3415,19 +3371,9 @@ int iommu_attach_device_pasid(struct iommu_domain *domain,
 		return -ENODEV;
 
 	mutex_lock(&group->mutex);
-	curr = xa_cmpxchg(&group->pasid_array, pasid, NULL, domain, GFP_KERNEL);
-	if (curr) {
-		ret = xa_err(curr) ? : -EBUSY;
-		goto out_unlock;
-	}
-
-	ret = __iommu_set_group_pasid(domain, group, pasid);
-	if (ret) {
-		__iommu_remove_group_pasid(group, pasid);
-		xa_erase(&group->pasid_array, pasid);
-	}
-out_unlock:
+	ret = __iommu_group_attach_pasid(domain, group, pasid);
 	mutex_unlock(&group->mutex);
+
 	iommu_group_put(group);
 
 	return ret;
@@ -3443,8 +3389,8 @@ EXPORT_SYMBOL_GPL(iommu_attach_device_pasid);
  * The @domain must have been attached to @pasid of the @dev with
  * iommu_attach_device_pasid().
  */
-void iommu_detach_device_pasid(struct iommu_domain *domain, struct device *dev,
-			       ioasid_t pasid)
+void iommu_detach_device_pasid(struct iommu_domain *domain,
+			       struct device *dev, ioasid_t pasid)
 {
 	struct iommu_group *group = iommu_group_get(dev);
 
@@ -3456,6 +3402,39 @@ void iommu_detach_device_pasid(struct iommu_domain *domain, struct device *dev,
 	iommu_group_put(group);
 }
 EXPORT_SYMBOL_GPL(iommu_detach_device_pasid);
+
+/**
+ * iommu_replace_device_pasid - replace the domain that a pasid is attached to
+ * @domain: new IOMMU domain to replace with
+ * @device: the physical device
+ * @pasid: pasid that will be attached to the new domain
+ *
+ * This API allows the pasid to switch domains. Return 0 on success, or an
+ * error. The pasid will roll back to use the old domain if failure. The
+ * caller could call iommu_detach_device_pasid() before free the old domain
+ * in order to avoid use-after-free case.
+ */
+int iommu_replace_device_pasid(struct iommu_domain *domain,
+			       struct device *dev, ioasid_t pasid)
+{
+	struct iommu_group *group = dev->iommu_group;
+	int ret;
+
+	if (!domain)
+		return -EINVAL;
+
+	if (!group)
+		return -ENODEV;
+
+	mutex_lock(&group->mutex);
+	__iommu_remove_group_pasid(group, pasid);
+	xa_erase(&group->pasid_array, pasid);
+	ret = __iommu_group_attach_pasid(domain, group, pasid);
+	mutex_unlock(&group->mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_NS_GPL(iommu_replace_device_pasid, IOMMUFD_INTERNAL);
 
 /*
  * iommu_get_domain_for_dev_pasid() - Retrieve domain for @pasid of @dev
@@ -3506,8 +3485,7 @@ struct iommu_domain *iommu_sva_domain_alloc(struct device *dev,
 	domain->type = IOMMU_DOMAIN_SVA;
 	mmgrab(mm);
 	domain->mm = mm;
-	domain->iopf_handler = iommu_sva_handle_iopf;
-	domain->fault_data = mm;
+	iommu_domain_set_iopf_handler(domain, iommu_sva_handle_iopf_group, mm);
 
 	return domain;
 }
@@ -3524,8 +3502,7 @@ ioasid_t iommu_alloc_global_pasid(struct device *dev)
 	 * max_pasids is set up by vendor driver based on number of PASID bits
 	 * supported but the IDA allocation is inclusive.
 	 */
-	ret = ida_alloc_range(&iommu_global_pasid_ida, IOMMU_FIRST_GLOBAL_PASID,
-			      dev->iommu->max_pasids - 1, GFP_KERNEL);
+	ret = ioasid_alloc(NULL, 1, dev->iommu->max_pasids, dev, 0);
 	return ret < 0 ? IOMMU_PASID_INVALID : ret;
 }
 EXPORT_SYMBOL_GPL(iommu_alloc_global_pasid);
@@ -3535,6 +3512,29 @@ void iommu_free_global_pasid(ioasid_t pasid)
 	if (WARN_ON(pasid == IOMMU_PASID_INVALID))
 		return;
 
-	ida_free(&iommu_global_pasid_ida, pasid);
+	__ioasid_put(pasid);
 }
 EXPORT_SYMBOL_GPL(iommu_free_global_pasid);
+
+static void pgtble_page_free_rcu(struct rcu_head *rcu)
+{
+	struct page *page = container_of(rcu, struct page, rcu_head);
+
+	__free_pages(page, 0);
+}
+
+void iommu_free_pgtbl_pages(struct iommu_domain *domain,
+			    struct list_head *pages)
+{
+	struct page *page, *next;
+
+	if (!domain->concurrent_traversal) {
+		put_pages_list(pages);
+		return;
+	}
+
+	list_for_each_entry_safe(page, next, pages, lru) {
+		list_del(&page->lru);
+		call_rcu(&page->rcu_head, pgtble_page_free_rcu);
+	}
+}

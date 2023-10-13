@@ -122,6 +122,76 @@ static int _test_cmd_hwpt_alloc(int fd, __u32 device_id, __u32 pt_id,
 
 #define test_cmd_hwpt_alloc(device_id, pt_id, hwpt_id) \
 	ASSERT_EQ(0, _test_cmd_hwpt_alloc(self->fd, device_id, pt_id, hwpt_id))
+#define test_err_cmd_hwpt_alloc(_errno, device_id, pt_id, hwpt_id)     \
+	EXPECT_ERRNO(_errno, _test_cmd_hwpt_alloc(self->fd, device_id, \
+						  pt_id, hwpt_id))
+
+#define test_cmd_hwpt_check_iotlb(hwpt_id, expected)                           \
+	({                                                                     \
+		struct iommu_test_cmd test_cmd = {                             \
+			.size = sizeof(test_cmd),                              \
+			.op = IOMMU_TEST_OP_MD_CHECK_IOTLB,                    \
+			.id = hwpt_id,                                         \
+			.check_iotlb = { .iotlb = expected },                  \
+		};                                                             \
+		ASSERT_EQ(0,                                                   \
+			  ioctl(self->fd,                                      \
+				_IOMMU_TEST_CMD(IOMMU_TEST_OP_MD_CHECK_IOTLB), \
+				&test_cmd));                                   \
+	})
+
+static int _test_cmd_hwpt_alloc_nested(int fd, __u32 device_id, __u32 parent_id,
+				       __u32 *hwpt_id)
+{
+	struct iommu_hwpt_selftest data = {
+		.flags = IOMMU_TEST_FLAG_NESTED,
+		.test_config = IOMMU_TEST_IOTLB_DEFAULT,
+	};
+	struct iommu_hwpt_alloc cmd = {
+		.size = sizeof(cmd),
+		.dev_id = device_id,
+		.pt_id = parent_id,
+		.hwpt_type = IOMMU_HWPT_TYPE_SELFTTEST,
+		.data_len = sizeof(data),
+		.data_uptr = (uint64_t)&data,
+	};
+	int ret;
+
+	ret = ioctl(fd, IOMMU_HWPT_ALLOC, &cmd);
+	if (ret)
+		return ret;
+	if (hwpt_id)
+		*hwpt_id = cmd.out_hwpt_id;
+	return 0;
+}
+
+#define test_cmd_hwpt_alloc_nested(device_id, parent_id, hwpt_id)     \
+	ASSERT_EQ(0, _test_cmd_hwpt_alloc_nested(self->fd, device_id, \
+						 parent_id, hwpt_id))
+#define test_err_cmd_hwpt_alloc_nested(_errno, device_id, parent_id, hwpt_id) \
+	EXPECT_ERRNO(_errno,                                                  \
+		     _test_cmd_hwpt_alloc_nested(self->fd, device_id,         \
+						 parent_id, hwpt_id))
+
+static int _test_cmd_hwpt_invalidate(int fd, __u32 hwpt_id)
+{
+	struct iommu_hwpt_invalidate_selftest data = {
+		.flags = IOMMU_TEST_INVALIDATE_ALL,
+	};
+	struct iommu_hwpt_invalidate cmd = {
+		.size = sizeof(cmd),
+		.hwpt_id = hwpt_id,
+		.data_len = sizeof(data),
+		.data_uptr = (uint64_t)&data,
+	};
+
+	return ioctl(fd, IOMMU_HWPT_INVALIDATE, &cmd);
+}
+
+#define test_cmd_hwpt_invalidate(hwpt_id) \
+	ASSERT_EQ(0, _test_cmd_hwpt_invalidate(self->fd, hwpt_id))
+#define test_err_cmd_hwpt_invalidate(_errno, hwpt_id) \
+	EXPECT_ERRNO(_errno, _test_cmd_hwpt_invalidate(self->fd, hwpt_id))
 
 static int _test_cmd_access_replace_ioas(int fd, __u32 access_id,
 					 unsigned int ioas_id)
@@ -410,3 +480,140 @@ static int _test_cmd_get_hw_info(int fd, __u32 device_id,
 	EXPECT_ERRNO(_errno,                                    \
 		     _test_cmd_get_hw_info(self->fd, device_id, \
 					   data, data_len))
+
+#define test_cmd_dev_check_data(device_id, expected)                           \
+	({                                                                     \
+		struct iommu_test_cmd test_cmd = {                             \
+			.size = sizeof(test_cmd),                              \
+			.op = IOMMU_TEST_OP_DEV_CHECK_DATA,                    \
+			.id = device_id,                                       \
+			.check_dev_data = { .val = expected },                 \
+		};                                                             \
+		ASSERT_EQ(0,                                                   \
+			  ioctl(self->fd,                                      \
+				_IOMMU_TEST_CMD(IOMMU_TEST_OP_DEV_CHECK_DATA), \
+				&test_cmd));                                   \
+	})
+
+static int _test_cmd_set_dev_data(int fd, __u32 device_id,
+				  struct iommu_test_device_data *dev_data)
+{
+	struct iommu_set_dev_data cmd = {
+		.size = sizeof(cmd),
+		.dev_id = device_id,
+		.data_uptr = (uint64_t)dev_data,
+		.data_len = sizeof(*dev_data),
+	};
+	int ret;
+
+	ret = ioctl(fd, IOMMU_SET_DEV_DATA, &cmd);
+	if (ret)
+		return ret;
+	return 0;
+}
+
+#define test_cmd_set_dev_data(device_id, dev_data) \
+	ASSERT_EQ(0, _test_cmd_set_dev_data(self->fd, device_id, dev_data))
+
+#define test_err_set_dev_data(_errno, device_id, dev_data) \
+	EXPECT_ERRNO(_errno,                               \
+		     _test_cmd_set_dev_data(self->fd, device_id, dev_data))
+
+static int _test_cmd_unset_dev_data(int fd, __u32 device_id)
+{
+	struct iommu_unset_dev_data cmd = {
+		.size = sizeof(cmd),
+		.dev_id = device_id,
+	};
+	int ret;
+
+	ret = ioctl(fd, IOMMU_UNSET_DEV_DATA, &cmd);
+	if (ret)
+		return ret;
+	return 0;
+}
+
+#define test_cmd_unset_dev_data(device_id) \
+	ASSERT_EQ(0, _test_cmd_unset_dev_data(self->fd, device_id))
+
+#define test_err_unset_dev_data(_errno, device_id) \
+	EXPECT_ERRNO(_errno,                       \
+		     _test_cmd_unset_dev_data(self->fd, device_id))
+
+static int _test_cmd_pasid_attach(int fd, __u32 stdev_id, __u32 pasid, __u32 pt_id)
+{
+	struct iommu_test_cmd test_attach = {
+		.size = sizeof(test_attach),
+		.op = IOMMU_TEST_OP_PASID_ATTACH,
+		.id = stdev_id,
+		.pasid_attach = {
+			.pasid = pasid,
+			.pt_id = pt_id,
+		},
+	};
+
+	return ioctl(fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_PASID_ATTACH), &test_attach);
+}
+
+#define test_cmd_pasid_attach(pasid, hwpt_id) \
+	ASSERT_EQ(0, _test_cmd_pasid_attach(self->fd, self->stdev_id, pasid, hwpt_id))
+
+#define test_err_cmd_pasid_attach(_errno, pasid, hwpt_id) \
+	EXPECT_ERRNO(_errno, \
+		     _test_cmd_pasid_attach(self->fd, self->stdev_id, pasid, hwpt_id))
+
+static int _test_cmd_pasid_replace(int fd, __u32 stdev_id, __u32 pasid, __u32 pt_id)
+{
+	struct iommu_test_cmd test_replace = {
+		.size = sizeof(test_replace),
+		.op = IOMMU_TEST_OP_PASID_REPLACE,
+		.id = stdev_id,
+		.pasid_replace = {
+			.pasid = pasid,
+			.pt_id = pt_id,
+		},
+	};
+
+	return ioctl(fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_PASID_REPLACE), &test_replace);
+}
+
+#define test_cmd_pasid_replace(pasid, hwpt_id) \
+	ASSERT_EQ(0, _test_cmd_pasid_replace(self->fd, self->stdev_id, pasid, hwpt_id))
+
+#define test_err_cmd_pasid_replace(_errno, pasid, hwpt_id) \
+	EXPECT_ERRNO(_errno, \
+		     _test_cmd_pasid_replace(self->fd, self->stdev_id, pasid, hwpt_id))
+
+static int _test_cmd_pasid_detach(int fd, __u32 stdev_id, __u32 pasid)
+{
+	struct iommu_test_cmd test_detach = {
+		.size = sizeof(test_detach),
+		.op = IOMMU_TEST_OP_PASID_DETACH,
+		.id = stdev_id,
+		.pasid_detach = {
+			.pasid = pasid,
+		},
+	};
+
+	return ioctl(fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_PASID_DETACH), &test_detach);
+}
+
+#define test_cmd_pasid_detach(pasid) \
+	ASSERT_EQ(0, _test_cmd_pasid_detach(self->fd, self->stdev_id, pasid))
+
+static int test_cmd_pasid_check_domain(int fd, __u32 stdev_id, __u32 pasid,
+				       __u32 hwpt_id, bool *result)
+{
+	struct iommu_test_cmd test_pasid_check = {
+		.size = sizeof(test_pasid_check),
+		.op = IOMMU_TEST_OP_PASID_CHECK_DOMAIN,
+		.id = stdev_id,
+		.pasid_check = {
+			.pasid = pasid,
+			.hwpt_id = hwpt_id,
+			.out_result_ptr = (__u64)result,
+		},
+	};
+
+	return ioctl(fd, _IOMMU_TEST_CMD(IOMMU_TEST_OP_PASID_CHECK_DOMAIN), &test_pasid_check);
+}

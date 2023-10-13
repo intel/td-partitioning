@@ -17,6 +17,9 @@
 #include <linux/bug.h>
 #include <uapi/linux/iommufd.h>
 #include <linux/iommufd.h>
+#include <linux/sched/mm.h>
+#include <linux/ioasid.h>
+#include "../iommu-priv.h"
 
 #include "io_pagetable.h"
 #include "iommufd_private.h"
@@ -217,9 +220,62 @@ static int iommufd_destroy(struct iommufd_ucmd *ucmd)
 	return 0;
 }
 
+static int iommufd_resv_iova_ranges(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_resv_iova_ranges *cmd = ucmd->cmd;
+	struct iommu_resv_iova_range __user *ranges;
+	struct iommu_resv_region *resv;
+	struct iommufd_device *idev;
+	LIST_HEAD(resv_regions);
+	u32 max_iovas;
+	int rc;
+
+	if (cmd->__reserved)
+		return -EOPNOTSUPP;
+
+	idev = iommufd_get_device(ucmd, cmd->dev_id);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
+
+	max_iovas = cmd->num_iovas;
+	ranges = u64_to_user_ptr(cmd->resv_iovas);
+	cmd->num_iovas = 0;
+
+	iommu_get_resv_regions(idev->dev, &resv_regions);
+
+	list_for_each_entry(resv, &resv_regions, list) {
+		if (resv->type == IOMMU_RESV_DIRECT_RELAXABLE)
+			continue;
+		if (cmd->num_iovas < max_iovas) {
+			struct iommu_resv_iova_range elm = {
+				.start = resv->start,
+				.last = resv->length - 1 + resv->start,
+			};
+
+			if (copy_to_user(&ranges[cmd->num_iovas], &elm,
+					 sizeof(elm))) {
+				rc = -EFAULT;
+				goto out_put;
+			}
+		}
+		cmd->num_iovas++;
+	}
+	rc = iommufd_ucmd_respond(ucmd, sizeof(*cmd));
+	if (rc)
+		goto out_put;
+	if (cmd->num_iovas > max_iovas)
+		rc = -EMSGSIZE;
+out_put:
+	iommu_put_resv_regions(idev->dev, &resv_regions);
+	iommufd_put_object(&idev->obj);
+	return rc;
+}
+
 static int iommufd_fops_open(struct inode *inode, struct file *filp)
 {
 	struct iommufd_ctx *ictx;
+	struct mm_struct *mm;
+	int ret = 0;
 
 	ictx = kzalloc(sizeof(*ictx), GFP_KERNEL_ACCOUNT);
 	if (!ictx)
@@ -239,7 +295,20 @@ static int iommufd_fops_open(struct inode *inode, struct file *filp)
 	xa_init(&ictx->groups);
 	ictx->file = filp;
 	filp->private_data = ictx;
-	return 0;
+
+	mm = get_task_mm(current);
+	/* REVISIT: IOASID set quota must be enforced at per mm level, but
+	 * users should be able to open iommufd multiple times. For now we
+	 * just prevent multi-open. TODO: find a more explicit token
+	 * than mm.
+	 */
+	ictx->pasid_set = ioasid_set_alloc_with_mm(mm, 1000);
+	/* IOASID core will mmgrab to ensure life time alignment */
+	if (IS_ERR(ictx->pasid_set))
+		ret = -EBUSY;
+	mmput(mm);
+
+	return ret;
 }
 
 static int iommufd_fops_release(struct inode *inode, struct file *filp)
@@ -273,6 +342,13 @@ static int iommufd_fops_release(struct inode *inode, struct file *filp)
 			break;
 	}
 	WARN_ON(!xa_empty(&ictx->groups));
+
+	ioasid_put_all_in_set(ictx->pasid_set);
+	/* There could be PASID refs held on the set, if so the set will not be
+	 * freed until reference to all its PASIDs are dropped.
+	 */
+	ioasid_set_destroy(ictx->pasid_set);
+
 	kfree(ictx);
 	return 0;
 }
@@ -303,10 +379,90 @@ static int iommufd_option(struct iommufd_ucmd *ucmd)
 	return 0;
 }
 
+static int iommufd_set_dev_data(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_set_dev_data *cmd = ucmd->cmd;
+	struct iommufd_device *idev;
+	const struct iommu_ops *ops;
+	void *data = NULL;
+	int rc;
+
+	if (!cmd->data_uptr || !cmd->data_len)
+		return -EINVAL;
+
+	idev = iommufd_get_device(ucmd, cmd->dev_id);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
+
+	mutex_lock(&idev->igroup->lock);
+	if (idev->has_user_data) {
+		rc = -EEXIST;
+		goto out_unlock;
+	}
+
+	ops = dev_iommu_ops(idev->dev);
+	if (!ops->dev_user_data_len ||
+	    !ops->set_dev_user_data ||
+	    !ops->unset_dev_user_data) {
+		rc = -EOPNOTSUPP;
+		goto out_unlock;
+	}
+
+	data = kzalloc(ops->dev_user_data_len, GFP_KERNEL);
+	if (!data) {
+		rc = -ENOMEM;
+		goto out_unlock;
+	}
+
+	if (copy_struct_from_user(data, ops->dev_user_data_len,
+				  u64_to_user_ptr(cmd->data_uptr),
+				  cmd->data_len)) {
+		rc = -EFAULT;
+		goto out_free_data;
+	}
+
+	rc = ops->set_dev_user_data(idev->dev, data);
+	if (rc)
+		goto out_free_data;
+
+	idev->has_user_data = true;
+out_free_data:
+	kfree(data);
+out_unlock:
+	mutex_unlock(&idev->igroup->lock);
+	iommufd_put_object(&idev->obj);
+	return rc;
+}
+
+static int iommufd_unset_dev_data(struct iommufd_ucmd *ucmd)
+{
+	struct iommu_unset_dev_data *cmd = ucmd->cmd;
+	struct iommufd_device *idev;
+	int rc = 0;
+
+	idev = iommufd_get_device(ucmd, cmd->dev_id);
+	if (IS_ERR(idev))
+		return PTR_ERR(idev);
+
+	mutex_lock(&idev->igroup->lock);
+	if (!idev->has_user_data) {
+		rc = -ENOENT;
+		goto out_unlock;
+	}
+
+	dev_iommu_ops(idev->dev)->unset_dev_user_data(idev->dev);
+	idev->has_user_data = false;
+out_unlock:
+	mutex_unlock(&idev->igroup->lock);
+	iommufd_put_object(&idev->obj);
+	return rc;
+}
+
 union ucmd_buffer {
 	struct iommu_destroy destroy;
 	struct iommu_hw_info info;
 	struct iommu_hwpt_alloc hwpt;
+	struct iommu_hwpt_invalidate cache;
 	struct iommu_ioas_alloc alloc;
 	struct iommu_ioas_allow_iovas allow_iovas;
 	struct iommu_ioas_copy ioas_copy;
@@ -314,10 +470,25 @@ union ucmd_buffer {
 	struct iommu_ioas_map map;
 	struct iommu_ioas_unmap unmap;
 	struct iommu_option option;
+	struct iommu_resv_iova_ranges resv_ranges;
+	struct iommu_set_dev_data set_dev_data;
+	struct iommu_unset_dev_data unset_dev_data;
 	struct iommu_vfio_ioas vfio_ioas;
+	struct iommu_alloc_pasid alloc_pasid;
+	struct iommu_free_pasid free_pasid;
+	struct iommu_hwpt_set_dirty set_dirty;
+	struct iommu_hwpt_get_dirty_iova get_dirty_iova;
+	struct iommu_device_get_caps get_caps;
 #ifdef CONFIG_IOMMUFD_TEST
 	struct iommu_test_cmd test;
 #endif
+	/*
+	 * hwpt_type specific structure used in the cache invalidation
+	 * path.
+	 */
+	struct iommu_hwpt_vtd_s1_invalidate vtd;
+	struct iommu_hwpt_vtd_s1_invalidate_desc req_vtd;
+	struct iommu_hwpt_arm_smmuv3_invalidate smmuv3;
 };
 
 struct iommufd_ioctl_op {
@@ -341,7 +512,13 @@ static const struct iommufd_ioctl_op iommufd_ioctl_ops[] = {
 	IOCTL_OP(IOMMU_GET_HW_INFO, iommufd_get_hw_info, struct iommu_hw_info,
 		 __reserved),
 	IOCTL_OP(IOMMU_HWPT_ALLOC, iommufd_hwpt_alloc, struct iommu_hwpt_alloc,
-		 __reserved),
+		 data_uptr),
+	IOCTL_OP(IOMMU_HWPT_INVALIDATE, iommufd_hwpt_invalidate,
+		 struct iommu_hwpt_invalidate, data_uptr),
+	IOCTL_OP(IOMMU_ALLOC_PASID, iommufd_alloc_pasid, struct iommu_alloc_pasid,
+		 pasid),
+	IOCTL_OP(IOMMU_FREE_PASID, iommufd_free_pasid, struct iommu_free_pasid,
+		 pasid),
 	IOCTL_OP(IOMMU_IOAS_ALLOC, iommufd_ioas_alloc_ioctl,
 		 struct iommu_ioas_alloc, out_ioas_id),
 	IOCTL_OP(IOMMU_IOAS_ALLOW_IOVAS, iommufd_ioas_allow_iovas,
@@ -356,8 +533,22 @@ static const struct iommufd_ioctl_op iommufd_ioctl_ops[] = {
 		 length),
 	IOCTL_OP(IOMMU_OPTION, iommufd_option, struct iommu_option,
 		 val64),
+	IOCTL_OP(IOMMU_RESV_IOVA_RANGES, iommufd_resv_iova_ranges,
+		 struct iommu_resv_iova_ranges, resv_iovas),
+	IOCTL_OP(IOMMU_SET_DEV_DATA, iommufd_set_dev_data,
+		 struct iommu_set_dev_data, data_len),
+	IOCTL_OP(IOMMU_UNSET_DEV_DATA, iommufd_unset_dev_data,
+		 struct iommu_unset_dev_data, dev_id),
 	IOCTL_OP(IOMMU_VFIO_IOAS, iommufd_vfio_ioas, struct iommu_vfio_ioas,
 		 __reserved),
+	IOCTL_OP(IOMMU_HWPT_SET_DIRTY, iommufd_hwpt_set_dirty,
+		 struct iommu_hwpt_set_dirty, __reserved),
+	IOCTL_OP(IOMMU_HWPT_GET_DIRTY_IOVA, iommufd_hwpt_get_dirty_iova,
+		 struct iommu_hwpt_get_dirty_iova, bitmap.data),
+	IOCTL_OP(IOMMU_DEVICE_GET_CAPS, iommufd_device_get_caps,
+		 struct iommu_device_get_caps, out_caps),
+	IOCTL_OP(IOMMU_PAGE_RESPONSE, iommufd_hwpt_page_response, struct iommu_hwpt_page_response,
+		 resp),
 #ifdef CONFIG_IOMMUFD_TEST
 	IOCTL_OP(IOMMU_TEST_CMD, iommufd_test, struct iommu_test_cmd, last),
 #endif

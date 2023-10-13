@@ -11,8 +11,6 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
-#include "iommu-sva.h"
-
 /**
  * struct iopf_queue - IO Page Fault queue
  * @wq: the fault workqueue
@@ -40,70 +38,52 @@ struct iopf_device_param {
 	struct list_head		partial;
 };
 
-struct iopf_fault {
-	struct iommu_fault		fault;
-	struct list_head		list;
-};
+void iopf_free_group(struct iopf_group *group)
+{
+	struct iopf_fault *iopf, *next;
 
-struct iopf_group {
-	struct iopf_fault		last_fault;
-	struct list_head		faults;
-	struct work_struct		work;
-	struct device			*dev;
-};
+	list_for_each_entry_safe(iopf, next, &group->faults, list) {
+		if (!(iopf->fault.prm.flags & IOMMU_FAULT_PAGE_REQUEST_LAST_PAGE))
+			kfree(iopf);
+	}
 
-static int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
-			       enum iommu_page_response_code status)
+	kfree(group);
+}
+EXPORT_SYMBOL_GPL(iopf_free_group);
+
+int iopf_queue_work(struct iopf_group *group, work_func_t func)
+{
+	struct iopf_device_param *iopf_param = group->dev->iommu->iopf_param;
+
+	INIT_WORK(&group->work, func);
+	queue_work(iopf_param->queue->wq, &group->work);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iopf_queue_work);
+
+int iopf_complete_group(struct device *dev, struct iopf_fault *iopf,
+			enum iommu_page_response_code status)
 {
 	struct iommu_page_response resp = {
-		.version		= IOMMU_PAGE_RESP_VERSION_1,
-		.pasid			= iopf->fault.prm.pasid,
-		.grpid			= iopf->fault.prm.grpid,
-		.code			= status,
+		.version                = IOMMU_PAGE_RESP_VERSION_1,
+		.pasid                  = iopf->fault.prm.pasid,
+		.grpid                  = iopf->fault.prm.grpid,
+		.code                   = status,
 	};
 
 	if ((iopf->fault.prm.flags & IOMMU_FAULT_PAGE_REQUEST_PASID_VALID) &&
-	    (iopf->fault.prm.flags & IOMMU_FAULT_PAGE_RESPONSE_NEEDS_PASID))
+			(iopf->fault.prm.flags & IOMMU_FAULT_PAGE_RESPONSE_NEEDS_PASID))
 		resp.flags = IOMMU_PAGE_RESP_PASID_VALID;
 
 	return iommu_page_response(dev, &resp);
 }
-
-static void iopf_handler(struct work_struct *work)
-{
-	struct iopf_group *group;
-	struct iommu_domain *domain;
-	struct iopf_fault *iopf, *next;
-	enum iommu_page_response_code status = IOMMU_PAGE_RESP_SUCCESS;
-
-	group = container_of(work, struct iopf_group, work);
-	domain = iommu_get_domain_for_dev_pasid(group->dev,
-				group->last_fault.fault.prm.pasid, 0);
-	if (!domain || !domain->iopf_handler)
-		status = IOMMU_PAGE_RESP_INVALID;
-
-	list_for_each_entry_safe(iopf, next, &group->faults, list) {
-		/*
-		 * For the moment, errors are sticky: don't handle subsequent
-		 * faults in the group if there is an error.
-		 */
-		if (status == IOMMU_PAGE_RESP_SUCCESS)
-			status = domain->iopf_handler(&iopf->fault,
-						      domain->fault_data);
-
-		if (!(iopf->fault.prm.flags &
-		      IOMMU_FAULT_PAGE_REQUEST_LAST_PAGE))
-			kfree(iopf);
-	}
-
-	iopf_complete_group(group->dev, &group->last_fault, status);
-	kfree(group);
-}
+EXPORT_SYMBOL_GPL(iopf_complete_group);
 
 /**
  * iommu_queue_iopf - IO Page Fault handler
  * @fault: fault event
- * @cookie: struct device, passed to iommu_register_device_fault_handler.
+ * @dev: struct device.
  *
  * Add a fault to the device workqueue, to be handled by mm.
  *
@@ -140,14 +120,13 @@ static void iopf_handler(struct work_struct *work)
  *
  * Return: 0 on success and <0 on error.
  */
-int iommu_queue_iopf(struct iommu_fault *fault, void *cookie)
+int iommu_queue_iopf(struct iommu_fault *fault, struct device *dev)
 {
 	int ret;
 	struct iopf_group *group;
+	struct iommu_domain *domain;
 	struct iopf_fault *iopf, *next;
 	struct iopf_device_param *iopf_param;
-
-	struct device *dev = cookie;
 	struct dev_iommu *param = dev->iommu;
 
 	lockdep_assert_held(&param->lock);
@@ -177,6 +156,16 @@ int iommu_queue_iopf(struct iommu_fault *fault, void *cookie)
 		return 0;
 	}
 
+	if (fault->prm.flags & IOMMU_FAULT_PAGE_REQUEST_PASID_VALID)
+		domain = iommu_get_domain_for_dev_pasid(dev, fault->prm.pasid, 0);
+	else
+		domain = iommu_get_domain_for_dev(dev);
+
+	if (!domain || !domain->iopf_handler) {
+		ret = -ENODEV;
+		goto cleanup_partial;
+	}
+
 	group = kzalloc(sizeof(*group), GFP_KERNEL);
 	if (!group) {
 		/*
@@ -190,9 +179,9 @@ int iommu_queue_iopf(struct iommu_fault *fault, void *cookie)
 
 	group->dev = dev;
 	group->last_fault.fault = *fault;
+	group->data = domain->fault_data;
 	INIT_LIST_HEAD(&group->faults);
 	list_add(&group->last_fault.list, &group->faults);
-	INIT_WORK(&group->work, iopf_handler);
 
 	/* See if we have partial faults for this group */
 	list_for_each_entry_safe(iopf, next, &iopf_param->partial, list) {
@@ -201,8 +190,11 @@ int iommu_queue_iopf(struct iommu_fault *fault, void *cookie)
 			list_move(&iopf->list, &group->faults);
 	}
 
-	queue_work(iopf_param->queue->wq, &group->work);
-	return 0;
+	ret = domain->iopf_handler(group);
+	if (ret)
+		iopf_free_group(group);
+
+	return ret;
 
 cleanup_partial:
 	list_for_each_entry_safe(iopf, next, &iopf_param->partial, list) {

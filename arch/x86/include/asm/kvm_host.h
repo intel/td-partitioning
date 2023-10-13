@@ -86,7 +86,7 @@
 #define KVM_REQ_SMI			KVM_ARCH_REQ(12)
 #endif
 #define KVM_REQ_MASTERCLOCK_UPDATE	KVM_ARCH_REQ(13)
-#define KVM_REQ_MCLOCK_INPROGRESS \
+#define KVM_REQ_BLOCK_VMENTRY \
 	KVM_ARCH_REQ_FLAGS(14, KVM_REQUEST_WAIT | KVM_REQUEST_NO_WAKEUP)
 #define KVM_REQ_SCAN_IOAPIC \
 	KVM_ARCH_REQ_FLAGS(15, KVM_REQUEST_WAIT | KVM_REQUEST_NO_WAKEUP)
@@ -1778,6 +1778,8 @@ struct kvm_x86_ops {
 
 	bool (*is_lass_violation)(struct kvm_vcpu *vcpu, unsigned long addr,
 				  unsigned int size, unsigned int flags);
+
+	int (*ioasid_bind)(struct kvm_vcpu *vcpu, struct kvm_bind_pasid *pb);
 };
 
 struct kvm_x86_nested_ops {
@@ -2243,6 +2245,9 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 	return BAD_APICID;
 #endif
 }
+
+void kvm_make_block_vmentry_request(struct kvm *kvm);
+void kvm_clear_block_vmentry_request(struct kvm *kvm);
 
 int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
 

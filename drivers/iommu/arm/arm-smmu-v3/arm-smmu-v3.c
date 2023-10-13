@@ -26,10 +26,10 @@
 #include <linux/pci.h>
 #include <linux/pci-ats.h>
 #include <linux/platform_device.h>
+#include <uapi/linux/iommufd.h>
 
 #include "arm-smmu-v3.h"
 #include "../../dma-iommu.h"
-#include "../../iommu-sva.h"
 
 static bool disable_bypass = true;
 module_param(disable_bypass, bool, 0444);
@@ -101,17 +101,22 @@ static void parse_driver_options(struct arm_smmu_device *smmu)
 }
 
 /* Low-level queue manipulation functions */
-static bool queue_has_space(struct arm_smmu_ll_queue *q, u32 n)
+static int queue_ncmds(struct arm_smmu_ll_queue *q)
 {
-	u32 space, prod, cons;
+	u32 prod, cons;
 
 	prod = Q_IDX(q, q->prod);
 	cons = Q_IDX(q, q->cons);
 
 	if (Q_WRP(q, q->prod) == Q_WRP(q, q->cons))
-		space = (1 << q->max_n_shift) - (prod - cons);
+		return prod - cons;
 	else
-		space = cons - prod;
+		return (1 << q->max_n_shift) - cons + prod;
+}
+
+static bool queue_has_space(struct arm_smmu_ll_queue *q, u32 n)
+{
+	u32 space = (1 << q->max_n_shift) - queue_ncmds(q);
 
 	return space >= n;
 }
@@ -271,8 +276,17 @@ static int arm_smmu_cmdq_build_cmd(u64 *cmd, struct arm_smmu_cmdq_ent *ent)
 		cmd[1] |= FIELD_PREP(CMDQ_CFGI_1_RANGE, 31);
 		break;
 	case CMDQ_OP_TLBI_NH_VA:
-		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
+		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_ASID, ent->tlbi.asid);
 		fallthrough;
+	case CMDQ_OP_TLBI_NH_VAA:
+		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_NUM, ent->tlbi.num);
+		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_SCALE, ent->tlbi.scale);
+		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
+		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_LEAF, ent->tlbi.leaf);
+		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TTL, ent->tlbi.ttl);
+		cmd[1] |= FIELD_PREP(CMDQ_TLBI_1_TG, ent->tlbi.tg);
+		cmd[1] |= ent->tlbi.addr & CMDQ_TLBI_1_VA_MASK;
+		break;
 	case CMDQ_OP_TLBI_EL2_VA:
 		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_NUM, ent->tlbi.num);
 		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_SCALE, ent->tlbi.scale);
@@ -294,6 +308,7 @@ static int arm_smmu_cmdq_build_cmd(u64 *cmd, struct arm_smmu_cmdq_ent *ent)
 	case CMDQ_OP_TLBI_NH_ASID:
 		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_ASID, ent->tlbi.asid);
 		fallthrough;
+	case CMDQ_OP_TLBI_NH_ALL:
 	case CMDQ_OP_TLBI_S12_VMALL:
 		cmd[0] |= FIELD_PREP(CMDQ_TLBI_0_VMID, ent->tlbi.vmid);
 		break;
@@ -1295,9 +1310,10 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		switch (smmu_domain->stage) {
 		case ARM_SMMU_DOMAIN_S1:
 			s1_cfg = &smmu_domain->s1_cfg;
+			if (smmu_domain->s2)
+				s2_cfg = &smmu_domain->s2->s2_cfg;
 			break;
 		case ARM_SMMU_DOMAIN_S2:
-		case ARM_SMMU_DOMAIN_NESTED:
 			s2_cfg = &smmu_domain->s2_cfg;
 			break;
 		default:
@@ -1311,6 +1327,7 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 			break;
 		case STRTAB_STE_0_CFG_S1_TRANS:
 		case STRTAB_STE_0_CFG_S2_TRANS:
+		case STRTAB_STE_0_CFG_NESTED:
 			ste_live = true;
 			break;
 		case STRTAB_STE_0_CFG_ABORT:
@@ -1350,7 +1367,7 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 
 		BUG_ON(ste_live);
 		dst[1] = cpu_to_le64(
-			 FIELD_PREP(STRTAB_STE_1_S1DSS, STRTAB_STE_1_S1DSS_SSID0) |
+			 FIELD_PREP(STRTAB_STE_1_S1DSS, s1_cfg->s1dss) |
 			 FIELD_PREP(STRTAB_STE_1_S1CIR, STRTAB_STE_1_S1C_CACHE_WBRA) |
 			 FIELD_PREP(STRTAB_STE_1_S1COR, STRTAB_STE_1_S1C_CACHE_WBRA) |
 			 FIELD_PREP(STRTAB_STE_1_S1CSH, ARM_SMMU_SH_ISH) |
@@ -1380,6 +1397,17 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		dst[3] = cpu_to_le64(s2_cfg->vttbr & STRTAB_STE_3_S2TTB_MASK);
 
 		val |= FIELD_PREP(STRTAB_STE_0_CFG, STRTAB_STE_0_CFG_S2_TRANS);
+	}  else {
+		/*
+		 * Unset dst[2] and dst[3] to clear stage-2 configurations. This was observed
+		 * on a HiSilicon implementation where, if the SMMUv3 is configured with both
+		 * stage-1 and stage-2 mode once, it is not possible to configure it back for
+		 * stage-1 mode for the same device (stream id). The SMMUv3 implementation on
+		 * these boards expects to set the S2TTB field in STE to zero when using S1,
+		 * otherwise it reports C_BAD_STE error.
+		 */
+		dst[2] = 0;
+		dst[3] = 0;
 	}
 
 	if (master->ats_enabled)
@@ -1469,7 +1497,6 @@ arm_smmu_find_master(struct arm_smmu_device *smmu, u32 sid)
 static int arm_smmu_handle_evt(struct arm_smmu_device *smmu, u64 *evt)
 {
 	int ret;
-	u32 reason;
 	u32 perm = 0;
 	struct arm_smmu_master *master;
 	bool ssid_valid = evt[0] & EVTQ_0_SSV;
@@ -1479,16 +1506,9 @@ static int arm_smmu_handle_evt(struct arm_smmu_device *smmu, u64 *evt)
 
 	switch (FIELD_GET(EVTQ_0_ID, evt[0])) {
 	case EVT_ID_TRANSLATION_FAULT:
-		reason = IOMMU_FAULT_REASON_PTE_FETCH;
-		break;
 	case EVT_ID_ADDR_SIZE_FAULT:
-		reason = IOMMU_FAULT_REASON_OOR_ADDRESS;
-		break;
 	case EVT_ID_ACCESS_FAULT:
-		reason = IOMMU_FAULT_REASON_ACCESS;
-		break;
 	case EVT_ID_PERMISSION_FAULT:
-		reason = IOMMU_FAULT_REASON_PERMISSION;
 		break;
 	default:
 		return -EOPNOTSUPP;
@@ -1497,6 +1517,9 @@ static int arm_smmu_handle_evt(struct arm_smmu_device *smmu, u64 *evt)
 	/* Stage-2 is always pinned at the moment */
 	if (evt[1] & EVTQ_1_S2)
 		return -EFAULT;
+
+	if (!(evt[1] & EVTQ_1_STALL))
+		return -EOPNOTSUPP;
 
 	if (evt[1] & EVTQ_1_RnW)
 		perm |= IOMMU_FAULT_PERM_READ;
@@ -1509,32 +1532,17 @@ static int arm_smmu_handle_evt(struct arm_smmu_device *smmu, u64 *evt)
 	if (evt[1] & EVTQ_1_PnU)
 		perm |= IOMMU_FAULT_PERM_PRIV;
 
-	if (evt[1] & EVTQ_1_STALL) {
-		flt->type = IOMMU_FAULT_PAGE_REQ;
-		flt->prm = (struct iommu_fault_page_request) {
-			.flags = IOMMU_FAULT_PAGE_REQUEST_LAST_PAGE,
-			.grpid = FIELD_GET(EVTQ_1_STAG, evt[1]),
-			.perm = perm,
-			.addr = FIELD_GET(EVTQ_2_ADDR, evt[2]),
-		};
+	flt->type = IOMMU_FAULT_PAGE_REQ;
+	flt->prm = (struct iommu_fault_page_request) {
+		.flags = IOMMU_FAULT_PAGE_REQUEST_LAST_PAGE,
+		.grpid = FIELD_GET(EVTQ_1_STAG, evt[1]),
+		.perm = perm,
+		.addr = FIELD_GET(EVTQ_2_ADDR, evt[2]),
+	};
 
-		if (ssid_valid) {
-			flt->prm.flags |= IOMMU_FAULT_PAGE_REQUEST_PASID_VALID;
-			flt->prm.pasid = FIELD_GET(EVTQ_0_SSID, evt[0]);
-		}
-	} else {
-		flt->type = IOMMU_FAULT_DMA_UNRECOV;
-		flt->event = (struct iommu_fault_unrecoverable) {
-			.reason = reason,
-			.flags = IOMMU_FAULT_UNRECOV_ADDR_VALID,
-			.perm = perm,
-			.addr = FIELD_GET(EVTQ_2_ADDR, evt[2]),
-		};
-
-		if (ssid_valid) {
-			flt->event.flags |= IOMMU_FAULT_UNRECOV_PASID_VALID;
-			flt->event.pasid = FIELD_GET(EVTQ_0_SSID, evt[0]);
-		}
+	if (ssid_valid) {
+		flt->prm.flags |= IOMMU_FAULT_PAGE_REQUEST_PASID_VALID;
+		flt->prm.pasid = FIELD_GET(EVTQ_0_SSID, evt[0]);
 	}
 
 	mutex_lock(&smmu->streams_mutex);
@@ -2031,33 +2039,29 @@ static bool arm_smmu_capable(struct device *dev, enum iommu_cap cap)
 	}
 }
 
-static struct iommu_domain *arm_smmu_domain_alloc(unsigned type)
+static void *arm_smmu_hw_info(struct device *dev, u32 *length)
 {
-	struct arm_smmu_domain *smmu_domain;
+	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
+	struct iommu_hw_info_arm_smmuv3 *info;
+	void __iomem *base_idr;
+	int i;
 
-	if (type == IOMMU_DOMAIN_SVA)
-		return arm_smmu_sva_domain_alloc();
+	if (!master || !master->smmu)
+		return ERR_PTR(-ENODEV);
 
-	if (type != IOMMU_DOMAIN_UNMANAGED &&
-	    type != IOMMU_DOMAIN_DMA &&
-	    type != IOMMU_DOMAIN_IDENTITY)
-		return NULL;
+	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return ERR_PTR(-ENOMEM);
 
-	/*
-	 * Allocate the domain and initialise some of its data structures.
-	 * We can't really do anything meaningful until we've added a
-	 * master.
-	 */
-	smmu_domain = kzalloc(sizeof(*smmu_domain), GFP_KERNEL);
-	if (!smmu_domain)
-		return NULL;
+	base_idr = master->smmu->base + ARM_SMMU_IDR0;
+	for (i = 0; i <= 5; i++)
+		info->idr[i] = readl_relaxed(base_idr + 0x4 * i);
+	info->iidr = readl_relaxed(master->smmu->base + ARM_SMMU_IIDR);
+	info->aidr = readl_relaxed(master->smmu->base + ARM_SMMU_AIDR);
 
-	mutex_init(&smmu_domain->init_mutex);
-	INIT_LIST_HEAD(&smmu_domain->devices);
-	spin_lock_init(&smmu_domain->devices_lock);
-	INIT_LIST_HEAD(&smmu_domain->mmu_notifiers);
+	*length = sizeof(*info);
 
-	return &smmu_domain->domain;
+	return info;
 }
 
 static void arm_smmu_domain_free(struct iommu_domain *domain)
@@ -2086,6 +2090,17 @@ static void arm_smmu_domain_free(struct iommu_domain *domain)
 	kfree(smmu_domain);
 }
 
+static struct iommu_domain *
+arm_smmu_get_msi_mapping_domain(struct iommu_domain *domain)
+{
+	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
+
+	if (smmu_domain->s2)
+		return &smmu_domain->s2->domain;
+
+	return domain;
+}
+
 static int arm_smmu_domain_finalise_s1(struct arm_smmu_domain *smmu_domain,
 				       struct arm_smmu_master *master,
 				       struct io_pgtable_cfg *pgtbl_cfg)
@@ -2106,6 +2121,7 @@ static int arm_smmu_domain_finalise_s1(struct arm_smmu_domain *smmu_domain,
 		goto out_unlock;
 
 	cfg->s1cdmax = master->ssid_bits;
+	cfg->s1dss = STRTAB_STE_1_S1DSS_SSID0;
 
 	smmu_domain->stall_enabled = master->stall_enabled;
 
@@ -2173,8 +2189,76 @@ static int arm_smmu_domain_finalise_s2(struct arm_smmu_domain *smmu_domain,
 	return 0;
 }
 
+static int
+arm_smmu_domain_finalise_nested(struct iommu_domain *domain,
+				struct arm_smmu_master *master,
+				const struct iommu_hwpt_arm_smmuv3 *user_cfg)
+{
+	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
+	struct arm_smmu_device *smmu = smmu_domain->smmu;
+	bool feat_2lvl_cdtab = smmu->features & ARM_SMMU_FEAT_2_LVL_CDTAB;
+	size_t event_len = EVTQ_ENT_DWORDS * sizeof(u64);
+	size_t ste_len = STRTAB_STE_DWORDS * sizeof(u64);
+	struct device *dev = master->dev;
+	void __user *event_user = NULL;
+	u64 event[EVTQ_ENT_DWORDS];
+	u64 ste[STRTAB_STE_DWORDS];
+	u8 s1dss, s1fmt, s1cdmax;
+	u64 s1ctxptr;
+
+	if (user_cfg->out_event_uptr && user_cfg->event_len == event_len)
+		event_user = u64_to_user_ptr(user_cfg->out_event_uptr);
+	event[0] = FIELD_PREP(EVTQ_0_ID, EVT_ID_BAD_STE);
+
+	if (!(smmu->features & ARM_SMMU_FEAT_NESTING)) {
+		if (event_user && copy_to_user(event_user, event, event_len))
+			return -EFAULT;
+		return -EINVAL;
+	}
+
+	if (!user_cfg->ste_uptr || user_cfg->ste_len != ste_len)
+		return -EINVAL;
+	if (copy_from_user(ste, u64_to_user_ptr(user_cfg->ste_uptr), ste_len))
+		return -EFAULT;
+
+	s1dss = FIELD_GET(STRTAB_STE_1_S1DSS, ste[1]);
+
+	s1fmt = FIELD_GET(STRTAB_STE_0_S1FMT, ste[0]);
+	if (!feat_2lvl_cdtab && s1fmt != STRTAB_STE_0_S1FMT_LINEAR) {
+		dev_dbg(dev, "unsupported format (0x%x)\n", s1fmt);
+		if (event_user && copy_to_user(event_user, event, event_len))
+			return -EFAULT;
+		return -EINVAL;
+	}
+
+	s1cdmax = FIELD_GET(STRTAB_STE_0_S1CDMAX, ste[0]);
+	if (s1cdmax > master->ssid_bits) {
+		dev_dbg(dev, "s1cdmax (%d-bit) is out of range (%d-bit)\n",
+			s1cdmax, master->ssid_bits);
+		if (event_user && copy_to_user(event_user, event, event_len))
+			return -EFAULT;
+		return -EINVAL;
+	}
+
+	s1ctxptr = ste[0] & STRTAB_STE_0_S1CTXPTR_MASK;
+	if (s1ctxptr & ~GENMASK_ULL(smmu->ias, 0)) {
+		dev_dbg(dev, "s1ctxptr (0x%llx) is out of range (%lu-bit)\n",
+			s1ctxptr, smmu->ias);
+		if (event_user && copy_to_user(event_user, event, event_len))
+			return -EFAULT;
+		return -EINVAL;
+	}
+
+	smmu_domain->s1_cfg.s1dss = s1dss;
+	smmu_domain->s1_cfg.s1fmt = s1fmt;
+	smmu_domain->s1_cfg.s1cdmax = s1cdmax;
+	smmu_domain->s1_cfg.cdcfg.cdtab_dma = s1ctxptr;
+	return 0;
+}
+
 static int arm_smmu_domain_finalise(struct iommu_domain *domain,
-				    struct arm_smmu_master *master)
+				    struct arm_smmu_master *master,
+				    const struct iommu_hwpt_arm_smmuv3 *user_cfg)
 {
 	int ret;
 	unsigned long ias, oas;
@@ -2186,11 +2270,22 @@ static int arm_smmu_domain_finalise(struct iommu_domain *domain,
 				 struct io_pgtable_cfg *);
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_device *smmu = smmu_domain->smmu;
+	bool user_cfg_s2 = user_cfg && (user_cfg->flags & IOMMU_SMMUV3_FLAG_S2);
 
 	if (domain->type == IOMMU_DOMAIN_IDENTITY) {
 		smmu_domain->stage = ARM_SMMU_DOMAIN_BYPASS;
 		return 0;
 	}
+
+	if (domain->type == IOMMU_DOMAIN_NESTED) {
+		smmu_domain->stage = ARM_SMMU_DOMAIN_S1;
+		return arm_smmu_domain_finalise_nested(domain, master, user_cfg);
+	}
+
+	if (user_cfg_s2 && !(smmu->features & ARM_SMMU_FEAT_TRANS_S2))
+		return -EINVAL;
+	if (user_cfg_s2)
+		smmu_domain->stage = ARM_SMMU_DOMAIN_S2;
 
 	/* Restrict the stage to what we can actually support */
 	if (!(smmu->features & ARM_SMMU_FEAT_TRANS_S1))
@@ -2206,7 +2301,6 @@ static int arm_smmu_domain_finalise(struct iommu_domain *domain,
 		fmt = ARM_64_LPAE_S1;
 		finalise_stage_fn = arm_smmu_domain_finalise_s1;
 		break;
-	case ARM_SMMU_DOMAIN_NESTED:
 	case ARM_SMMU_DOMAIN_S2:
 		ias = smmu->ias;
 		oas = smmu->oas;
@@ -2436,7 +2530,7 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 
 	if (!smmu_domain->smmu) {
 		smmu_domain->smmu = smmu;
-		ret = arm_smmu_domain_finalise(domain, master);
+		ret = arm_smmu_domain_finalise(domain, master, NULL);
 		if (ret) {
 			smmu_domain->smmu = NULL;
 			goto out_unlock;
@@ -2723,6 +2817,46 @@ static void arm_smmu_release_device(struct device *dev)
 	kfree(master);
 }
 
+static int arm_smmu_set_dev_user_data(struct device *dev, const void *user_data)
+{
+	const struct iommu_dev_data_arm_smmuv3 *user = user_data;
+	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
+	struct arm_smmu_stream *stream = &master->streams[0];
+	struct arm_smmu_device *smmu = master->smmu;
+	u32 sid_user = user->sid;
+	int ret = 0;
+
+	if (!sid_user)
+		return -EINVAL;
+
+	ret = xa_alloc(&smmu->streams_user, &sid_user, stream,
+		       XA_LIMIT(sid_user, sid_user), GFP_KERNEL_ACCOUNT);
+	if (ret)
+		return ret;
+	stream->id_user = sid_user;
+	return 0;
+}
+
+static void arm_smmu_unset_dev_user_data(struct device *dev)
+{
+	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
+	struct arm_smmu_stream *stream = &master->streams[0];
+	struct arm_smmu_device *smmu = master->smmu;
+	u32 sid_user = stream->id_user;
+
+	if (!sid_user)
+		return;
+
+	xa_lock(&smmu->streams_user);
+	stream = __xa_erase(&smmu->streams_user, sid_user);
+	if (stream != master->streams) {
+		WARN_ON(__xa_alloc(&smmu->streams_user, &sid_user, stream,
+				   XA_LIMIT(sid_user, sid_user),
+				   GFP_KERNEL_ACCOUNT));
+	}
+	xa_unlock(&smmu->streams_user);
+}
+
 static struct iommu_group *arm_smmu_device_group(struct device *dev)
 {
 	struct iommu_group *group;
@@ -2738,21 +2872,6 @@ static struct iommu_group *arm_smmu_device_group(struct device *dev)
 		group = generic_device_group(dev);
 
 	return group;
-}
-
-static int arm_smmu_enable_nesting(struct iommu_domain *domain)
-{
-	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
-	int ret = 0;
-
-	mutex_lock(&smmu_domain->init_mutex);
-	if (smmu_domain->smmu)
-		ret = -EPERM;
-	else
-		smmu_domain->stage = ARM_SMMU_DOMAIN_NESTED;
-	mutex_unlock(&smmu_domain->init_mutex);
-
-	return ret;
 }
 
 static int arm_smmu_of_xlate(struct device *dev, struct of_phandle_args *args)
@@ -2859,11 +2978,308 @@ static void arm_smmu_remove_dev_pasid(struct device *dev, ioasid_t pasid)
 	arm_smmu_sva_remove_dev_pasid(domain, dev, pasid);
 }
 
+static int arm_smmu_fix_user_cmd(struct arm_smmu_domain *smmu_domain, u64 *cmd)
+{
+	struct arm_smmu_stream *stream;
+
+	switch (*cmd & CMDQ_0_OP) {
+	case CMDQ_OP_TLBI_NSNH_ALL:
+		*cmd &= ~CMDQ_0_OP;
+		*cmd |= CMDQ_OP_TLBI_NH_ALL;
+		fallthrough;
+	case CMDQ_OP_TLBI_NH_VA:
+	case CMDQ_OP_TLBI_NH_VAA:
+	case CMDQ_OP_TLBI_NH_ALL:
+	case CMDQ_OP_TLBI_NH_ASID:
+		*cmd &= ~CMDQ_TLBI_0_VMID;
+		*cmd |= FIELD_PREP(CMDQ_TLBI_0_VMID,
+				   smmu_domain->s2->s2_cfg.vmid);
+		break;
+	case CMDQ_OP_ATC_INV:
+	case CMDQ_OP_CFGI_CD:
+	case CMDQ_OP_CFGI_CD_ALL:
+		xa_lock(&smmu_domain->smmu->streams_user);
+		stream = xa_load(&smmu_domain->smmu->streams_user,
+				 FIELD_GET(CMDQ_CFGI_0_SID, *cmd));
+		xa_unlock(&smmu_domain->smmu->streams_user);
+		if (!stream)
+			return -ENODEV;
+		*cmd &= ~CMDQ_CFGI_0_SID;
+		*cmd |= FIELD_PREP(CMDQ_CFGI_0_SID, stream->id);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+	pr_debug("Fixed user CMD: %016llx : %016llx\n", cmd[1], cmd[0]);
+
+	return 0;
+}
+
+/*
+ * A helper function to detect if the current cmd hits Arm erratum before being
+ * added to a batch that might already contain a leaf TLBI or a CFGI command.
+ *
+ * If there is a hit, it will update the corresponding boolean flag, by assuming
+ * that the caller must issue the batch without this cmd. So, the two flags then
+ * will reflect the status of the new batch that contains the current cmd only.
+ */
+static bool arm_smmu_cmdq_hit_errata(struct arm_smmu_device *smmu, u64 *cmd,
+				     bool *batch_has_leaf, bool *batch_has_cfgi)
+{
+	bool cmd_has_leaf;
+
+	if (!(smmu->options & ARM_SMMU_OPT_CMDQ_FORCE_SYNC))
+		return false;
+
+	switch (*cmd & CMDQ_0_OP) {
+	case CMDQ_OP_CFGI_CD:
+	case CMDQ_OP_CFGI_CD_ALL:
+		*batch_has_cfgi = true;
+		break;
+	case CMDQ_OP_TLBI_NH_VA:
+	case CMDQ_OP_TLBI_NH_VAA:
+		cmd_has_leaf = FIELD_GET(CMDQ_TLBI_1_LEAF, cmd[1]);
+		/* Erratum 2812531 -- a non-leaf tlbi following a leaf tlbi */
+		if (!cmd_has_leaf && *batch_has_leaf) {
+			*batch_has_leaf = false;
+			return true;
+		}
+		if (cmd_has_leaf)
+			*batch_has_leaf = true;
+		fallthrough;
+	case CMDQ_OP_TLBI_NH_ALL:
+	case CMDQ_OP_TLBI_NH_ASID:
+		/* Erratum 2812531 -- a tlbi following a cfgi */
+		if (*batch_has_cfgi) {
+			*batch_has_cfgi = false;
+			return true;
+		}
+		break;
+	}
+
+	return false;
+}
+
+static int arm_smmu_cache_invalidate_user(struct iommu_domain *domain,
+					  void *user_data)
+{
+	const u32 cons_err = FIELD_PREP(CMDQ_CONS_ERR, CMDQ_ERR_CERROR_ILL_IDX);
+	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
+	struct iommu_hwpt_arm_smmuv3_invalidate *inv = user_data;
+	struct arm_smmu_device *smmu = smmu_domain->smmu;
+	struct arm_smmu_queue q = {
+		.llq = {
+			.prod = inv->cmdq_prod,
+			.max_n_shift = inv->cmdq_log2size,
+		},
+		.base = (__le64 *)u64_to_user_ptr(inv->cmdq_uptr),
+		.ent_dwords = inv->cmdq_entry_size / sizeof(u64),
+	};
+	bool has_leaf = false, has_cfgi = false;
+	void __user *cons_uptr;
+	int ncmds, i = 0;
+	u64 *cmds;
+	int ret;
+
+	if (!smmu || !smmu_domain->s2 || domain->type != IOMMU_DOMAIN_NESTED)
+		return -EINVAL;
+	if (q.ent_dwords != CMDQ_ENT_DWORDS)
+		return -EINVAL;
+	WARN_ON(q.llq.max_n_shift > smmu->cmdq.q.llq.max_n_shift);
+
+	cons_uptr = u64_to_user_ptr(inv->cmdq_cons_uptr);
+	if (copy_from_user(&q.llq.cons, cons_uptr, sizeof(u32)))
+		return -EFAULT;
+	if (queue_empty(&q.llq))
+		return -EINVAL;
+
+	ncmds = min(queue_ncmds(&q.llq), CMDQ_BATCH_ENTRIES - 1);
+
+	cmds = kcalloc(ncmds, inv->cmdq_entry_size, GFP_KERNEL);
+	if (!cmds)
+		return -ENOMEM;
+
+	for (; !queue_empty(&q.llq); queue_inc_cons(&q.llq)) {
+		u64 *cmd = &cmds[i * CMDQ_ENT_DWORDS];
+
+		ret = copy_from_user(cmd,
+				     (const void __user *)Q_ENT(&q, q.llq.cons),
+				     inv->cmdq_entry_size);
+		if (ret) {
+			ret = -EFAULT;
+			goto out_free_cmds;
+		}
+
+		ret = arm_smmu_fix_user_cmd(smmu_domain, cmd);
+		if (ret == -EOPNOTSUPP)
+			continue;
+		if (ret) {
+			q.llq.cons |= cons_err;
+			goto out_copy_cons;
+		}
+
+		if (arm_smmu_cmdq_hit_errata(smmu, cmd, &has_leaf, &has_cfgi)) {
+			/* WAR is to issue the batch prior, with a CMD_SYNC */
+			ret = arm_smmu_cmdq_issue_cmdlist(smmu, cmds, i, true);
+			if (ret)
+				goto out_copy_cons;
+			/* Then move the cmd to the head for a new batch */
+			for (i = 0; i < CMDQ_ENT_DWORDS; i++)
+				cmds[i] = cmd[i];
+			i = 1;
+			continue;
+		}
+
+		if (++i == CMDQ_BATCH_ENTRIES - 1) {
+			ret = arm_smmu_cmdq_issue_cmdlist(smmu, cmds, i, true);
+			if (ret)
+				goto out_copy_cons;
+			i = 0;
+		}
+	}
+
+	if (i)
+		ret = arm_smmu_cmdq_issue_cmdlist(smmu, cmds, i, true);
+out_copy_cons:
+	if (copy_to_user(cons_uptr, &q.llq.cons, sizeof(u32)))
+		ret = -EFAULT;
+out_free_cmds:
+	kfree(cmds);
+	return ret;
+}
+
+static const struct iommu_domain_ops arm_smmu_nested_domain_ops = {
+	.attach_dev		= arm_smmu_attach_dev,
+	.free			= arm_smmu_domain_free,
+	.get_msi_mapping_domain	= arm_smmu_get_msi_mapping_domain,
+	.cache_invalidate_user	= arm_smmu_cache_invalidate_user,
+	.cache_invalidate_user_data_len =
+		sizeof(struct iommu_hwpt_arm_smmuv3_invalidate),
+};
+
+/**
+ * __arm_smmu_domain_alloc - Allocate a customizable iommu_domain
+ * @type: Type of the new iommu_domain, in form of IOMMU_DOMAIN_*
+ * @s2: Optional pointer to an stage-2 domain, used by an stage-1 nested domain
+ *      allocation, pairing with a valid user_cfg data to configure the domain.
+ * @master: Optional master pointer for the allocation. If given, this will be
+ *          used to call arm_smmu_domain_finalise at the end of the allocation.
+ *          Otherwise, arm_smmu_domain_finalise will be done when the domain is
+ *          attached to a device.
+ * @user_cfg: Optional user configuration for the allocation. This allows the
+ *            caller, mainly user space, to customize the iommu_domain in the
+ *            arm_smmu_domain_finalise function that decodes the user_cfg data.
+ *
+ * This helper function is shared by domain_alloc_user() and domain_alloc().
+ * Unlike ops->domain_alloc has been so far only called by the iommu core that
+ * sets default values of domain->type, domain->ops and domain->pgsize_bitmap,
+ * the ops->domain_alloc_user could be directly called by the iommufd core. So,
+ * this function should set those default values for an ops->domain_alloc_user
+ * call. Note that domain->pgsize_bitmap is set in arm_smmu_domain_finalise().
+ */
+static struct iommu_domain *
+__arm_smmu_domain_alloc(unsigned type,
+			struct arm_smmu_domain *s2,
+			struct arm_smmu_master *master,
+			const struct iommu_hwpt_arm_smmuv3 *user_cfg)
+{
+	struct arm_smmu_domain *smmu_domain;
+	struct iommu_domain *domain;
+	int ret = 0;
+
+	if (type == IOMMU_DOMAIN_SVA)
+		return arm_smmu_sva_domain_alloc();
+
+	if (type != IOMMU_DOMAIN_UNMANAGED &&
+	    type != IOMMU_DOMAIN_NESTED &&
+	    type != IOMMU_DOMAIN_DMA &&
+	    type != IOMMU_DOMAIN_IDENTITY)
+		return NULL;
+
+	if (s2 && (s2->stage != ARM_SMMU_DOMAIN_S2 || !user_cfg))
+		return NULL;
+
+	/*
+	 * Allocate the domain and initialise some of its data structures.
+	 * We can't really finalise the domain unless a master is given.
+	 */
+	smmu_domain = kzalloc(sizeof(*smmu_domain), GFP_KERNEL);
+	if (!smmu_domain)
+		return NULL;
+	smmu_domain->s2 = s2;
+	domain = &smmu_domain->domain;
+
+	domain->type = type;
+	if (s2)
+		domain->ops = &arm_smmu_nested_domain_ops;
+	else
+		domain->ops = arm_smmu_ops.default_domain_ops;
+
+	mutex_init(&smmu_domain->init_mutex);
+	INIT_LIST_HEAD(&smmu_domain->devices);
+	spin_lock_init(&smmu_domain->devices_lock);
+	INIT_LIST_HEAD(&smmu_domain->mmu_notifiers);
+
+	if (master) {
+		smmu_domain->smmu = master->smmu;
+		ret = arm_smmu_domain_finalise(domain, master, user_cfg);
+		if (ret) {
+			kfree(smmu_domain);
+			return NULL;
+		}
+	}
+
+	return domain;
+}
+
+static struct iommu_domain *arm_smmu_domain_alloc(unsigned type)
+{
+	return __arm_smmu_domain_alloc(type, NULL, NULL, NULL);
+}
+
+static struct iommu_domain *
+arm_smmu_domain_alloc_user(struct device *dev, enum iommu_hwpt_type hwpt_type,
+			   struct iommu_domain *parent,
+			   const union iommu_domain_user_data *user_data)
+{
+	const struct iommu_hwpt_arm_smmuv3 *user_cfg = (struct iommu_hwpt_arm_smmuv3 *)user_data;
+	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
+	unsigned type = IOMMU_DOMAIN_UNMANAGED;
+	struct arm_smmu_domain *s2 = NULL;
+
+	if (hwpt_type != IOMMU_HWPT_TYPE_DEFAULT &&
+	    hwpt_type != IOMMU_HWPT_TYPE_ARM_SMMUV3)
+		return ERR_PTR(-EINVAL);
+	if (hwpt_type == IOMMU_HWPT_TYPE_DEFAULT && user_data)
+		return ERR_PTR(-EINVAL);
+
+	/*
+	 * The type of the new domain stays at IOMMU_DOMAIN_UNMANAGED, unless a
+	 * valid parent domain is given, turning it to be IOMMU_DOMAIN_NESTED.
+	 * The "stage" of an IOMMU_DOMAIN_UNMANAGED domain, however, is decided
+	 * in the arm_smmu_domain_finalise function that reads user_cfg->flags,
+	 * to set the stage accordingly.
+	 */
+	if (parent) {
+		if (parent->ops != arm_smmu_ops.default_domain_ops)
+			return ERR_PTR(-EINVAL);
+		type = IOMMU_DOMAIN_NESTED;
+		s2 = to_smmu_domain(parent);
+	}
+
+	return __arm_smmu_domain_alloc(type, s2, master, user_cfg);
+}
+
 static struct iommu_ops arm_smmu_ops = {
 	.capable		= arm_smmu_capable,
+	.hw_info		= arm_smmu_hw_info,
 	.domain_alloc		= arm_smmu_domain_alloc,
+	.domain_alloc_user	= arm_smmu_domain_alloc_user,
 	.probe_device		= arm_smmu_probe_device,
 	.release_device		= arm_smmu_release_device,
+	.set_dev_user_data	= arm_smmu_set_dev_user_data,
+	.unset_dev_user_data	= arm_smmu_unset_dev_user_data,
+	.dev_user_data_len	= sizeof(struct iommu_dev_data_arm_smmuv3),
 	.device_group		= arm_smmu_device_group,
 	.of_xlate		= arm_smmu_of_xlate,
 	.get_resv_regions	= arm_smmu_get_resv_regions,
@@ -2872,6 +3288,7 @@ static struct iommu_ops arm_smmu_ops = {
 	.dev_disable_feat	= arm_smmu_dev_disable_feature,
 	.page_response		= arm_smmu_page_response,
 	.def_domain_type	= arm_smmu_def_domain_type,
+	.hw_info_type		= IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
 	.pgsize_bitmap		= -1UL, /* Restricted during device attach */
 	.owner			= THIS_MODULE,
 	.default_domain_ops = &(const struct iommu_domain_ops) {
@@ -2881,7 +3298,6 @@ static struct iommu_ops arm_smmu_ops = {
 		.flush_iotlb_all	= arm_smmu_flush_iotlb_all,
 		.iotlb_sync		= arm_smmu_iotlb_sync,
 		.iova_to_phys		= arm_smmu_iova_to_phys,
-		.enable_nesting		= arm_smmu_enable_nesting,
 		.free			= arm_smmu_domain_free,
 	}
 };
@@ -3098,6 +3514,7 @@ static int arm_smmu_init_structures(struct arm_smmu_device *smmu)
 
 	mutex_init(&smmu->streams_mutex);
 	smmu->streams = RB_ROOT;
+	xa_init_flags(&smmu->streams_user, XA_FLAGS_ALLOC1 | XA_FLAGS_ACCOUNT);
 
 	ret = arm_smmu_init_queues(smmu);
 	if (ret)

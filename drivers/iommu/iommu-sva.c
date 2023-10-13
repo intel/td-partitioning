@@ -6,8 +6,8 @@
 #include <linux/mutex.h>
 #include <linux/sched/mm.h>
 #include <linux/iommu.h>
-
-#include "iommu-sva.h"
+#include <linux/mm_types.h>
+#include <linux/ioasid.h>
 
 static DEFINE_MUTEX(iommu_sva_lock);
 
@@ -28,8 +28,8 @@ static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
 		goto out;
 	}
 
-	pasid = iommu_alloc_global_pasid(dev);
-	if (pasid == IOMMU_PASID_INVALID) {
+	pasid = ioasid_alloc(NULL, 0, dev->iommu->max_pasids, mm, 0);
+	if (!pasid_valid(pasid)) {
 		ret = -ENOSPC;
 		goto out;
 	}
@@ -148,7 +148,7 @@ EXPORT_SYMBOL_GPL(iommu_sva_get_pasid);
 /*
  * I/O page fault handler for SVA
  */
-enum iommu_page_response_code
+static enum iommu_page_response_code
 iommu_sva_handle_iopf(struct iommu_fault *fault, void *data)
 {
 	vm_fault_t ret;
@@ -208,5 +208,31 @@ void mm_pasid_drop(struct mm_struct *mm)
 	if (likely(!mm_valid_pasid(mm)))
 		return;
 
-	iommu_free_global_pasid(mm->pasid);
+	__ioasid_put(mm->pasid);
+	mm->pasid = INVALID_IOASID;
+}
+
+static void iopf_handler(struct work_struct *work)
+{
+	struct iopf_fault *iopf;
+	struct iopf_group *group;
+	enum iommu_page_response_code status = IOMMU_PAGE_RESP_SUCCESS;
+
+	group = container_of(work, struct iopf_group, work);
+	list_for_each_entry(iopf, &group->faults, list) {
+		/*
+		 * For the moment, errors are sticky: don't handle subsequent
+		 * faults in the group if there is an error.
+		 */
+		if (status == IOMMU_PAGE_RESP_SUCCESS)
+			status = iommu_sva_handle_iopf(&iopf->fault, group->data);
+	}
+	if (status != IOMMU_PAGE_RESP_ASYNC)
+		iopf_complete_group(group->dev, &group->last_fault, status);
+	iopf_free_group(group);
+}
+
+int iommu_sva_handle_iopf_group(struct iopf_group *group)
+{
+	return iopf_queue_work(group, iopf_handler);
 }

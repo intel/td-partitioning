@@ -12,6 +12,7 @@
 #include <linux/iommu.h>
 #include <linux/mm.h>
 #include <linux/workqueue.h>
+#include <linux/pci.h>
 #include <linux/poll.h>
 #include <linux/cdev.h>
 #include <uapi/linux/vfio.h>
@@ -33,6 +34,24 @@ struct vfio_device_set {
 	struct list_head device_list;
 	unsigned int device_count;
 };
+
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+/*
+ * Interrupt Message Store (IMS) data
+ * @ctx:		IMS interrupt context storage.
+ * @ctx_mutex:		Protects the interrupt context storage.
+ * @pdev:		PCI device owning the IMS domain from where
+ *			interrupts are allocated.
+ * @default_cookie:	Default cookie used for IMS interrupts without unique
+ *			cookie.
+ */
+struct vfio_pci_ims {
+	struct xarray			ctx;
+	struct mutex			ctx_mutex;
+	struct pci_dev			*pdev;
+	union msi_instance_cookie	default_cookie;
+};
+#endif
 
 struct vfio_device {
 	struct device *dev;
@@ -66,9 +85,14 @@ struct vfio_device {
 	void (*put_kvm)(struct kvm *kvm);
 #if IS_ENABLED(CONFIG_IOMMUFD)
 	struct iommufd_device *iommufd_device;
+	struct xarray pasid_pts;
 	u8 iommufd_attached:1;
 #endif
 	u8 cdev_opened:1;
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+	struct vfio_pci_ims ims;
+#endif
+	struct eventfd_ctx *req_trigger;
 };
 
 /**
@@ -83,6 +107,8 @@ struct vfio_device {
  *		 bound iommufd. Undo in unbind_iommufd if @detach_ioas is not
  *		 called.
  * @detach_ioas: Opposite of attach_ioas
+ * @pasid_attach_ioas: the pasid variation of attach_ioas
+ * @pasid_detach_ioas: Opposite of pasid_attach_ioas
  * @open_device: Called when the first file descriptor is opened for this device
  * @close_device: Opposite of open_device
  * @read: Perform read(2) on device file descriptor
@@ -107,6 +133,8 @@ struct vfio_device_ops {
 	void	(*unbind_iommufd)(struct vfio_device *vdev);
 	int	(*attach_ioas)(struct vfio_device *vdev, u32 *pt_id);
 	void	(*detach_ioas)(struct vfio_device *vdev);
+	int	(*pasid_attach_ioas)(struct vfio_device *vdev, u32 pasid, u32 pt_id);
+	void	(*pasid_detach_ioas)(struct vfio_device *vdev, u32 pasid);
 	int	(*open_device)(struct vfio_device *vdev);
 	void	(*close_device)(struct vfio_device *vdev);
 	ssize_t	(*read)(struct vfio_device *vdev, char __user *buf,
@@ -131,6 +159,8 @@ int vfio_iommufd_physical_bind(struct vfio_device *vdev,
 void vfio_iommufd_physical_unbind(struct vfio_device *vdev);
 int vfio_iommufd_physical_attach_ioas(struct vfio_device *vdev, u32 *pt_id);
 void vfio_iommufd_physical_detach_ioas(struct vfio_device *vdev);
+int vfio_iommufd_physical_pasid_attach_ioas(struct vfio_device *vdev, u32 pasid, u32 pt_id);
+void vfio_iommufd_physical_pasid_detach_ioas(struct vfio_device *vdev, u32 pasid);
 int vfio_iommufd_emulated_bind(struct vfio_device *vdev,
 			       struct iommufd_ctx *ictx, u32 *out_device_id);
 void vfio_iommufd_emulated_unbind(struct vfio_device *vdev);
@@ -158,6 +188,10 @@ vfio_iommufd_get_dev_id(struct vfio_device *vdev, struct iommufd_ctx *ictx)
 	((int (*)(struct vfio_device *vdev, u32 *pt_id)) NULL)
 #define vfio_iommufd_physical_detach_ioas \
 	((void (*)(struct vfio_device *vdev)) NULL)
+#define vfio_iommufd_physical_pasid_attach_ioas \
+	((int (*)(struct vfio_device *vdev, u32 pasid, u32 pt_id)) NULL)
+#define vfio_iommufd_physical_pasid_detach_ioas \
+	((void (*)(struct vfio_device *vdev, u32 pasid)) NULL)
 #define vfio_iommufd_emulated_bind                                      \
 	((int (*)(struct vfio_device *vdev, struct iommufd_ctx *ictx,   \
 		  u32 *out_device_id)) NULL)
@@ -270,6 +304,7 @@ static inline void vfio_put_device(struct vfio_device *device)
 
 int vfio_register_group_dev(struct vfio_device *device);
 int vfio_register_emulated_iommu_dev(struct vfio_device *device);
+int vfio_register_pasid_iommu_dev(struct vfio_device *device);
 void vfio_unregister_group_dev(struct vfio_device *device);
 
 int vfio_assign_device_set(struct vfio_device *device, void *set_id);
@@ -321,6 +356,15 @@ void vfio_unpin_pages(struct vfio_device *device, dma_addr_t iova, int npage);
 int vfio_dma_rw(struct vfio_device *device, dma_addr_t iova,
 		void *data, size_t len, bool write);
 
+/* common lib functions */
+extern int vfio_set_ctx_trigger_single(struct eventfd_ctx **ctx,
+				       unsigned int count, u32 flags,
+				       void *data);
+extern int vfio_set_req_trigger(struct vfio_device *vdev, unsigned int index,
+				unsigned int start, unsigned int count, u32 flags,
+				void *data);
+extern void vfio_device_request(struct vfio_device *vdev, unsigned int count);
+
 /*
  * Sub-module helpers
  */
@@ -360,5 +404,69 @@ int vfio_virqfd_enable(void *opaque, int (*handler)(void *, void *),
 		       void (*thread)(void *, void *), void *data,
 		       struct virqfd **pvirqfd, int fd);
 void vfio_virqfd_disable(struct virqfd **pvirqfd);
+
+/*
+ * Interrupt Message Store (IMS)
+ */
+#if IS_ENABLED(CONFIG_VFIO_PCI_IMS)
+int vfio_pci_set_ims_trigger(struct vfio_device *vdev, unsigned int index,
+			     unsigned int start, unsigned int count, u32 flags,
+			     void *data);
+void vfio_pci_ims_init(struct vfio_device *vdev, struct pci_dev *pdev,
+		       union msi_instance_cookie *default_cookie);
+void vfio_pci_ims_free(struct vfio_device *vdev);
+int vfio_pci_ims_set_emulated(struct vfio_device *vdev, unsigned int start,
+			      unsigned int count);
+void vfio_pci_ims_send_signal(struct vfio_device *vdev, unsigned int vector);
+int vfio_pci_ims_set_cookie(struct vfio_device *vdev, unsigned int vector,
+			    union msi_instance_cookie *icookie);
+int vfio_pci_ims_hwirq(struct vfio_device *vdev, unsigned int vector);
+void vfio_dump_ims_entries(struct vfio_device *vdev);
+#else
+static inline int vfio_pci_set_ims_trigger(struct vfio_device *vdev,
+					   unsigned int index,
+					   unsigned int start,
+					   unsigned int count, u32 flags,
+					   void *data)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void vfio_pci_ims_init(struct vfio_device *vdev,
+				     struct pci_dev *pdev,
+				     union msi_instance_cookie *default_cookie)
+{}
+
+static inline void vfio_pci_ims_free(struct vfio_device *vdev) {}
+
+static inline int vfio_pci_ims_set_emulated(struct vfio_device *vdev,
+					    unsigned int start,
+					    unsigned int count)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void vfio_pci_ims_send_signal(struct vfio_device *vdev,
+					    unsigned int vector)
+{}
+
+static inline int vfio_pci_ims_set_cookie(struct vfio_device *vdev,
+					  unsigned int vector,
+					  union msi_instance_cookie *icookie)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int vfio_pci_ims_hwirq(struct vfio_device *vdev,
+				     unsigned int index)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void vfio_dump_ims_entries(struct vfio_device *vdev) {}
+#endif /* CONFIG_VFIO_PCI_IMS */
+
+extern void vfio_device_set_pasid(struct vfio_device *device, u32 pasid);
+extern u32 vfio_device_get_pasid(struct vfio_device *device);
 
 #endif /* VFIO_H */

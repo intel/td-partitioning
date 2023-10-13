@@ -16,6 +16,7 @@
 #include <linux/iommu.h>
 #include <uapi/linux/idxd.h>
 #include <linux/dmaengine.h>
+#include <linux/irqchip/irq-pci-intel-idxd.h>
 #include "../dmaengine.h"
 #include "registers.h"
 #include "idxd.h"
@@ -72,6 +73,19 @@ static struct pci_device_id idxd_pci_tbl[] = {
 };
 MODULE_DEVICE_TABLE(pci, idxd_pci_tbl);
 
+static void idxd_setup_ims(struct idxd_device *idxd)
+{
+	if (idxd->ims_size == 0)
+		return;
+
+	if (!pci_intel_idxd_create_ims_domain(idxd->pdev,
+					      idxd->reg_base + idxd->ims_offset,
+					      idxd->ims_size))
+		dev_warn(&idxd->pdev->dev, "Failed to acquire IMS domain\n");
+	dev_dbg(&idxd->pdev->dev, "IMS domain created on %s",
+		dev_name(&idxd->pdev->dev));
+}
+
 static int idxd_setup_interrupts(struct idxd_device *idxd)
 {
 	struct pci_dev *pdev = idxd->pdev;
@@ -110,7 +124,7 @@ static int idxd_setup_interrupts(struct idxd_device *idxd)
 		ie = idxd_get_ie(idxd, msix_idx);
 		ie->id = msix_idx;
 		ie->int_handle = INVALID_INT_HANDLE;
-		ie->pasid = IOMMU_PASID_INVALID;
+		ie->pasid = INVALID_IOASID;
 
 		spin_lock_init(&ie->list_lock);
 		init_llist_head(&ie->pending_llist);
@@ -425,6 +439,8 @@ static void idxd_read_table_offsets(struct idxd_device *idxd)
 	dev_dbg(dev, "IDXD Work Queue Config Offset: %#x\n", idxd->wqcfg_offset);
 	idxd->msix_perm_offset = offsets.msix_perm * IDXD_TABLE_MULT;
 	dev_dbg(dev, "IDXD MSIX Permission Offset: %#x\n", idxd->msix_perm_offset);
+	idxd->ims_offset = offsets.ims * IDXD_TABLE_MULT;
+	dev_dbg(dev, "IDXD IMS Offset: %#x\n", idxd->ims_offset);
 	idxd->perfmon_offset = offsets.perfmon * IDXD_TABLE_MULT;
 	dev_dbg(dev, "IDXD Perfmon Offset: %#x\n", idxd->perfmon_offset);
 }
@@ -464,6 +480,8 @@ static void idxd_read_caps(struct idxd_device *idxd)
 	dev_dbg(dev, "max xfer size: %llu bytes\n", idxd->max_xfer_bytes);
 	idxd_set_max_batch_size(idxd->data->type, idxd, 1U << idxd->hw.gen_cap.max_batch_shift);
 	dev_dbg(dev, "max batch size: %u\n", idxd->max_batch_size);
+	idxd->ims_size = idxd->hw.gen_cap.max_ims_mult * 256ULL;
+	dev_dbg(dev, "IMS size: %u\n", idxd->ims_size);
 	if (idxd->hw.gen_cap.config_en)
 		set_bit(IDXD_FLAG_CONFIGURABLE, &idxd->flags);
 
@@ -544,6 +562,9 @@ static struct idxd_device *idxd_alloc(struct pci_dev *pdev, struct idxd_driver_d
 
 	spin_lock_init(&idxd->dev_lock);
 	spin_lock_init(&idxd->cmd_lock);
+	mutex_init(&idxd->vdev_lock);
+	INIT_LIST_HEAD(&idxd->vdev_list);
+	ida_init(&idxd->vdev_ida);
 
 	return idxd;
 }
@@ -673,6 +694,8 @@ static int idxd_probe(struct idxd_device *idxd)
 	rc = idxd_setup_interrupts(idxd);
 	if (rc)
 		goto err_config;
+
+	idxd_setup_ims(idxd);
 
 	idxd->major = idxd_cdev_get_major(idxd);
 

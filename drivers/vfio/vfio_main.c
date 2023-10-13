@@ -57,6 +57,18 @@ MODULE_PARM_DESC(enable_unsafe_noiommu_mode, "Enable UNSAFE, no-IOMMU mode.  Thi
 
 static DEFINE_XARRAY(vfio_device_set_xa);
 
+void vfio_device_set_pasid(struct vfio_device *device, u32 pasid)
+{
+	dev_set_pasid(&device->device, pasid);
+}
+EXPORT_SYMBOL_GPL(vfio_device_set_pasid);
+
+u32 vfio_device_get_pasid(struct vfio_device *device)
+{
+	return dev_get_pasid(&device->device);
+}
+EXPORT_SYMBOL_GPL(vfio_device_get_pasid);
+
 int vfio_assign_device_set(struct vfio_device *device, void *set_id)
 {
 	unsigned long idx = (unsigned long)set_id;
@@ -333,6 +345,16 @@ int vfio_register_emulated_iommu_dev(struct vfio_device *device)
 	return __vfio_register_dev(device, VFIO_EMULATED_IOMMU);
 }
 EXPORT_SYMBOL_GPL(vfio_register_emulated_iommu_dev);
+
+/*
+ * Register a virtual device with IOMMU pasid protection. The user of
+ * this device can trigger DMA as long as all of its outgoing DMAs are
+ * always tagged with a pasid.
+ */
+int vfio_register_pasid_iommu_dev(struct vfio_device *device)
+{
+	return __vfio_register_dev(device, VFIO_PASID_IOMMU);
+}
 
 /*
  * Decrement the device reference count and wait for the device to be
@@ -1229,6 +1251,14 @@ static long vfio_device_fops_unl_ioctl(struct file *filep,
 
 		case VFIO_DEVICE_DETACH_IOMMUFD_PT:
 			ret = vfio_df_ioctl_detach_pt(df, uptr);
+			goto out;
+
+		case VFIO_DEVICE_PASID_ATTACH_IOMMUFD_PT:
+			ret = vfio_df_ioctl_pasid_attach_pt(df, uptr);
+			goto out;
+
+		case VFIO_DEVICE_PASID_DETACH_IOMMUFD_PT:
+			ret = vfio_df_ioctl_pasid_detach_pt(df, uptr);
 			goto out;
 		}
 	}

@@ -16,13 +16,13 @@
 #include <linux/interrupt.h>
 #include <linux/mm_types.h>
 #include <linux/xarray.h>
+#include <linux/ioasid.h>
 #include <asm/page.h>
 #include <asm/fpu/api.h>
 
 #include "iommu.h"
 #include "pasid.h"
 #include "perf.h"
-#include "../iommu-sva.h"
 #include "trace.h"
 
 static irqreturn_t prq_event_thread(int irq, void *d);
@@ -264,7 +264,7 @@ static int pasid_to_svm_sdev(struct device *dev, unsigned int pasid,
 	struct intel_svm_dev *sdev = NULL;
 	struct intel_svm *svm;
 
-	if (pasid == IOMMU_PASID_INVALID || pasid >= PASID_MAX)
+	if (pasid == INVALID_IOASID || pasid >= PASID_MAX)
 		return -EINVAL;
 
 	svm = pasid_private_find(pasid);
@@ -628,6 +628,7 @@ static irqreturn_t prq_event_thread(int irq, void *d)
 	struct intel_iommu *iommu = d;
 	struct page_req_dsc *req;
 	int head, tail, handled;
+	struct pci_bus *bus;
 	struct pci_dev *pdev;
 	u64 address;
 
@@ -674,9 +675,11 @@ bad_req:
 		if (unlikely(req->lpig && !req->rd_req && !req->wr_req))
 			goto prq_advance;
 
-		pdev = pci_get_domain_bus_and_slot(iommu->segment,
-						   PCI_BUS_NUM(req->rid),
-						   req->rid & 0xff);
+		bus = pci_find_bus(iommu->segment, PCI_BUS_NUM(req->rid));
+		if(!bus)
+			goto bad_req;
+
+		pdev = pci_get_slot(bus, req->rid & 0xff);
 		/*
 		 * If prq is to be handled outside iommu driver via receiver of
 		 * the fault notifiers, we skip the page response here.

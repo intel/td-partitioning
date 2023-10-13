@@ -8,6 +8,9 @@
 #include <linux/xarray.h>
 #include <linux/refcount.h>
 #include <linux/uaccess.h>
+#include <linux/iommu.h>
+#include <linux/iova_bitmap.h>
+#include <uapi/linux/iommufd.h>
 
 struct iommu_domain;
 struct iommu_group;
@@ -19,6 +22,7 @@ struct iommufd_ctx {
 	struct xarray objects;
 	struct xarray groups;
 
+	struct ioasid_set *pasid_set;
 	u8 account_mode;
 	/* Compatibility with VFIO no iommu */
 	u8 no_iommu_mode;
@@ -70,6 +74,13 @@ int iopt_unmap_iova(struct io_pagetable *iopt, unsigned long iova,
 		    unsigned long length, unsigned long *unmapped);
 int iopt_unmap_all(struct io_pagetable *iopt, unsigned long *unmapped);
 
+int iopt_read_and_clear_dirty_data(struct io_pagetable *iopt,
+				   struct iommu_domain *domain,
+				   unsigned long flags,
+				   struct iommufd_dirty_data *bitmap);
+int iopt_set_dirty_tracking(struct io_pagetable *iopt,
+			    struct iommu_domain *domain, bool enable);
+
 void iommufd_access_notify_unmap(struct io_pagetable *iopt, unsigned long iova,
 				 unsigned long length);
 int iopt_table_add_domain(struct io_pagetable *iopt,
@@ -78,7 +89,8 @@ void iopt_table_remove_domain(struct io_pagetable *iopt,
 			      struct iommu_domain *domain);
 int iopt_table_enforce_dev_resv_regions(struct io_pagetable *iopt,
 					struct device *dev,
-					phys_addr_t *sw_msi_start);
+					phys_addr_t *sw_msi_start,
+					bool sw_msi_only);
 int iopt_set_allow_iova(struct io_pagetable *iopt,
 			struct rb_root_cached *allowed_iova);
 int iopt_reserve_iova(struct io_pagetable *iopt, unsigned long start,
@@ -222,6 +234,47 @@ int iommufd_option_rlimit_mode(struct iommu_option *cmd,
 			       struct iommufd_ctx *ictx);
 
 int iommufd_vfio_ioas(struct iommufd_ucmd *ucmd);
+int iommufd_check_iova_range(struct iommufd_ioas *ioas,
+			     struct iommufd_dirty_data *bitmap);
+int iommufd_device_get_caps(struct iommufd_ucmd *ucmd);
+
+/*
+ * A iommufd_device object represents the binding relationship between a
+ * consuming driver and the iommufd. These objects are created/destroyed by
+ * external drivers, not by userspace.
+ */
+struct iommufd_device {
+	struct iommufd_object obj;
+	struct iommufd_ctx *ictx;
+	/* valid if this is a physical device */
+	struct iommufd_group *igroup;
+	struct list_head group_item;
+	/* always the physical device */
+	struct device *dev;
+	struct xarray pasid_hwpts;
+	/*
+	 * valid if this is a virtual device which gains pasid-granular
+	 * DMA isolation in IOMMU. The default pasid is used when attaching
+	 * this device to a IOAS/hwpt.
+	 */
+	u32 default_pasid;
+	bool enforce_cache_coherency;
+	bool has_user_data;
+	phys_addr_t sw_msi_start;
+	bool dma_owner_claimed;
+};
+
+int iommufd_device_get_info(struct iommufd_ucmd *ucmd);
+
+struct iommufd_fault {
+	struct file *fault_file;
+	int fault_fd;
+	struct mutex fault_queue_lock;
+	u8 *fault_pages;
+	size_t fault_region_size;
+	struct mutex notify_gate;
+	struct eventfd_ctx *trigger;
+};
 
 /*
  * A HW pagetable is called an iommu_domain inside the kernel. This user object
@@ -231,19 +284,41 @@ int iommufd_vfio_ioas(struct iommufd_ucmd *ucmd);
  */
 struct iommufd_hw_pagetable {
 	struct iommufd_object obj;
+	struct iommufd_hw_pagetable *parent;
 	struct iommufd_ioas *ioas;
 	struct iommu_domain *domain;
 	bool auto_domain : 1;
 	bool enforce_cache_coherency : 1;
+	bool enforce_dirty : 1;
 	bool msi_cookie : 1;
 	/* Head at iommufd_ioas::hwpt_list */
 	struct list_head hwpt_item;
+	/*
+	 *  If hwpt->parent is valid, this buffer is pre-allocated to store
+	 *  the cache invaliation data from user as cache invalidation is
+	 *  normally supposed to be fast-path, needs to avoid memory allocation
+	 *  in such path.
+	 */
+	void *cache;
+	struct iommufd_fault *fault;
 };
+
+int iommufd_hwpt_set_dirty(struct iommufd_ucmd *ucmd);
+int iommufd_hwpt_get_dirty_iova(struct iommufd_ucmd *ucmd);
 
 struct iommufd_hw_pagetable *
 iommufd_hw_pagetable_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
-			   struct iommufd_device *idev, bool immediate_attach);
+			   struct iommufd_device *idev,
+			   enum iommu_hwpt_type hwpt_type,
+			   struct iommufd_hw_pagetable *parent,
+			   union iommu_domain_user_data *domain_data,
+			   struct iommu_hwpt_user_data *user_data,
+			   struct iommu_hwpt_user_data __user *uptr,
+			   bool immediate_attach,
+			   bool enforce_dirty);
 int iommufd_hw_pagetable_enforce_cc(struct iommufd_hw_pagetable *hwpt);
+int iommufd_hw_pagetable_setup_msi(struct iommufd_hw_pagetable *hwpt,
+				   phys_addr_t sw_msi_start);
 int iommufd_hw_pagetable_attach(struct iommufd_hw_pagetable *hwpt,
 				struct iommufd_device *idev);
 struct iommufd_hw_pagetable *
@@ -251,6 +326,7 @@ iommufd_hw_pagetable_detach(struct iommufd_device *idev);
 void iommufd_hw_pagetable_destroy(struct iommufd_object *obj);
 void iommufd_hw_pagetable_abort(struct iommufd_object *obj);
 int iommufd_hwpt_alloc(struct iommufd_ucmd *ucmd);
+int iommufd_hwpt_invalidate(struct iommufd_ucmd *ucmd);
 
 static inline void iommufd_hw_pagetable_put(struct iommufd_ctx *ictx,
 					    struct iommufd_hw_pagetable *hwpt)
@@ -262,6 +338,14 @@ static inline void iommufd_hw_pagetable_put(struct iommufd_ctx *ictx,
 		refcount_dec(&hwpt->obj.users);
 }
 
+static inline struct iommufd_hw_pagetable *
+iommufd_get_hwpt(struct iommufd_ucmd *ucmd, u32 id)
+{
+	return container_of(iommufd_get_object(ucmd->ictx, id,
+					       IOMMUFD_OBJ_HW_PAGETABLE),
+			    struct iommufd_hw_pagetable, obj);
+}
+
 struct iommufd_group {
 	struct kref ref;
 	struct mutex lock;
@@ -269,22 +353,6 @@ struct iommufd_group {
 	struct iommu_group *group;
 	struct iommufd_hw_pagetable *hwpt;
 	struct list_head device_list;
-	phys_addr_t sw_msi_start;
-};
-
-/*
- * A iommufd_device object represents the binding relationship between a
- * consuming driver and the iommufd. These objects are created/destroyed by
- * external drivers, not by userspace.
- */
-struct iommufd_device {
-	struct iommufd_object obj;
-	struct iommufd_ctx *ictx;
-	struct iommufd_group *igroup;
-	struct list_head group_item;
-	/* always the physical device */
-	struct device *dev;
-	bool enforce_cache_coherency;
 };
 
 static inline struct iommufd_device *
@@ -294,6 +362,8 @@ iommufd_get_device(struct iommufd_ucmd *ucmd, u32 id)
 					       IOMMUFD_OBJ_DEVICE),
 			    struct iommufd_device, obj);
 }
+
+int iommufd_hwpt_page_response(struct iommufd_ucmd *ucmd);
 
 void iommufd_device_destroy(struct iommufd_object *obj);
 int iommufd_get_hw_info(struct iommufd_ucmd *ucmd);
@@ -315,6 +385,9 @@ void iopt_remove_access(struct io_pagetable *iopt,
 			struct iommufd_access *access,
 			u32 iopt_access_list_id);
 void iommufd_access_destroy_object(struct iommufd_object *obj);
+
+int iommufd_alloc_pasid(struct iommufd_ucmd *ucmd);
+int iommufd_free_pasid(struct iommufd_ucmd *ucmd);
 
 #ifdef CONFIG_IOMMUFD_TEST
 int iommufd_test(struct iommufd_ucmd *ucmd);

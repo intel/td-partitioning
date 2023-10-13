@@ -19,6 +19,14 @@ enum {
 	IOMMU_TEST_OP_SET_TEMP_MEMORY_LIMIT,
 	IOMMU_TEST_OP_MOCK_DOMAIN_REPLACE,
 	IOMMU_TEST_OP_ACCESS_REPLACE_IOAS,
+	IOMMU_TEST_OP_DEV_ADD_RESERVED,
+	IOMMU_TEST_OP_DEV_DEL_RESERVED,
+	IOMMU_TEST_OP_MD_CHECK_IOTLB,
+	IOMMU_TEST_OP_DEV_CHECK_DATA,
+	IOMMU_TEST_OP_PASID_ATTACH,
+	IOMMU_TEST_OP_PASID_REPLACE,
+	IOMMU_TEST_OP_PASID_DETACH,
+	IOMMU_TEST_OP_PASID_CHECK_DOMAIN,
 };
 
 enum {
@@ -50,6 +58,10 @@ struct iommu_test_cmd {
 			__aligned_u64 start;
 			__aligned_u64 length;
 		} add_reserved;
+		struct {
+			__aligned_u64 start;
+			__aligned_u64 length;
+		} add_dev_reserved;
 		struct {
 			__u32 out_stdev_id;
 			__u32 out_hwpt_id;
@@ -95,6 +107,32 @@ struct iommu_test_cmd {
 		struct {
 			__u32 ioas_id;
 		} access_replace_ioas;
+		struct {
+			__u32 iotlb;
+		} check_iotlb;
+		struct {
+			__u32 val;
+		} check_dev_data;
+		struct {
+			__u32 pasid;
+			__u32 pt_id;
+			/* @id is stdev_id for IOMMU_TEST_OP_PASID_ATTACH */
+		} pasid_attach;
+		struct {
+			__u32 pasid;
+			__u32 pt_id;
+			/* @id is stdev_id for IOMMU_TEST_OP_PASID_ATTACH */
+		} pasid_replace;
+		struct {
+			__u32 pasid;
+			/* @id is stdev_id for IOMMU_TEST_OP_PASID_DETACH */
+		} pasid_detach;
+		struct {
+			__u32 pasid;
+			__u32 hwpt_id;
+			__u64 out_result_ptr;
+			/* @id is stdev_id for IOMMU_TEST_OP_HWPT_GET_DOMAIN */
+		} pasid_check;
 	};
 	__u32 last;
 };
@@ -107,6 +145,43 @@ struct iommu_test_cmd {
 struct iommu_test_hw_info {
 	__u32 flags;
 	__u32 test_reg;
+};
+
+#define IOMMU_DEVICE_DATA_SELFTEST	0xdadbeef
+
+/**
+ * struct iommu_test_device_data
+ *
+ * @val: Should be set to IOMMU_DEVICE_DATA_SELFTEST or unset to 0x0
+ */
+struct iommu_test_device_data {
+	__u32 val;
+};
+
+/* Should not be equal to any defined value in enum iommu_hwpt_type */
+#define IOMMU_HWPT_TYPE_SELFTTEST		0xdead
+
+/**
+ * struct iommu_hwpt_selftest
+ *
+ * @flags: page table entry attributes
+ * @test_config: default iotlb setup (value IOMMU_TEST_IOTLB_DEFAULT)
+ */
+struct iommu_hwpt_selftest {
+#define IOMMU_TEST_FLAG_NESTED		(1ULL << 0)
+	__u64 flags;
+#define IOMMU_TEST_IOTLB_DEFAULT	0xbadbeef
+	__u64 test_config;
+};
+
+/**
+ * struct iommu_hwpt_invalidate_selftest
+ *
+ * @flags: invalidate flags
+ */
+struct iommu_hwpt_invalidate_selftest {
+#define IOMMU_TEST_INVALIDATE_ALL	(1ULL << 0)
+	__u64 flags;
 };
 
 #endif

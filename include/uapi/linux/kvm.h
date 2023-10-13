@@ -335,6 +335,7 @@ struct kvm_run {
 			__u8  data[8];
 			__u32 len;
 			__u8  is_write;
+			__u8  np_data[64];
 		} mmio;
 		/* KVM_EXIT_HYPERCALL */
 		struct {
@@ -804,6 +805,12 @@ struct kvm_guest_debug {
 	__u32 control;
 	__u32 pad;
 	struct kvm_guest_debug_arch arch;
+};
+
+struct kvm_bind_pasid {
+	__u32 spid;
+	__u32 id;
+	int bind;
 };
 
 enum {
@@ -2221,6 +2228,8 @@ struct kvm_stats_desc {
 
 /* Available with KVM_CAP_S390_PROTECTED_DUMP */
 #define KVM_S390_PV_CPU_COMMAND	_IOWR(KVMIO, 0xd0, struct kvm_pv_cmd)
+
+#define KVM_BIND_PASID  _IOW(KVMIO,  0xd1, struct kvm_bind_pasid)
 
 /* Available with KVM_CAP_X86_NOTIFY_VMEXIT */
 #define KVM_X86_NOTIFY_VMEXIT_ENABLED		(1ULL << 0)

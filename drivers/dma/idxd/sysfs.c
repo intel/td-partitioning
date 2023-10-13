@@ -14,6 +14,7 @@ static char *idxd_wq_type_names[] = {
 	[IDXD_WQT_NONE]		= "none",
 	[IDXD_WQT_KERNEL]	= "kernel",
 	[IDXD_WQT_USER]		= "user",
+	[IDXD_WQT_VDEV]		= "vdev",
 };
 
 /* IDXD engine attributes */
@@ -605,6 +606,8 @@ static ssize_t wq_state_show(struct device *dev,
 		return sysfs_emit(buf, "disabled\n");
 	case IDXD_WQ_ENABLED:
 		return sysfs_emit(buf, "enabled\n");
+	case IDXD_WQ_LOCKED:
+		return sysfs_emit(buf, "locked\n");
 	}
 
 	return sysfs_emit(buf, "unknown\n");
@@ -889,6 +892,8 @@ static ssize_t wq_type_show(struct device *dev,
 		return sysfs_emit(buf, "%s\n", idxd_wq_type_names[IDXD_WQT_KERNEL]);
 	case IDXD_WQT_USER:
 		return sysfs_emit(buf, "%s\n", idxd_wq_type_names[IDXD_WQT_USER]);
+	case IDXD_WQT_VDEV:
+		return sysfs_emit(buf, "%s\n", idxd_wq_type_names[IDXD_WQT_VDEV]);
 	case IDXD_WQT_NONE:
 	default:
 		return sysfs_emit(buf, "%s\n", idxd_wq_type_names[IDXD_WQT_NONE]);
@@ -914,6 +919,8 @@ static ssize_t wq_type_store(struct device *dev,
 		wq->type = IDXD_WQT_KERNEL;
 	else if (sysfs_streq(buf, idxd_wq_type_names[IDXD_WQT_USER]))
 		wq->type = IDXD_WQT_USER;
+	else if (sysfs_streq(buf, idxd_wq_type_names[IDXD_WQT_VDEV]))
+		wq->type = IDXD_WQT_VDEV;
 	else
 		return -EINVAL;
 
@@ -1259,6 +1266,33 @@ err:
 static struct device_attribute dev_attr_wq_op_config =
 		__ATTR(op_config, 0644, wq_op_config_show, wq_op_config_store);
 
+static ssize_t wq_driver_name_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct idxd_wq *wq = confdev_to_wq(dev);
+
+	return sysfs_emit(buf, "%s\n", wq->driver_name);
+}
+
+static ssize_t wq_driver_name_store(struct device *dev, struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct idxd_wq *wq = confdev_to_wq(dev);
+
+	if (wq->state != IDXD_WQ_DISABLED)
+		return -EPERM;
+
+	if (strlen(buf) > DRIVER_NAME_SIZE || strlen(buf) == 0)
+		return -EINVAL;
+
+	memset(wq->driver_name, 0, DRIVER_NAME_SIZE + 1);
+	strncpy(wq->driver_name, buf, DRIVER_NAME_SIZE);
+	strreplace(wq->name, '\n', '\0');
+	return count;
+}
+
+static struct device_attribute dev_attr_wq_driver_name =
+		__ATTR(driver_name, 0644, wq_driver_name_show, wq_driver_name_store);
+
 static struct attribute *idxd_wq_attributes[] = {
 	&dev_attr_wq_clients.attr,
 	&dev_attr_wq_state.attr,
@@ -1278,6 +1312,7 @@ static struct attribute *idxd_wq_attributes[] = {
 	&dev_attr_wq_occupancy.attr,
 	&dev_attr_wq_enqcmds_retries.attr,
 	&dev_attr_wq_op_config.attr,
+	&dev_attr_wq_driver_name.attr,
 	NULL,
 };
 
@@ -1396,6 +1431,14 @@ static ssize_t numa_node_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", dev_to_node(&idxd->pdev->dev));
 }
 static DEVICE_ATTR_RO(numa_node);
+
+static ssize_t ims_size_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct idxd_device *idxd = confdev_to_idxd(dev);
+
+	return sysfs_emit(buf, "%u\n", idxd->ims_size);
+}
+static DEVICE_ATTR_RO(ims_size);
 
 static ssize_t max_batch_size_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
@@ -1712,6 +1755,63 @@ static umode_t idxd_device_attr_visible(struct kobject *kobj,
 	return attr->mode;
 }
 
+static ssize_t vdev_create_store(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct idxd_device *idxd = confdev_to_idxd(dev);
+	u32 val;
+	int rc = count;
+
+	rc = kstrtouint(buf, 10, &val);
+	if (rc < 0)
+		return -EINVAL;
+
+	mutex_lock(&idxd->vdev_lock);
+	if (!idxd->vdev_ops) {
+		rc = -EOPNOTSUPP;
+		goto out;
+	}
+
+	rc = idxd->vdev_ops->device_create(idxd, val);
+	if (rc == 0)
+		rc = count;
+
+out:
+	mutex_unlock(&idxd->vdev_lock);
+	return rc;
+}
+static DEVICE_ATTR_WO(vdev_create);
+
+static ssize_t vdev_remove_store(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct idxd_device *idxd = confdev_to_idxd(dev);
+	char *input, *vdev_name;
+	int rc = count;
+
+	input = kstrndup(buf, count, GFP_KERNEL);
+	if (!input)
+		return -ENOMEM;
+
+	vdev_name = strim(input);
+
+	mutex_lock(&idxd->vdev_lock);
+	if (!idxd->vdev_ops) {
+		rc = -EOPNOTSUPP;
+		goto out;
+	}
+
+	rc = idxd->vdev_ops->device_remove(idxd, vdev_name);
+	if (rc == 0)
+		rc = count;
+out:
+	mutex_unlock(&idxd->vdev_lock);
+	kfree(input);
+
+	return rc;
+}
+static DEVICE_ATTR_WO(vdev_remove);
+
 static struct attribute *idxd_device_attributes[] = {
 	&dev_attr_version.attr,
 	&dev_attr_max_groups.attr,
@@ -1719,6 +1819,7 @@ static struct attribute *idxd_device_attributes[] = {
 	&dev_attr_max_work_queues_size.attr,
 	&dev_attr_max_engines.attr,
 	&dev_attr_numa_node.attr,
+	&dev_attr_ims_size.attr,
 	&dev_attr_max_batch_size.attr,
 	&dev_attr_max_transfer_size.attr,
 	&dev_attr_op_cap.attr,
@@ -1736,6 +1837,8 @@ static struct attribute *idxd_device_attributes[] = {
 	&dev_attr_cmd_status.attr,
 	&dev_attr_iaa_cap.attr,
 	&dev_attr_event_log_size.attr,
+	&dev_attr_vdev_create.attr,
+	&dev_attr_vdev_remove.attr,
 	NULL,
 };
 
