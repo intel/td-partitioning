@@ -13,6 +13,8 @@
 DECLARE_PER_CPU(u64, xfd_state);
 #endif
 
+extern u64 fpu_kernel_dynamic_xfeatures;
+
 static inline void xstate_init_xcomp_bv(struct xregs_state *xsave, u64 mask)
 {
 	/*
@@ -224,6 +226,8 @@ static inline void os_xsave(struct fpstate *fpstate)
 	xfd_validate_state(fpstate, mask, false);
 
 	XSTATE_XSAVE(fpstate, lmask, hmask, err);
+	WARN_ON_FPU(!fpstate->is_guest &&
+		    (mask & fpu_kernel_dynamic_xfeatures));
 
 	/* We should never fault when copying to a kernel buffer: */
 	WARN_ON_FPU(err);
