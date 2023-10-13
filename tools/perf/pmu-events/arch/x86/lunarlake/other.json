@@ -1,0 +1,1728 @@
+[
+    {
+        "BriefDescription": "ASSISTS.HARDWARE",
+        "EventCode": "0xc1",
+        "EventName": "ASSISTS.HARDWARE",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Page access/dirty assists.",
+        "EventCode": "0xc1",
+        "EventName": "ASSISTS.PAGE_A_D",
+        "PublicDescription": "Counts page access/dirty assists.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "ASSISTS.PAGE_FAULT",
+        "EventCode": "0xc1",
+        "EventName": "ASSISTS.PAGE_FAULT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Resource-related stall cycles",
+        "EventCode": "0xa2",
+        "EventName": "BE_STALLS.ANY",
+        "PublicDescription": "Counts resource-related stall cycles.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "BE_STALLS.GIT",
+        "EventCode": "0xa2",
+        "EventName": "BE_STALLS.GIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles stalled due to no store buffers available. (not including draining form sync).",
+        "EventCode": "0xa2",
+        "EventName": "BE_STALLS.SB",
+        "PublicDescription": "Counts allocation stall cycles caused by the store buffer (SB) being full. This counts cycles that the pipeline back-end blocked uop delivery from the front-end.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cycles where the pipeline is stalled due to serializing operations.",
+        "EventCode": "0xa2",
+        "EventName": "BE_STALLS.SCOREBOARD",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cycles where the pipeline is stalled due to serializing operations.",
+        "EventCode": "0xa2",
+        "EventName": "BE_STALLS.VECQ",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of bubble cycles due to any Branch Predictor Clear (BpClear)",
+        "EventCode": "0x82",
+        "EventName": "BPU.BPCLEAR_CYCLES",
+        "PublicDescription": "Number of bubble cycles due to any BpClear. Account for all BPClear/BTClear cases regardless of duration (1- or 2-cycles).",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "BPU.RSB_FULL",
+        "EventCode": "0x82",
+        "EventName": "BPU.RSB_FULL",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles a Core is blocked due to a lock In Progress issued by another core",
+        "EventCode": "0x63",
+        "EventName": "BUS_LOCK.BLOCKED_CYCLES",
+        "PublicDescription": "Counts the number of unhalted cycles a Core is blocked due to a lock In Progress issued by another core. Counts on a per core basis.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of unhalted cycles a Core is blocked due to an Accepted lock it issued, includes both split and non-split lock cycles.",
+        "EventCode": "0x63",
+        "EventName": "BUS_LOCK.LOCK_CYCLES",
+        "PublicDescription": "Counts the number of unhalted cycles a Core is blocked due to an Accepted lock it issued, includes both split and non-split lock cycles. Counts on a per core basis.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of non-split locks such as UC locks issued by a Core (does not include cache locks)",
+        "EventCode": "0x63",
+        "EventName": "BUS_LOCK.NON_SPLIT_LOCKS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of split locks issued by a Core",
+        "EventCode": "0x63",
+        "EventName": "BUS_LOCK.SPLIT_LOCKS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Count the number of CMP snoops issued to another core in the same module that result in a HITM response to this core",
+        "EventCode": "0xb8",
+        "EventName": "CMP_SNOOP.HITM",
+        "PublicDescription": "Count the number of CMP snoops issued to another core in the same module that result in a HITM response to this requesting core.  Counts on a per core basis.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Count the number of CMP snoops issued to another core in the same module",
+        "EventCode": "0xb8",
+        "EventName": "CMP_SNOOP.ISSUED",
+        "PublicDescription": "Count the number of CMP snoops issued to another core in the same module from this requesting core.  Counts on a per core basis.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "CORE_POWER.LEVEL_BASELINE",
+        "EventCode": "0x28",
+        "EventName": "CORE_POWER.LEVEL_BASELINE",
+        "SampleAfterValue": "200003",
+        "UMask": "0x3",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_POWER.LICENSE_0",
+        "EventCode": "0x28",
+        "EventName": "CORE_POWER.LICENSE_0",
+        "SampleAfterValue": "200003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_POWER.LICENSE_1",
+        "EventCode": "0x28",
+        "EventName": "CORE_POWER.LICENSE_1",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_POWER.LICENSE_2",
+        "EventCode": "0x28",
+        "EventName": "CORE_POWER.LICENSE_2",
+        "SampleAfterValue": "200003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_POWER.LICENSE_3",
+        "EventCode": "0x28",
+        "EventName": "CORE_POWER.LICENSE_3",
+        "SampleAfterValue": "200003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_SNOOP_RESPONSE.CODE_RSP_SFWDFE",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.CODE_RSP_SFWDFE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xc0",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_SNOOP_RESPONSE.CODE_RSP_SFWDM",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.CODE_RSP_SFWDM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x88",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "CORE_SNOOP_RESPONSE.CODE_RSP_SHITFSE",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.CODE_RSP_SHITFSE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x84",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Hit snoop reply with data, line invalidated.",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.I_FWD_FE",
+        "PublicDescription": "Counts responses to snoops indicating the line will now be (I)nvalidated: removed from this core's cache, after the data is forwarded back to the requestor and indicating the data was found unmodified in the (FE) Forward or Exclusive State in this cores caches cache.  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "HitM snoop reply with data, line invalidated.",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.I_FWD_M",
+        "PublicDescription": "Counts responses to snoops indicating the line will now be (I)nvalidated: removed from this core's caches, after the data is forwarded back to the requestor, and indicating the data was found modified(M) in this cores caches cache (aka HitM response).  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Hit snoop reply without sending the data, line invalidated.",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.I_HIT_FSE",
+        "PublicDescription": "Counts responses to snoops indicating the line will now be (I)nvalidated in this core's caches without being forwarded back to the requestor. The line was in Forward, Shared or Exclusive (FSE) state in this cores caches.  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Line not found snoop reply",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.MISS",
+        "PublicDescription": "Counts responses to snoops indicating that the data was not found (IHitI) in this core's caches. A single snoop response from the core counts on all hyperthreads of the Core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Hit snoop reply with data, line kept in Shared state.",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.S_FWD_FE",
+        "PublicDescription": "Counts responses to snoops indicating the line may be kept on this core in the (S)hared state, after the data is forwarded back to the requestor, initially the data was found in the cache in the (FS) Forward or Shared state.  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "HitM snoop reply with data, line kept in Shared state",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.S_FWD_M",
+        "PublicDescription": "Counts responses to snoops indicating the line may be kept on this core in the (S)hared state, after the data is forwarded back to the requestor, initially the data was found in the cache in the (M)odified state.  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Hit snoop reply without sending the data, line kept in Shared state.",
+        "EventCode": "0x27",
+        "EventName": "CORE_SNOOP_RESPONSE.S_HIT_FSE",
+        "PublicDescription": "Counts responses to snoops indicating the line was kept on this core in the (S)hared state, and that the data was found unmodified but not forwarded back to the requestor, initially the data was found in the cache in the (FSE) Forward, Shared state or Exclusive state.  A single snoop response from the core counts on all hyperthreads of the core.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "DCU.EXPLICIT_EVICTIONS",
+        "EventCode": "0x51",
+        "EventName": "DCU.EXPLICIT_EVICTIONS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of cache accesses by all DCU HW prefetches (dispatches including rejects; hits or misses; regardless if FB is allocated).",
+        "EventCode": "0x51",
+        "EventName": "DCU.HWPF_ACCESS",
+        "PublicDescription": "Number of cache accesses by all DCU HW prefetches (dispatches including rejects; hits or misses; regardless if FB is allocated). Account for: Streamer, IPP (incl. Large Stride - aka Linear IPP), NPP (legacy or LLC page prefetcher hint), STA prefetch, AOP (Array of pointers) prefetch.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of true L1 d-cache hits by all DCU HW prefetches",
+        "EventCode": "0x51",
+        "EventName": "DCU.HWPF_L1_HIT",
+        "PublicDescription": "Number of true L1 d-cache hits by all DCU HW prefetches (when FB allocated, or request is issued to MLC as homeless when triggered by DCU prefetch)",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of true L1 d-cache misses by all DCU HW prefetches",
+        "EventCode": "0x51",
+        "EventName": "DCU.HWPF_L1_MISS",
+        "PublicDescription": "Number of true L1 d-cache misses by all DCU HW prefetches (when FB allocated, or request is issued to MLC as homeless when triggered by DCU prefetch)",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cache lines in M state evicted out of L0D due to Snoop HitM or dirty line replacement",
+        "EventCode": "0x51",
+        "EventName": "DCU.L0_M_REPLACEMENT",
+        "PublicDescription": "This event counts the number of cache lines in the Modified state evicted out of L0D due to Snoop HitM or due to the dirty line replacement.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of cache lines replaced in L0 data cache.",
+        "EventCode": "0x51",
+        "EventName": "DCU.L0_REPL",
+        "PublicDescription": "Counts L0 data line replacements including opportunistic replacements, and replacements that require stall-for-replace or block-for-replace.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "modified lines evicted out of L1 d-cache due to replacement of a dirty line. This events counts regardless if the line was written back to the MLC or not (in case of back-inquiry that hits in L0 is dropped). This includes WB-miss - modified line evicated from L0 that miss in the L1 d-cache (should not be common).",
+        "EventCode": "0x51",
+        "EventName": "DCU.L1_M_REPLACEMENT",
+        "PublicDescription": "Counts modified lines evicted out of L1 d-cache due to replacement of a modified line.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cachelines replaced into the L1 d-cache. Successful replacements only (not blocked) and exclude WB-miss case",
+        "EventCode": "0x51",
+        "EventName": "DCU.L1_REPLACEMENT",
+        "PublicDescription": "Counts cachelines replaced into the L1 d-cache.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of times a load is directly depending on another load that have just write back its data.",
+        "EventCode": "0x02",
+        "EventName": "DEPENDENT_LOADS.L0",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of times a load is depending on another load that had a write back of its data in the previous cycle. This event supports in-direct dependecy through a single uop.",
+        "EventCode": "0x02",
+        "EventName": "DEPENDENT_LOADS.L1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Count number of times a load is depending on another load that had a write back of its data 2 cycles back. This event supports in-direct dependecy through a single uop.",
+        "EventCode": "0x02",
+        "EventName": "DEPENDENT_LOADS.L2",
+        "PublicDescription": "Count number of times a load is depending on another load that had a write back of its data 2 cycles back. This event supports in-direct dependecy through uops.",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "EXE.MOCLEAR",
+        "EventCode": "0xb7",
+        "EventName": "EXE.MOCLEAR",
+        "SampleAfterValue": "2000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the total number of cycles that decoder queue can accept bytes but fetch is stalling for reasons including but not limited to iTLB and icache miss (eg. sidedoors to frontend: BTB update, glob update, isnoop, do_snoop)",
+        "EventCode": "0x86",
+        "EventName": "FETCH_STALL.ANY",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the fetch stalls due to an ITLB miss. This is a cummulative count of cycles stalled for all ITLB misses.",
+        "EventCode": "0x86",
+        "EventName": "FETCH_STALL.ITLB_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "HW_INTERRUPTS.MASKED",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.MASKED",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of core cycles during which interrupts are masked (disabled). Increments by 1 each core cycle that EFLAGS.IF is 0, regardless of whether interrupts are pending or not.",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.MASKED",
+        "SampleAfterValue": "200003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "HW_INTERRUPTS.PENDING_AND_MASKED",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.PENDING_AND_MASKED",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of core cycles during which there are pending interrupts but interrupts are masked (disabled).",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.PENDING_AND_MASKED",
+        "PublicDescription": "Counts the number of core cycles during which there are pending interrupts but interrupts are masked (disabled). Increments by 1 each core cycle that both EFLAGS.IF is 0 and an INTR is pending (which means the APIC is telling the ROB to cause an INTR). This event does not increment if EFLAGS.IF is 0 but all interrupt in the APICs Interrupt Request Register (IRR) are inhibited by the PPR (thus either by ISRV or TPR)  because in these cases the interrupts would be held up in the APIC and would not be pended to the ROB. This event does count when an interrupt is only inhibited by MOV/POP SS state machines or the STI state machine. These extra inhibits only last for a single instructions and would not be important.",
+        "SampleAfterValue": "200003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Number of hardware interrupts received by the processor.",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.RECEIVED",
+        "PublicDescription": "Counts the number of hardware interruptions received by the processor.",
+        "SampleAfterValue": "203",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of hardware interrupts received by the processor.",
+        "EventCode": "0xcb",
+        "EventName": "HW_INTERRUPTS.RECEIVED",
+        "SampleAfterValue": "203",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts number of cache lines that are dropped and not written back to L3 as they are deemed to be less likely to be reused shortly",
+        "EventCode": "0x2f",
+        "EventName": "IDI_MISC.WB_DOWNGRADE",
+        "PublicDescription": "Counts number of cache lines that are dropped and not written back to L3 as they are deemed to be less likely to be reused shortly.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "WBM2E or WBEF2E  transactions sent by the core to IDI",
+        "EventCode": "0x2f",
+        "EventName": "IDI_MISC.WB_TO_E",
+        "PublicDescription": "This event counts the raw number of  WBM2E or WBEF2E  transactions sent by the core to IDI.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts number of cache lines that are allocated and written back to L3 with the intention that they are more likely to be reused shortly",
+        "EventCode": "0x2f",
+        "EventName": "IDI_MISC.WB_UPGRADE",
+        "PublicDescription": "Counts number of cache lines that are allocated and written back to L3 with the intention that they are more likely to be reused shortly.",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "IDI_MISC.WRITEPULL_DROP",
+        "EventCode": "0x2f",
+        "EventName": "IDI_MISC.WRITEPULL_DROP",
+        "SampleAfterValue": "100003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of times a PT Overflow is detected",
+        "EventCode": "0x70",
+        "EventName": "INTEL_PT.OVERFLOW",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of",
+        "EventCode": "0x70",
+        "EventName": "INTEL_PT.PT_WRITE",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on secondary integer ports 0,1,2,3.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.2ND",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on all Integer ports.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.ALL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xff",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on a load port.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.LD",
+        "PublicDescription": "Counts the number of uops executed on a load port.  This event counts for integer uops even if the destination is FP/vector",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on integer port 0.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.P0",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on integer port 1.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.P1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on integer port 2.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.P2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on integer port 3.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.P3",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on a Store address port.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.STA",
+        "PublicDescription": "Counts the number of uops executed on a Store address port. This event counts integer uops even if the data source is FP/vector",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of uops executed on an integer store data and jump port.",
+        "EventCode": "0xb3",
+        "EventName": "INT_UOPS_EXECUTED.STD_JMP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "A Snoop external (to core) misses L1 Instruction Cache",
+        "EventCode": "0x8b",
+        "EventName": "L1I_SNOOP_RESPONSE.EXT_CLEAN",
+        "SampleAfterValue": "100003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "External Snoop to L1I (all 3 caches) which Hits",
+        "EventCode": "0x8b",
+        "EventName": "L1I_SNOOP_RESPONSE.EXT_HIT",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Internal Snoop to L1I (all 3 caches) which misses",
+        "EventCode": "0x8b",
+        "EventName": "L1I_SNOOP_RESPONSE.INT_CLEAN",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Internal Snoop to L1I (all 3 caches) which Hits",
+        "EventCode": "0x8b",
+        "EventName": "L1I_SNOOP_RESPONSE.INT_HIT",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "HW prefetch requests access the L1 cache. Account for all HW prefetches: DCU (Streamer, IPP, NPP and Homeless prefetchers), L1 prefetches (if any). Only DCU non-Homeless prefetches can promote.",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.HWPF_RD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "STA prefetch requests access the L1 cache",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.HWPF_WR",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "L0 d-cache writeback",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.L0_WB",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cacheable Demand loads access L1 cache including LWSI load. Rejects or recycle are not counted by all sub-events (rejects are filtered pre the L1 access).",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.LOAD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cacheable Demand loads hitting L1 cache including LWSI load. Rejects or recycle are not counted by all sub-events (rejects are filtered pre the L1 access).",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.LOAD_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x81",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cacheable Demand loads missing L1 cache including LWSI load. Rejects or recycle are not counted by all sub-events (rejects are filtered pre the L1 access).",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.LOAD_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cacheable Demand loads merging/squashing into ongoing FB during L0 lookup including LWSI load. Rejects or recycle are not counted by all sub-events (rejects are filtered pre the L1 access).",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.LOAD_PROMO",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x41",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Store requests access the L1 cache. Account for RFO (including that of LWSI flow) and streaming-stores/I2Ms requests.",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.STORE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Load SW prefetch requests access the L2 cache. Account for PREFETCHNTA PREFETCHT0/T1/T2 and PREFETCHW.",
+        "EventCode": "0x52",
+        "EventName": "L1_RQSTS.SWPF",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of LBR entries recorded. Requires LBRs to be enabled in IA32_LBR_CTL.",
+        "EventCode": "0xe4",
+        "EventName": "LBR_INSERTS.ANY",
+        "PEBS": "1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "This event counts number of load accessing L0 with linear tag hit and physical tag miss",
+        "EventCode": "0x4a",
+        "EventName": "LINEAR_DCU.FALSE_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "This event counts number of load accessing L0 with linear tag miss and physical tag hit",
+        "EventCode": "0x4a",
+        "EventName": "LINEAR_DCU.FALSE_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "This event counts number of load accessing L0 with linear tag hit and physical tag hit (in the same way) - true hit",
+        "EventCode": "0x4a",
+        "EventName": "LINEAR_DCU.TRUE_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "This event counts number of load accessing L0 with linear tag miss and physical tag miss",
+        "EventCode": "0x4a",
+        "EventName": "LINEAR_DCU.TRUE_MISS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "This event counts number of load accessing L0 with linear tag hit and physical tag hit in the wrong way",
+        "EventCode": "0x4a",
+        "EventName": "LINEAR_DCU.TRUE_WRONG_HIT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of LLC prefetches that were  throttled due to Dynamic Prefetch Throttling.  The throttle requestor/source could be from the uncore/SOC or the Dead Block Predictor. Counts on a per core basis.",
+        "EventCode": "0x29",
+        "EventName": "LLC_PREFETCHES_THROTTLED.DPT",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of LLC prefetches throttled due to Demand Throttle Prefetcher.  DTP Global Triggered with no Local Override. Counts on a per core basis.",
+        "EventCode": "0x29",
+        "EventName": "LLC_PREFETCHES_THROTTLED.DTP",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of LLC prefetches not throttled by DTP due to local override.  These prefetches may still be throttled due to another throttler mechanism. Counts on a per core basis.",
+        "EventCode": "0x29",
+        "EventName": "LLC_PREFETCHES_THROTTLED.DTP_OVERRIDE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of LLC prefetches throttled due to LLC hit rate in <insert knob name here>. Counts on a per core basis.",
+        "EventCode": "0x29",
+        "EventName": "LLC_PREFETCHES_THROTTLED.HIT_RATE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of LLC prefetches throttled due to exceeding the XQ threshold set by either XQ_THRESOLD_DTP or LLC_XQ_THRESHOLD. Counts on a per core basis.",
+        "EventCode": "0x29",
+        "EventName": "LLC_PREFETCHES_THROTTLED.XQ_THRESH",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be Zero, effectively no throttle.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL0",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 10 to 12.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL10_12",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x10",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 10 to 12, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL10_12_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x90",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 13-14.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL13_14",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x20",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 13-14, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL13_14_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xa0",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 15.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL15",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x40",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 15, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL15_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0xc0",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 1 to 3.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL1_3",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 1 to 3, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL1_3_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x82",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 4 to 6.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL4_6",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 4 to 6, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL4_6_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x84",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 7 to 9.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL7_9",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of cycles the Memory Bandwidth Enforcement is requested by IDI to be 7 to 9, throttled.",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE.LEVEL7_9_THROTTLED",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x88",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Filter bit to be used in combination with the other umasks in this event.  If ThrottleFilter == 0, then the subevent MBE_THROTTLE.LEVEL[x] will increment when MBE level requested is x.  If ThrottleFilter ==1, then MBE_THROTTLE.LEVEL[x] will increment only when MBE level is x AND the uarch throttle signal is being sent.  If all umasks are set including this filter bit, 0xFF, then the count should == PMEVT.MBA_THROT_REQ.  (MBE is aka Memory Bandwidth Allocation, MBA)",
+        "EventCode": "0x2c",
+        "EventName": "MBE_THROTTLE._THROTTLE_FILTER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x80",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts cycles where no execution is happening due to loads waiting for L1 cache (that is: no execution & load in flight & no load missed L1 cache)",
+        "EventCode": "0x46",
+        "EventName": "MEMORY_STALLS.L1",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cycles where no execution is happening due to loads waiting for L2 cache (that is: no execution & load in flight & load missed L1 & no load missed L2 cache)",
+        "EventCode": "0x46",
+        "EventName": "MEMORY_STALLS.L2",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cycles where no execution is happening due to loads waiting for L3 cache (that is: no execution & load in flight & load missed L1 & load missed L2 cache & no load missed L3 Cache)",
+        "EventCode": "0x46",
+        "EventName": "MEMORY_STALLS.L3",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cycles where no execution is happening due to loads waiting for Memory (that is: no execution & load in flight & a load missed L3 cache)",
+        "EventCode": "0x46",
+        "EventName": "MEMORY_STALLS.MEM",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "MICROCODE.MODEL_SPECIFIC",
+        "EventCode": "0xe0",
+        "EventName": "MICROCODE.MODEL_SPECIFIC",
+        "SampleAfterValue": "400009",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts writebacks of modified cachelines that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.COREWB_M.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10008",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts modified write backs from L1 and L2 Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.COREWB_M.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10008",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts writebacks of non-modified cachelines that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.COREWB_NONM.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x11000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand instruction fetches and L1 instruction cache prefetches that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_CODE_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts L1 cacheable demand instruction cache fetches and prefetches that allocate WCB/RB have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_CODE_RD.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000000000000004",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand data reads that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_DATA_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts cacheable demand data reads have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_DATA_RD.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000000000000001",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand read for ownership (RFO) requests and software prefetches for exclusive ownership (PREFETCHW) that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.DEMAND_RFO.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts demand reads for ownership, including SWPREFETCHW which is an RFO have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.DEMAND_RFO.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000000000000002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts full, 64 byte streaming stores (WCiLF) Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.FULL_STREAMING_WR.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x800000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to all cache levels that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x127F0",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all hardware prefetches that Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x107F0",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache prefetch requests and software prefetches (except PREFETCHW) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L1D.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache hardware prefetch requests Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L1D.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache prefetch requests and software prefetches (except PREFETCHW) that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L1D.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache hardware prefetch requests were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L1D.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000400",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to the L2 only that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all L2 cache hardware prefetches that Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to the L2 only that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all L2 cache hardware prefetches that were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000070",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch data reads (which bring data to L2)  that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_DATA_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) data reads Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_DATA_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch data reads (which bring data to L2)  that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_DATA_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) data reads were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_DATA_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000010",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch RFOs (which bring data to L2) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_RFO.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) RFOs Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_RFO.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetch RFOs (which bring data to L2) that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L2_RFO.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts prefetch (that bring data to MLC) RFOs were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L2_RFO.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184000020",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts hardware prefetches to the L3 only that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.HWPF_L3.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x12380",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all L3 cache hardware prefetches that Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.HWPF_L3.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10380",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "(IC) DO NOT USE (IC) Counts requests for exclusive ownership of a cacheline with no data transfer and atomically writes the cacheline back to the fabric, guaranteeing the entire line will be modified (ItoM, SpecItoM) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.ITOM.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10002",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "OCR.ITOM.ANY_RESPONSE - Counts requests for exclusive ownership of a cacheline with no data transfer and atomically writes the cacheline back to the fabric, guarantees that the entire line will be modified (ItoM, SpecItoM) Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.ITOM.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x8000000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts modified WriteBacks from L1 that miss the L2 Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.L1WB_M.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x1000000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts modified WriteBacks from L2 Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.L2WB_M.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x2000000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as I/O and uncacheable accesses that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.OTHER.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x18000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as Uncacheables, CLFlushes, I/O accesses Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.OTHER.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x18000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as I/O and uncacheable accesses that were supplied by a Non DRAM system address, such as MMIO.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.OTHER.NON_DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x203C008000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts miscellaneous requests, such as Uncacheables, CLFlushes, I/O accesses were supplied by a non-DRAM system address, such as MMIO.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.OTHER.NON_DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x203C008000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts partial (less than 64 byte) streaming stores (WCiL) Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.PARTIAL_STREAMING_WR.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x400000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x14477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x100000014477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, RFO and ITOM requests including demands and prefetches to the core caches (L1 or L2) that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.READS_TO_CORE.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184004477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x100184004477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts all data read, code read, and RFO requests including demands and prefetches (written to the L1 cache or L2 cache) that have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.READS_TO_CORE.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000100000004477",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts streaming stores that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.STREAMING_WR.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10800",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts streaming stores Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.STREAMING_WR.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x10800",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that have any type of response.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x14000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x14000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts software prefetches (except PREFETCHW) that were supplied by DRAM.",
+        "EventCode": "0x2A,0x2B",
+        "EventName": "OCR.SWPF_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184004000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x184004000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts L1 data cache software prefetch requests which include T0/T1/T2 and NTA have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.SWPF_RD.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000000000004000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts uncached memory reads (PRd, UCRdF) Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.UC_RD.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x100000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts uncached memory reads (PRd, UCRdF) were supplied by DRAM.",
+        "EventCode": "0xB7",
+        "EventName": "OCR.UC_RD.DRAM",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x100184000000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts uncached memory reads (PRd, UCRdF) have an outstanding request. Returns the number of cycles until the response is received (i.e. XQ to XQ latency).",
+        "EventCode": "0xB7",
+        "EventName": "OCR.UC_RD.OUTSTANDING",
+        "MSRIndex": "0x1a6",
+        "MSRValue": "0x8000100000000000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts uncached memory writes (WiL) Catch all value for any response types - this includes response types not define in the OCR.  If this is set all other response types will be ignored",
+        "EventCode": "0xB7",
+        "EventName": "OCR.UC_WR.ANY_RESPONSE",
+        "MSRIndex": "0x1a6,0x1a7",
+        "MSRValue": "0x200000010000",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of Current Privilege Level (CPL) transitions from ring 0 (Kernel)",
+        "EventCode": "0x3d",
+        "EventName": "RING_TRANS.CPL0",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of Current Privilege Level (CPL) transitions from ring 1,2,3",
+        "EventCode": "0x3d",
+        "EventName": "RING_TRANS.CPL123",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Cycles when Reservation Station (RS) is empty for the thread.",
+        "EventCode": "0xa5",
+        "EventName": "RS.EMPTY",
+        "PublicDescription": "Counts cycles during which the reservation station (RS) is empty for this logical processor. This is usually caused when the front-end pipeline runs into starvation periods (e.g. branch mispredictions or i-cache misses)",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x7",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RS.EMPTY_BAD_SPEC_ALL",
+        "EventCode": "0xa5",
+        "EventName": "RS.EMPTY_BAD_SPEC_ALL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts end of periods where the Reservation Station (RS) was empty.",
+        "CounterMask": "1",
+        "EdgeDetect": "1",
+        "EventCode": "0xa5",
+        "EventName": "RS.EMPTY_COUNT",
+        "Invert": "1",
+        "PublicDescription": "Counts end of periods where the Reservation Station (RS) was empty. Could be useful to closely sample on front-end latency issues (see the FRONTEND_RETIRED event of designated precise events)",
+        "SampleAfterValue": "100003",
+        "UMask": "0x7",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "RS.EMPTY_OTHER",
+        "EventCode": "0xa5",
+        "EventName": "RS.EMPTY_OTHER",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles when RS was empty and a resource allocation stall is asserted",
+        "EventCode": "0xa5",
+        "EventName": "RS.EMPTY_RESOURCE",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles the Vector Stack RS (Reservation Station) is full.",
+        "EventCode": "0xa5",
+        "EventName": "RS.VECRS_FULL",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of issue slots in a UMWAIT or TPAUSE instruction where no uop issues due to the instruction putting the CPU into the C0.1 activity state. For Tremont, UMWAIT and TPAUSE will only put the CPU into C0.1 activity state (not C0.2 activity state)",
+        "EventCode": "0x75",
+        "EventName": "SERIALIZATION.C01_MS_SCB",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number issue slots not consumed  due to a  color request for an FCW or MXCSR control register when all 4 colors (copies) are already in use",
+        "EventCode": "0x75",
+        "EventName": "SERIALIZATION.COLOR_STALLS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x8",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of issue slots where no uop could issue due to an IQ scoreboard that stalls allocation until a specified older uop retires or (in the case of jump scoreboard) executes. Commonly executed instructions with IQ scoreboards include LFENCE and MFENCE.",
+        "EventCode": "0x75",
+        "EventName": "SERIALIZATION.IQ_JEU_SCB",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts number of partial evictions of FB allocated for streaming stores(i.e. before FB is full)",
+        "EventCode": "0x50",
+        "EventName": "STREAMING_ACCESS.PARTIAL_STORE_EVICTIONS",
+        "SampleAfterValue": "100003",
+        "UMask": "0x8",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of load Software Prefetch requests that miss all on-chip caches. This account for all load sw prefetches, that is NTA, T0, T1, and T2. Each request is counted twice.",
+        "EventCode": "0x4b",
+        "EventName": "SW_PREFETCH_MISS.LOAD",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of PREFETCHW requests that miss all on-chip caches. Each request is counted twice.",
+        "EventCode": "0x4b",
+        "EventName": "SW_PREFETCH_MISS.PREFETCHW",
+        "SampleAfterValue": "100003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Number of software prefetch initiated page walks that were not successfully completed.",
+        "EventCode": "0x18",
+        "EventName": "TLB_MISC.SW_PREFETCH_FAULT",
+        "SampleAfterValue": "100003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles the uncore cannot take further requests",
+        "CounterMask": "1",
+        "EventCode": "0x2d",
+        "EventName": "XQ.FULL_PER_SLICE",
+        "PublicDescription": "number of cycles when the thread is active and the uncore cannot take any further requests (for example prefetches, loads or stores initiated by the Core that miss the L2 cache).",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "LLC page prefetch requests",
+        "EventCode": "0x2d",
+        "EventName": "XQ.L3_HWPF_PAGE",
+        "PublicDescription": "Number of LLC page prefetch requests sent to uncore. Counts at cache-line granularity",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Cycles with at XQ occupancy over threshold threshold set with TAP_CR_ EEC_EVENTS.THRESHOLD CR (default threshold 19).",
+        "CounterMask": "1",
+        "EventCode": "0x2d",
+        "EventName": "XQ.OCCUPANCY_OVER_THRESHOLD",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_atom"
+    },
+    {
+        "BriefDescription": "Counts the number of prefetch requests that were promoted in the XQ to a demand request.",
+        "EventCode": "0xf4",
+        "EventName": "XQ_PROMOTION.ALL",
+        "SampleAfterValue": "1000003",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of prefetch requests that were promoted in the XQ to a demand code read.",
+        "EventCode": "0xf4",
+        "EventName": "XQ_PROMOTION.CRDS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x4",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of prefetch requests that were promoted in the XQ to a demand read.",
+        "EventCode": "0xf4",
+        "EventName": "XQ_PROMOTION.DRDS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x1",
+        "Unit": "cpu_core"
+    },
+    {
+        "BriefDescription": "Counts the number of prefetch requests that were promoted in the XQ to a demand RFO.",
+        "EventCode": "0xf4",
+        "EventName": "XQ_PROMOTION.RFOS",
+        "SampleAfterValue": "1000003",
+        "UMask": "0x2",
+        "Unit": "cpu_core"
+    }
+]

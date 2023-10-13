@@ -743,7 +743,7 @@ register_user_hw_breakpoint(struct perf_event_attr *attr,
 			    void *context,
 			    struct task_struct *tsk)
 {
-	return perf_event_create_kernel_counter(attr, -1, tsk, triggered,
+	return perf_event_create_kernel_counter(attr, -1, tsk, NULL, triggered,
 						context);
 }
 EXPORT_SYMBOL_GPL(register_user_hw_breakpoint);
@@ -853,7 +853,7 @@ register_wide_hw_breakpoint(struct perf_event_attr *attr,
 
 	cpus_read_lock();
 	for_each_online_cpu(cpu) {
-		bp = perf_event_create_kernel_counter(attr, cpu, NULL,
+		bp = perf_event_create_kernel_counter(attr, cpu, NULL, NULL,
 						      triggered, context);
 		if (IS_ERR(bp)) {
 			err = PTR_ERR(bp);

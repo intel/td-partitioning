@@ -150,6 +150,33 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 			return -EINVAL;
 	}
 
+	best = cpuid_entry2_find(entries, nent, 0xa,
+				 KVM_CPUID_INDEX_NOT_SIGNIFICANT);
+	if (best && vcpu->kvm->arch.enable_pmu) {
+		union cpuid10_eax eax;
+		union cpuid10_edx   edx;
+
+		eax.full = best->eax;
+		edx.full = best->edx;
+
+		if (eax.split.version_id > 1 &&
+		    eax.split.version_id < 5 &&
+		    best->ecx != 0) {
+			return -EINVAL;
+		} else if (eax.split.version_id >= 5) {
+			int fixed_count = edx.split.first_continuous_fixed_counters_num;
+
+			if (fixed_count == 0 && (best->ecx & 0x1)) {
+				return -EINVAL;
+			} else if (fixed_count > 0) {
+				int low_fixed_mask = (1 << fixed_count) - 1;
+
+				if ((best->ecx & low_fixed_mask) != low_fixed_mask)
+					return -EINVAL;
+			}
+		}
+	}
+
 	/*
 	 * Exposing dynamic xfeatures to the guest requires additional
 	 * enabling in the FPU, e.g. to expand the guest XSAVE state size.
@@ -677,7 +704,7 @@ void kvm_set_cpu_caps(void)
 	kvm_cpu_cap_mask(CPUID_7_1_EAX,
 		F(AVX_VNNI) | F(AVX512_BF16) | F(CMPCCXADD) |
 		F(FZRM) | F(FSRS) | F(FSRC) |
-		F(AMX_FP16) | F(AVX_IFMA)
+		F(AMX_FP16) | F(AVX_IFMA) | F(ARCH_PERFMON_EXT)
 	);
 
 	kvm_cpu_cap_init_kvm_defined(CPUID_7_1_EDX,
@@ -919,7 +946,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 	switch (function) {
 	case 0:
 		/* Limited to the highest leaf implemented in KVM. */
-		entry->eax = min(entry->eax, 0x1fU);
+		entry->eax = min(entry->eax, 0x23U);
 		break;
 	case 1:
 		cpuid_entry_override(entry, CPUID_1_EDX);
@@ -984,6 +1011,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 	case 0xa: { /* Architectural Performance Monitoring */
 		union cpuid10_eax eax;
 		union cpuid10_edx edx;
+		u64 bitmap;
 
 		if (!enable_pmu || !static_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
 			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
@@ -991,10 +1019,13 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		}
 
 		eax.split.version_id = kvm_pmu_cap.version;
-		eax.split.num_counters = kvm_pmu_cap.num_counters_gp;
+		bitmap = x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+		eax.split.num_counters = hweight64(bitmap);
 		eax.split.bit_width = kvm_pmu_cap.bit_width_gp;
 		eax.split.mask_length = kvm_pmu_cap.events_mask_len;
-		edx.split.num_counters_fixed = kvm_pmu_cap.num_counters_fixed;
+		bitmap = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+		edx.split.first_continuous_fixed_counters_num =
+			find_first_zero_bit((unsigned long *)&bitmap, X86_PMC_IDX_MAX);
 		edx.split.bit_width_fixed = kvm_pmu_cap.bit_width_fixed;
 
 		if (kvm_pmu_cap.version)
@@ -1004,7 +1035,11 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 
 		entry->eax = eax.full;
 		entry->ebx = kvm_pmu_cap.events_mask;
-		entry->ecx = 0;
+		if (kvm_pmu_cap.version < 5)
+			entry->ecx = 0;
+		else
+			entry->ecx = x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl) &
+				     (BIT(edx.split.first_continuous_fixed_counters_num) - 1);
 		entry->edx = edx.full;
 		break;
 	}
@@ -1134,6 +1169,61 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 			break;
 		}
 		break;
+	/* Intel archPerfmon extended leaf */
+	case 0x23: {
+		u32 subleaves;
+
+		if (!enable_pmu || !static_cpu_has(X86_FEATURE_ARCH_PERFMON_EXT)) {
+			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+			break;
+		}
+
+		subleaves = entry->eax;
+
+		/* subleaf 0 */
+		entry->eax &= BIT(0) |
+			      ARCH_PERFMON_CNT_BITMAP_LEAF_BIT |
+			      ARCH_PERFMON_AUTO_RELOAD_LEAF_BIT |
+			      ARCH_PERFMON_EVENTS_MAP_LEAF_BIT;
+		entry->ebx = 0;
+		if (kvm_pmu_cap.umask2)
+			entry->ebx |= ARCH_PERFMON_BIT_UMASK2;
+		if (kvm_pmu_cap.eq)
+			entry->ebx |= ARCH_PERFMON_BIT_EQ;
+		entry->ecx = 0;
+		entry->edx = 0;
+
+		/* subleaf 1 */
+		if (subleaves & ARCH_PERFMON_CNT_BITMAP_LEAF_BIT) {
+			entry = do_host_cpuid(array, function, 1);
+			if (!entry)
+				goto out;
+			entry->eax = (u32)x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+			entry->ebx = (u32)x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+			entry->ecx = 0;
+			entry->edx = 0;
+		}
+
+		/* subleaf 2 */
+		if (subleaves & ARCH_PERFMON_AUTO_RELOAD_LEAF_BIT) {
+			entry = do_host_cpuid(array, function, 2);
+			if (!entry)
+				goto out;
+			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+		}
+
+		/* subleaf 3 */
+		if (subleaves & ARCH_PERFMON_EVENTS_MAP_LEAF_BIT) {
+			entry = do_host_cpuid(array, function, 3);
+			if (!entry)
+				goto out;
+			entry->eax = (u32)kvm_pmu_cap.events_ext_mask;
+			entry->ebx = 0;
+			entry->ecx = 0;
+			entry->edx = 0;
+		}
+		break;
+	}
 	case KVM_CPUID_SIGNATURE: {
 		const u32 *sigptr = (const u32 *)KVM_SIGNATURE;
 		entry->eax = KVM_CPUID_FEATURES;
@@ -1276,6 +1366,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 	/* AMD Extended Performance Monitoring and Debug */
 	case 0x80000022: {
 		union cpuid_0x80000022_ebx ebx;
+		u64 bitmap = x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
 
 		entry->ecx = entry->edx = 0;
 		if (!enable_pmu || !kvm_cpu_cap_has(X86_FEATURE_PERFMON_V2)) {
@@ -1286,7 +1377,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		cpuid_entry_override(entry, CPUID_8000_0022_EAX);
 
 		if (kvm_cpu_cap_has(X86_FEATURE_PERFMON_V2))
-			ebx.split.num_core_pmc = kvm_pmu_cap.num_counters_gp;
+			ebx.split.num_core_pmc = hweight64(bitmap);
 		else if (kvm_cpu_cap_has(X86_FEATURE_PERFCTR_CORE))
 			ebx.split.num_core_pmc = AMD64_NUM_COUNTERS_CORE;
 		else

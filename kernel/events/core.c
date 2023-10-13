@@ -5776,6 +5776,68 @@ int perf_event_period(struct perf_event *event, u64 value)
 }
 EXPORT_SYMBOL_GPL(perf_event_period);
 
+static void __perf_event_topdown_metrics(struct perf_event *event,
+					 struct perf_cpu_context *cpuctx,
+					 struct perf_event_context *ctx,
+					 void *info)
+{
+	struct td_metrics *td_metrics = (struct td_metrics *)info;
+	bool active;
+
+	active = (event->state == PERF_EVENT_STATE_ACTIVE);
+	if (active) {
+		perf_pmu_disable(event->pmu);
+		/*
+		 * We could be throttled; unthrottle now to avoid the tick
+		 * trying to unthrottle while we already re-started the event.
+		 */
+		if (event->hw.interrupts == MAX_INTERRUPTS) {
+			event->hw.interrupts = 0;
+			perf_log_throttle(event, 1);
+		}
+		event->pmu->stop(event, PERF_EF_UPDATE);
+	}
+
+	event->hw.saved_slots = td_metrics->slots;
+	event->hw.saved_metric = td_metrics->metric;
+
+	if (active) {
+		event->pmu->start(event, PERF_EF_RELOAD);
+		perf_pmu_enable(event->pmu);
+	}
+}
+
+static int _perf_event_topdown_metrics(struct perf_event *event,
+				       struct td_metrics *value)
+{
+	/*
+	 * Slots event in topdown metrics scenario
+	 * must be non-sampling event.
+	 */
+	if (is_sampling_event(event))
+		return -EINVAL;
+
+	if (!value)
+		return -EINVAL;
+
+	event_function_call(event, __perf_event_topdown_metrics, value);
+
+	return 0;
+}
+
+int perf_event_topdown_metrics(struct perf_event *event, struct td_metrics *value)
+{
+	struct perf_event_context *ctx;
+	int ret;
+
+	ctx = perf_event_ctx_lock(event);
+	ret = _perf_event_topdown_metrics(event, value);
+	perf_event_ctx_unlock(event, ctx);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(perf_event_topdown_metrics);
+
 static const struct file_operations perf_fops;
 
 static inline int perf_fget_light(int fd, struct fd *p)
@@ -7324,6 +7386,11 @@ void perf_output_sample(struct perf_output_handle *handle,
 			if (branch_sample_hw_index(event))
 				perf_output_put(handle, data->br_stack->hw_idx);
 			perf_output_copy(handle, data->br_stack->entries, size);
+			if (data->br_stack_ext) {
+				size = data->br_stack_ext->nr * sizeof(u64);
+				perf_output_put(handle, data->br_stack_ext->nr);
+				perf_output_copy(handle, data->br_stack_ext->data, size);
+			}
 		} else {
 			/*
 			 * we always store at least the value of nr
@@ -12318,6 +12385,123 @@ perf_check_permission(struct perf_event_attr *attr, struct task_struct *task)
 	return is_capable || ptrace_may_access(task, ptrace_mode);
 }
 
+static int perf_event_group_leader_check(struct perf_event *group_leader,
+					 struct perf_event *event,
+					 struct perf_event_attr *attr,
+					 struct perf_event_context *ctx,
+					 struct pmu **pmu,
+					 int *move_group)
+{
+	if (!group_leader)
+		return 0;
+
+	/*
+	 * Do not allow a recursive hierarchy (this new sibling
+	 * becoming part of another group-sibling):
+	 */
+	if (group_leader->group_leader != group_leader)
+		return -EINVAL;
+
+	/* All events in a group should have the same clock */
+	if (group_leader->clock != event->clock)
+		return -EINVAL;
+
+	/*
+	 * Make sure we're both events for the same CPU;
+	 * grouping events for different CPUs is broken; since
+	 * you can never concurrently schedule them anyhow.
+	 */
+	if (group_leader->cpu != event->cpu)
+		return -EINVAL;
+
+	/*
+	 * Make sure we're both on the same context; either task or cpu.
+	 */
+	if (group_leader->ctx != ctx)
+		return -EINVAL;
+
+	/*
+	 * Only a group leader can be exclusive or pinned
+	 */
+	if (attr->exclusive || attr->pinned)
+		return -EINVAL;
+
+	if (is_software_event(event) &&
+	    !in_software_context(group_leader)) {
+		/*
+		 * If the event is a sw event, but the group_leader
+		 * is on hw context.
+		 *
+		 * Allow the addition of software events to hw
+		 * groups, this is safe because software events
+		 * never fail to schedule.
+		 *
+		 * Note the comment that goes with struct
+		 * perf_event_pmu_context.
+		 */
+		*pmu = group_leader->pmu_ctx->pmu;
+	} else if (!is_software_event(event)) {
+		if (is_software_event(group_leader) &&
+		    (group_leader->group_caps & PERF_EV_CAP_SOFTWARE)) {
+			/*
+			 * In case the group is a pure software group, and we
+			 * try to add a hardware event, move the whole group to
+			 * the hardware context.
+			 */
+			*move_group = 1;
+		}
+
+		/* Don't allow group of multiple hw events from different pmus */
+		if (!in_software_context(group_leader) &&
+		    group_leader->pmu_ctx->pmu != *pmu)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+static void perf_event_move_group(struct perf_event *group_leader,
+				  struct perf_event_pmu_context *pmu_ctx,
+				  struct perf_event_context *ctx)
+{
+	struct perf_event *sibling;
+
+	perf_remove_from_context(group_leader, 0);
+	put_pmu_ctx(group_leader->pmu_ctx);
+
+	for_each_sibling_event(sibling, group_leader) {
+		perf_remove_from_context(sibling, 0);
+		put_pmu_ctx(sibling->pmu_ctx);
+	}
+
+	/*
+	 * Install the group siblings before the group leader.
+	 *
+	 * Because a group leader will try and install the entire group
+	 * (through the sibling list, which is still in-tact), we can
+	 * end up with siblings installed in the wrong context.
+	 *
+	 * By installing siblings first we NO-OP because they're not
+	 * reachable through the group lists.
+	 */
+	for_each_sibling_event(sibling, group_leader) {
+		sibling->pmu_ctx = pmu_ctx;
+		get_pmu_ctx(pmu_ctx);
+		perf_event__state_init(sibling);
+		perf_install_in_context(ctx, sibling, sibling->cpu);
+	}
+
+	/*
+	 * Removing from the context ends up with disabled
+	 * event. What we want here is event in the initial
+	 * startup state, ready to be add into new context.
+	 */
+	group_leader->pmu_ctx = pmu_ctx;
+	get_pmu_ctx(pmu_ctx);
+	perf_event__state_init(group_leader);
+	perf_install_in_context(ctx, group_leader, group_leader->cpu);
+}
+
 /**
  * sys_perf_event_open - open a performance event, associate it to a task/cpu
  *
@@ -12333,7 +12517,7 @@ SYSCALL_DEFINE5(perf_event_open,
 {
 	struct perf_event *group_leader = NULL, *output_event = NULL;
 	struct perf_event_pmu_context *pmu_ctx;
-	struct perf_event *event, *sibling;
+	struct perf_event *event;
 	struct perf_event_attr attr;
 	struct perf_event_context *ctx;
 	struct file *event_file = NULL;
@@ -12512,71 +12696,9 @@ SYSCALL_DEFINE5(perf_event_open,
 		}
 	}
 
-	if (group_leader) {
-		err = -EINVAL;
-
-		/*
-		 * Do not allow a recursive hierarchy (this new sibling
-		 * becoming part of another group-sibling):
-		 */
-		if (group_leader->group_leader != group_leader)
-			goto err_locked;
-
-		/* All events in a group should have the same clock */
-		if (group_leader->clock != event->clock)
-			goto err_locked;
-
-		/*
-		 * Make sure we're both events for the same CPU;
-		 * grouping events for different CPUs is broken; since
-		 * you can never concurrently schedule them anyhow.
-		 */
-		if (group_leader->cpu != event->cpu)
-			goto err_locked;
-
-		/*
-		 * Make sure we're both on the same context; either task or cpu.
-		 */
-		if (group_leader->ctx != ctx)
-			goto err_locked;
-
-		/*
-		 * Only a group leader can be exclusive or pinned
-		 */
-		if (attr.exclusive || attr.pinned)
-			goto err_locked;
-
-		if (is_software_event(event) &&
-		    !in_software_context(group_leader)) {
-			/*
-			 * If the event is a sw event, but the group_leader
-			 * is on hw context.
-			 *
-			 * Allow the addition of software events to hw
-			 * groups, this is safe because software events
-			 * never fail to schedule.
-			 *
-			 * Note the comment that goes with struct
-			 * perf_event_pmu_context.
-			 */
-			pmu = group_leader->pmu_ctx->pmu;
-		} else if (!is_software_event(event)) {
-			if (is_software_event(group_leader) &&
-			    (group_leader->group_caps & PERF_EV_CAP_SOFTWARE)) {
-				/*
-				 * In case the group is a pure software group, and we
-				 * try to add a hardware event, move the whole group to
-				 * the hardware context.
-				 */
-				move_group = 1;
-			}
-
-			/* Don't allow group of multiple hw events from different pmus */
-			if (!in_software_context(group_leader) &&
-			    group_leader->pmu_ctx->pmu != pmu)
-				goto err_locked;
-		}
-	}
+	err = perf_event_group_leader_check(group_leader, event, &attr, ctx, &pmu, &move_group);
+	if (err)
+		goto err_locked;
 
 	/*
 	 * Now that we're certain of the pmu; find the pmu_ctx.
@@ -12627,42 +12749,8 @@ SYSCALL_DEFINE5(perf_event_open,
 	 * where we start modifying current state.
 	 */
 
-	if (move_group) {
-		perf_remove_from_context(group_leader, 0);
-		put_pmu_ctx(group_leader->pmu_ctx);
-
-		for_each_sibling_event(sibling, group_leader) {
-			perf_remove_from_context(sibling, 0);
-			put_pmu_ctx(sibling->pmu_ctx);
-		}
-
-		/*
-		 * Install the group siblings before the group leader.
-		 *
-		 * Because a group leader will try and install the entire group
-		 * (through the sibling list, which is still in-tact), we can
-		 * end up with siblings installed in the wrong context.
-		 *
-		 * By installing siblings first we NO-OP because they're not
-		 * reachable through the group lists.
-		 */
-		for_each_sibling_event(sibling, group_leader) {
-			sibling->pmu_ctx = pmu_ctx;
-			get_pmu_ctx(pmu_ctx);
-			perf_event__state_init(sibling);
-			perf_install_in_context(ctx, sibling, sibling->cpu);
-		}
-
-		/*
-		 * Removing from the context ends up with disabled
-		 * event. What we want here is event in the initial
-		 * startup state, ready to be add into new context.
-		 */
-		group_leader->pmu_ctx = pmu_ctx;
-		get_pmu_ctx(pmu_ctx);
-		perf_event__state_init(group_leader);
-		perf_install_in_context(ctx, group_leader, group_leader->cpu);
-	}
+	if (move_group)
+		perf_event_move_group(group_leader, pmu_ctx, ctx);
 
 	/*
 	 * Precalculate sample_data sizes; do while holding ctx::mutex such
@@ -12727,12 +12815,14 @@ err_fd:
  * @attr: attributes of the counter to create
  * @cpu: cpu in which the counter is bound
  * @task: task to profile (NULL for percpu)
+ * @group_leader: the group leader event of the created event
  * @overflow_handler: callback to trigger when we hit the event
  * @context: context data could be used in overflow_handler callback
  */
 struct perf_event *
 perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 				 struct task_struct *task,
+				 struct perf_event *group_leader,
 				 perf_overflow_handler_t overflow_handler,
 				 void *context)
 {
@@ -12740,6 +12830,7 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 	struct perf_event_context *ctx;
 	struct perf_event *event;
 	struct pmu *pmu;
+	int move_group = 0;
 	int err;
 
 	/*
@@ -12749,7 +12840,11 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 	if (attr->aux_output)
 		return ERR_PTR(-EINVAL);
 
-	event = perf_event_alloc(attr, cpu, task, NULL, NULL,
+	if (task && group_leader &&
+	    group_leader->attr.inherit != attr->inherit)
+		return ERR_PTR(-EINVAL);
+
+	event = perf_event_alloc(attr, cpu, task, group_leader, NULL,
 				 overflow_handler, context, -1);
 	if (IS_ERR(event)) {
 		err = PTR_ERR(event);
@@ -12779,6 +12874,11 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 		goto err_unlock;
 	}
 
+	err = perf_event_group_leader_check(group_leader, event, attr, ctx,
+					    &pmu, &move_group);
+	if (err)
+		goto err_unlock;
+
 	pmu_ctx = find_get_pmu_context(pmu, ctx, event);
 	if (IS_ERR(pmu_ctx)) {
 		err = PTR_ERR(pmu_ctx);
@@ -12805,6 +12905,9 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 		err = -EBUSY;
 		goto err_pmu_ctx;
 	}
+
+	if (move_group)
+		perf_event_move_group(group_leader, pmu_ctx, ctx);
 
 	perf_install_in_context(ctx, event, event->cpu);
 	perf_unpin_context(ctx);

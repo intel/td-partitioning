@@ -5083,6 +5083,8 @@ static __init void svm_adjust_mmio_mask(void)
 
 static __init void svm_set_cpu_caps(void)
 {
+	int gp_cnt_num;
+
 	kvm_set_cpu_caps();
 
 	kvm_caps.supported_perf_cap = 0;
@@ -5134,9 +5136,9 @@ static __init void svm_set_cpu_caps(void)
 		 * access to enough counters to virtualize "core" support,
 		 * otherwise limit vPMU support to the legacy number of counters.
 		 */
-		if (kvm_pmu_cap.num_counters_gp < AMD64_NUM_COUNTERS_CORE)
-			kvm_pmu_cap.num_counters_gp = min(AMD64_NUM_COUNTERS,
-							  kvm_pmu_cap.num_counters_gp);
+		gp_cnt_num = hweight64(x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl));
+		if (gp_cnt_num < AMD64_NUM_COUNTERS_CORE)
+			kvm_pmu_cap.valid_pmc_bitmapl &= (BIT_ULL(AMD64_NUM_COUNTERS) - 1);
 		else
 			kvm_cpu_cap_check_and_set(X86_FEATURE_PERFCTR_CORE);
 

@@ -1475,6 +1475,10 @@ static struct pci_dev *tgl_uncore_get_mc_dev(void)
 		ids++;
 	}
 
+	/* Just try to grab 00:00.0 device */
+	if (!mc_dev)
+		mc_dev = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(0, 0));
+
 	return mc_dev;
 }
 
@@ -1703,3 +1707,13 @@ void adl_uncore_mmio_init(void)
 }
 
 /* end of Alder Lake MMIO uncore support */
+
+static struct intel_uncore_type *lnl_mmio_uncores[] = {
+	&adl_uncore_imc_free_running, /* same as ADL */
+	NULL
+};
+
+void lnl_uncore_mmio_init(void)
+{
+	uncore_mmio_uncores = lnl_mmio_uncores;
+}

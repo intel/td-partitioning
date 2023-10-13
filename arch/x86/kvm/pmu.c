@@ -101,7 +101,7 @@ static void kvm_pmi_trigger_fn(struct irq_work *irq_work)
 	kvm_pmu_deliver_pmi(vcpu);
 }
 
-static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
+static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi, bool metrics_of)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
 	bool skip_pmi = false;
@@ -121,7 +121,11 @@ static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
 						      (unsigned long *)&pmu->global_status);
 		}
 	} else {
-		__set_bit(pmc->idx, (unsigned long *)&pmu->global_status);
+		if (metrics_of)
+			__set_bit(GLOBAL_STATUS_PERF_METRICS_OVF_BIT,
+				  (unsigned long *)&pmu->global_status);
+		else
+			__set_bit(pmc->idx, (unsigned long *)&pmu->global_status);
 	}
 
 	if (!pmc->intr || skip_pmi)
@@ -141,11 +145,18 @@ static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
 		kvm_make_request(KVM_REQ_PMI, pmc->vcpu);
 }
 
+static inline bool is_vmetrics_event(struct perf_event *event)
+{
+	return (event->attr.config & INTEL_ARCH_EVENT_MASK) ==
+			INTEL_FIXED_VMETRICS_EVENT;
+}
+
 static void kvm_perf_overflow(struct perf_event *perf_event,
 			      struct perf_sample_data *data,
 			      struct pt_regs *regs)
 {
 	struct kvm_pmc *pmc = perf_event->overflow_handler_context;
+	bool metrics_of = is_vmetrics_event(perf_event);
 
 	/*
 	 * Ignore overflow events for counters that are scheduled to be
@@ -155,7 +166,7 @@ static void kvm_perf_overflow(struct perf_event *perf_event,
 	if (test_and_set_bit(pmc->idx, pmc_to_pmu(pmc)->reprogram_pmi))
 		return;
 
-	__kvm_perf_overflow(pmc, true);
+	__kvm_perf_overflow(pmc, true, metrics_of);
 
 	kvm_make_request(KVM_REQ_PMU, pmc->vcpu);
 }
@@ -182,12 +193,36 @@ static u64 pmc_get_pebs_precise_level(struct kvm_pmc *pmc)
 	return 1;
 }
 
+static void pmc_setup_td_metrics_events_attr(struct kvm_pmc *pmc,
+					     struct perf_event_attr *attr,
+					     unsigned int event_idx)
+{
+	if (!pmc_is_topdown_metrics_used(pmc))
+		return;
+
+	/*
+	 * setup slots event attribute, when slots event is
+	 * created for guest topdown metrics profiling, the
+	 * sample period must be 0.
+	 */
+	if (event_idx == KVM_TD_SLOTS)
+		attr->sample_period = 0;
+
+	/* setup vmetrics event attribute */
+	if (event_idx == KVM_TD_METRICS) {
+		attr->config = INTEL_FIXED_VMETRICS_EVENT;
+		attr->sample_period = 0;
+		/* Only group leader event can be pinned. */
+		attr->pinned = false;
+	}
+}
+
 static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 				 bool exclude_user, bool exclude_kernel,
 				 bool intr)
 {
 	struct kvm_pmu *pmu = pmc_to_pmu(pmc);
-	struct perf_event *event;
+	struct perf_event *event, *group_leader;
 	struct perf_event_attr attr = {
 		.type = type,
 		.size = sizeof(attr),
@@ -199,6 +234,7 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 		.config = config,
 	};
 	bool pebs = test_bit(pmc->idx, (unsigned long *)&pmu->pebs_enable);
+	unsigned int i, j;
 
 	attr.sample_period = get_sample_period(pmc, pmc->counter);
 
@@ -221,36 +257,89 @@ static int pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type, u64 config,
 		attr.precise_ip = pmc_get_pebs_precise_level(pmc);
 	}
 
-	event = perf_event_create_kernel_counter(&attr, -1, current,
-						 kvm_perf_overflow, pmc);
-	if (IS_ERR(event)) {
-		pr_debug_ratelimited("kvm_pmu: event creation failed %ld for pmc->idx = %d\n",
-			    PTR_ERR(event), pmc->idx);
-		return PTR_ERR(event);
+	/*
+	 * To create grouped events, the first created perf_event doesn't
+	 * know it will be the group_leader and may move to an unexpected
+	 * enabling path, thus delay all enablement until after creation,
+	 * not affecting non-grouped events to save one perf interface call.
+	 */
+	if (pmc->max_nr_events > 1)
+		attr.disabled = 1;
+
+	for (i = 0; i < pmc->max_nr_events; i++) {
+		group_leader = i ? pmc->perf_event : NULL;
+		pmc_setup_td_metrics_events_attr(pmc, &attr, i);
+
+		event = perf_event_create_kernel_counter(&attr, -1,
+							 current, group_leader,
+							 kvm_perf_overflow, pmc);
+		if (IS_ERR(event)) {
+			pr_err_ratelimited("kvm_pmu: event %u of pmc %u creation failed %ld\n",
+					   i, pmc->idx, PTR_ERR(event));
+
+			for (j = 0; j < i; j++) {
+				perf_event_release_kernel(pmc->perf_events[j]);
+				pmc->perf_events[j] = NULL;
+				pmc_to_pmu(pmc)->event_count--;
+			}
+
+			return PTR_ERR(event);
+		}
+
+		pmc->perf_events[i] = event;
+		pmc_to_pmu(pmc)->event_count++;
 	}
 
-	pmc->perf_event = event;
-	pmc_to_pmu(pmc)->event_count++;
 	pmc->is_paused = false;
 	pmc->intr = intr || pebs;
+
+	if (pmc_is_topdown_metrics_active(pmc)) {
+		pmc_update_topdown_metrics(pmc);
+		/* KVM need to inject PMI for PERF_METRICS overflow. */
+		pmc->intr = true;
+	}
+
+	if (!attr.disabled)
+		return 0;
+
+	for (i = 0; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
+		perf_event_enable(pmc->perf_events[i]);
+
 	return 0;
 }
 
 static void pmc_pause_counter(struct kvm_pmc *pmc)
 {
 	u64 counter = pmc->counter;
+	unsigned int i;
+	u64 data;
 
 	if (!pmc->perf_event || pmc->is_paused)
 		return;
 
-	/* update counter, reset event value to avoid redundant accumulation */
+	/*
+	 * Update counter, reset event value to avoid redundant
+	 * accumulation. Disable group leader event firstly and
+	 * then disable non-group leader events.
+	 */
 	counter += perf_event_pause(pmc->perf_event, true);
+	for (i = 1; pmc->perf_events[i] && i < pmc->max_nr_events; i++) {
+		data = perf_event_pause(pmc->perf_events[i], true);
+		/*
+		 * The count of vmetrics event actually stores raw data of
+		 * PERF_METRICS, save it to extra_config.
+		 */
+		if (pmc->idx == INTEL_PMC_IDX_FIXED_SLOTS && i == KVM_TD_METRICS)
+			pmc->extra_config = data;
+	}
 	pmc->counter = counter & pmc_bitmask(pmc);
 	pmc->is_paused = true;
 }
 
 static bool pmc_resume_counter(struct kvm_pmc *pmc)
 {
+	unsigned int i;
+
 	if (!pmc->perf_event)
 		return false;
 
@@ -264,8 +353,8 @@ static bool pmc_resume_counter(struct kvm_pmc *pmc)
 	    (!!pmc->perf_event->attr.precise_ip))
 		return false;
 
-	/* reuse perf_event to serve as pmc_reprogram_counter() does*/
-	perf_event_enable(pmc->perf_event);
+	for (i = 0; pmc->perf_events[i] && i < pmc->max_nr_events; i++)
+		perf_event_enable(pmc->perf_events[i]);
 	pmc->is_paused = false;
 
 	return true;
@@ -412,7 +501,7 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 		goto reprogram_complete;
 
 	if (pmc->counter < pmc->prev_counter)
-		__kvm_perf_overflow(pmc, false);
+		__kvm_perf_overflow(pmc, false, false);
 
 	if (eventsel & ARCH_PERFMON_EVENTSEL_PIN_CONTROL)
 		printk_once("kvm pmu: pin control bit is ignored\n");
@@ -432,7 +521,7 @@ static void reprogram_counter(struct kvm_pmc *pmc)
 	if (pmc->current_config == new_config && pmc_resume_counter(pmc))
 		goto reprogram_complete;
 
-	pmc_release_perf_event(pmc);
+	pmc_release_perf_event(pmc, false);
 
 	pmc->current_config = new_config;
 
@@ -519,6 +608,21 @@ static int kvm_pmu_rdpmc_vmware(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 	return 0;
 }
 
+static inline int kvm_pmu_read_perf_metrics(struct kvm_vcpu *vcpu,
+					    unsigned int idx, u64 *data)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc = get_fixed_pmc_from_idx(pmu, 3);
+
+	if (!pmc) {
+		*data = 0;
+		return 1;
+	}
+
+	*data = pmc->extra_config;
+	return 0;
+}
+
 int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 {
 	bool fast_mode = idx & (1u << 31);
@@ -531,6 +635,9 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 
 	if (is_vmware_backdoor_pmc(idx))
 		return kvm_pmu_rdpmc_vmware(vcpu, idx, data);
+
+	if (idx & INTEL_PMC_FIXED_RDPMC_METRICS)
+		return kvm_pmu_read_perf_metrics(vcpu, idx, data);
 
 	pmc = static_call(kvm_x86_pmu_rdpmc_ecx_to_pmc)(vcpu, idx, &mask);
 	if (!pmc)
@@ -640,14 +747,6 @@ int kvm_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			reprogram_counters(pmu, diff);
 		}
 		break;
-	case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
-		/*
-		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
-		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
-		 */
-		if (data & pmu->global_status_mask)
-			return 1;
-		fallthrough;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR:
 		if (!msr_info->host_initiated)
 			pmu->global_status &= ~data;

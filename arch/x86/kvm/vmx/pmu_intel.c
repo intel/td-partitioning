@@ -34,6 +34,11 @@ enum intel_pmu_architectural_events {
 	INTEL_ARCH_LLC_MISSES,
 	INTEL_ARCH_BRANCHES_RETIRED,
 	INTEL_ARCH_BRANCHES_MISPREDICTED,
+	INTEL_ARCH_TOPDOWN_SLOTS,
+	INTEL_ARCH_TOPDOWN_BE_BOUND,
+	INTEL_ARCH_TOPDOWN_BAD_SPEC,
+	INTEL_ARCH_TOPDOWN_FE_BOUND,
+	INTEL_ARCH_TOPDOWN_RETIRING,
 
 	NR_REAL_INTEL_ARCH_EVENTS,
 
@@ -44,6 +49,14 @@ enum intel_pmu_architectural_events {
 	 * core crystal clock or the bus clock (yeah, "architectural").
 	 */
 	PSEUDO_ARCH_REFERENCE_CYCLES = NR_REAL_INTEL_ARCH_EVENTS,
+	/*
+	 * Pseudo-architectural event used to implement IA32_FIXED_CTR3, a.k.a.
+	 * topDown slots. The topdown slots event counts the total number of
+	 * available slots for an unhalted logical processor. The topdwon slots
+	 * event with PERF_METRICS MSR together provides support for topdown
+	 * micro-architecture analysis method.
+	 */
+	PSEUDO_ARCH_TOPDOWN_SLOTS,
 	NR_INTEL_ARCH_EVENTS,
 };
 
@@ -58,7 +71,13 @@ static struct {
 	[INTEL_ARCH_LLC_MISSES]			= { 0x2e, 0x41 },
 	[INTEL_ARCH_BRANCHES_RETIRED]		= { 0xc4, 0x00 },
 	[INTEL_ARCH_BRANCHES_MISPREDICTED]	= { 0xc5, 0x00 },
+	[INTEL_ARCH_TOPDOWN_SLOTS]		= { 0xa4, 0x01 },
+	[INTEL_ARCH_TOPDOWN_BE_BOUND]		= { 0xa4, 0x02 },
+	[INTEL_ARCH_TOPDOWN_BAD_SPEC]		= { 0x73, 0x00 },
+	[INTEL_ARCH_TOPDOWN_FE_BOUND]		= { 0x9c, 0x01 },
+	[INTEL_ARCH_TOPDOWN_RETIRING]		= { 0xc2, 0x02 },
 	[PSEUDO_ARCH_REFERENCE_CYCLES]		= { 0x00, 0x03 },
+	[PSEUDO_ARCH_TOPDOWN_SLOTS]		= { 0x00, 0x04 },
 };
 
 /* mapping between fixed pmc index and intel_arch_events array */
@@ -66,23 +85,29 @@ static int fixed_pmc_events[] = {
 	[0] = INTEL_ARCH_INSTRUCTIONS_RETIRED,
 	[1] = INTEL_ARCH_CPU_CYCLES,
 	[2] = PSEUDO_ARCH_REFERENCE_CYCLES,
+	[3] = PSEUDO_ARCH_TOPDOWN_SLOTS,
+	[4] = INTEL_ARCH_TOPDOWN_BAD_SPEC,
+	[5] = INTEL_ARCH_TOPDOWN_FE_BOUND,
+	[6] = INTEL_ARCH_TOPDOWN_RETIRING,
 };
 
 static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	struct kvm_pmc *pmc;
 	u8 old_fixed_ctr_ctrl = pmu->fixed_ctr_ctrl;
-	int i;
+	int s = INTEL_PMC_IDX_FIXED;
 
 	pmu->fixed_ctr_ctrl = data;
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		int i = s - INTEL_PMC_IDX_FIXED;
 		u8 new_ctrl = fixed_ctrl_field(data, i);
 		u8 old_ctrl = fixed_ctrl_field(old_fixed_ctr_ctrl, i);
 
 		if (old_ctrl == new_ctrl)
 			continue;
 
-		pmc = get_fixed_pmc(pmu, MSR_CORE_PERF_FIXED_CTR0 + i);
+		pmc = get_fixed_pmc_from_idx(pmu, i);
 
 		__set_bit(INTEL_PMC_IDX_FIXED + i, pmu->pmc_in_use);
 		kvm_pmu_request_counter_reprogram(pmc);
@@ -92,12 +117,11 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 static struct kvm_pmc *intel_pmc_idx_to_pmc(struct kvm_pmu *pmu, int pmc_idx)
 {
 	if (pmc_idx < INTEL_PMC_IDX_FIXED) {
-		return get_gp_pmc(pmu, MSR_P6_EVNTSEL0 + pmc_idx,
-				  MSR_P6_EVNTSEL0);
+		return get_gp_pmc_from_idx(pmu, pmc_idx);
 	} else {
 		u32 idx = pmc_idx - INTEL_PMC_IDX_FIXED;
 
-		return get_fixed_pmc(pmu, idx + MSR_CORE_PERF_FIXED_CTR0);
+		return get_fixed_pmc_from_idx(pmu, idx);
 	}
 }
 
@@ -132,8 +156,8 @@ static bool intel_is_valid_rdpmc_ecx(struct kvm_vcpu *vcpu, unsigned int idx)
 
 	idx &= ~(3u << 30);
 
-	return fixed ? idx < pmu->nr_arch_fixed_counters
-		     : idx < pmu->nr_arch_gp_counters;
+	return fixed ? fixed_ctr_is_supported(pmu, idx)
+		     : gp_ctr_is_supported(pmu, idx);
 }
 
 static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
@@ -144,16 +168,17 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	struct kvm_pmc *counters;
 	unsigned int num_counters;
 
+	if (!intel_is_valid_rdpmc_ecx(vcpu, idx))
+		return NULL;
+
 	idx &= ~(3u << 30);
 	if (fixed) {
 		counters = pmu->fixed_counters;
-		num_counters = pmu->nr_arch_fixed_counters;
+		num_counters = KVM_PMC_MAX_FIXED;
 	} else {
 		counters = pmu->gp_counters;
-		num_counters = pmu->nr_arch_gp_counters;
+		num_counters = KVM_INTEL_PMC_MAX_GENERIC;
 	}
-	if (idx >= num_counters)
-		return NULL;
 	*mask &= pmu->counter_bitmask[fixed ? KVM_PMC_FIXED : KVM_PMC_GP];
 	return &counters[array_index_nospec(idx, num_counters)];
 }
@@ -206,6 +231,9 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 	switch (msr) {
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:
 		return kvm_pmu_has_perf_global_ctrl(pmu);
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		return vcpu_to_pmu(vcpu)->version >= 4;
 	case MSR_IA32_PEBS_ENABLE:
 		ret = vcpu_get_perf_capabilities(vcpu) & PERF_CAP_PEBS_FORMAT;
 		break;
@@ -217,10 +245,17 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 		ret = (perf_capabilities & PERF_CAP_PEBS_BASELINE) &&
 			((perf_capabilities & PERF_CAP_PEBS_FORMAT) > 3);
 		break;
+	case MSR_PERF_METRICS:
+		ret = intel_pmu_metrics_is_enabled(vcpu) && (pmu->version > 1);
+		break;
 	default:
 		ret = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0) ||
 			get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0) ||
-			get_fixed_pmc(pmu, msr) || get_fw_gp_pmc(pmu, msr) ||
+			get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CTR) ||
+			get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CFG_A) ||
+			get_fixed_pmc(pmu, msr, MSR_CORE_PERF_FIXED_CTR0) ||
+			get_fixed_pmc(pmu, msr, MSR_IA32_PMC_FX0_CTR) ||
+			get_fw_gp_pmc(pmu, msr) ||
 			intel_pmu_is_valid_lbr_msr(vcpu, msr);
 		break;
 	}
@@ -231,11 +266,17 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 static struct kvm_pmc *intel_msr_idx_to_pmc(struct kvm_vcpu *vcpu, u32 msr)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
-	struct kvm_pmc *pmc;
+	struct kvm_pmc *pmc = NULL;
 
-	pmc = get_fixed_pmc(pmu, msr);
-	pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0);
-	pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0);
+	if (msr < MSR_IA32_PMC_GP0_CTR) {
+		pmc = get_fixed_pmc(pmu, msr, MSR_CORE_PERF_FIXED_CTR0);
+		pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0);
+		pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0);
+	} else {
+		pmc = pmc ? pmc : get_fixed_pmc(pmu, msr, MSR_IA32_PMC_FX0_CTR);
+		pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CFG_A);
+		pmc = pmc ? pmc : get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CTR);
+	}
 
 	return pmc;
 }
@@ -290,8 +331,8 @@ int intel_pmu_create_guest_lbr_event(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
-	event = perf_event_create_kernel_counter(&attr, -1,
-						current, NULL, NULL);
+	event = perf_event_create_kernel_counter(&attr, -1, current,
+						 NULL, NULL, NULL);
 	if (IS_ERR(event)) {
 		pr_debug_ratelimited("%s: failed %ld\n",
 					__func__, PTR_ERR(event));
@@ -345,6 +386,99 @@ dummy:
 	return true;
 }
 
+static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
+{
+	u64 data = 0;
+	int i;
+	int s = INTEL_PMC_IDX_FIXED;
+
+	for_each_set_bit(i, pmu->all_valid_pmc_idx, INTEL_PMC_MAX_GENERIC) {
+		struct kvm_pmc *pmc = &pmu->gp_counters[i];
+
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PERFEVTSELn_InUse[bit n]: This bit
+		 * reflects the logical state of (IA32_PERFEVTSELn[7:0]),
+		 * n < CPUID.0AH.EAX[15:8].
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_EVENT)
+			data |= 1 << i;
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_PERFEVTSELn.INT[bit 20], n < CPUID.0AH.EAX[15:8] is set.
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_INT)
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		i = s - INTEL_PMC_IDX_FIXED;
+
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.FCi_InUse[bit (i + 32)]: This bit
+		 * reflects the logical state of
+		 * IA32_FIXED_CTR_CTRL[i * 4 + 1, i * 4] != 0
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER))
+			data |= 1ULL << s;
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_FIXED_CTR_CTRL.ENi_PMI, i = 0, 1, 2 is set.
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_ENABLE_PMI))
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	/*
+	 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+	 * any IA32_PEBS_ENABLES bit is set, which enables PEBS for a GP or
+	 * fixed counter.
+	 */
+	if (pmu->pebs_enable)
+		data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+
+	return data;
+}
+
+static int intel_pmu_handle_perf_metrics_access(struct kvm_vcpu *vcpu,
+						struct msr_data *msr_info, bool read)
+{
+	u32 index = msr_info->index;
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc = get_fixed_pmc_from_idx(pmu, 3);
+
+	if (!pmc || index != MSR_PERF_METRICS)
+		return 1;
+
+	if (read) {
+		msr_info->data = pmc->extra_config;
+	} else {
+		/*
+		 * Save guest PERF_METRICS data in to extra_config,
+		 * the extra_config would be read to write to PERF_METRICS
+		 * MSR in later events group creating process.
+		 */
+		pmc->extra_config = msr_info->data;
+		if (pmc_is_topdown_metrics_active(pmc)) {
+			pmc_update_topdown_metrics(pmc);
+		} else {
+			/*
+			 * If the slots/vmetrics events group is not
+			 * created yet, set max_nr_events to 2
+			 * (slots event + vmetrics event), so KVM knows
+			 * topdown metrics profiling is running in guest
+			 * and slots/vmetrics events group would be created
+			 * later.
+			 */
+			pmc->max_nr_events = KVM_TD_EVENTS_MAX;
+		}
+	}
+
+	return 0;
+}
+
 static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -355,6 +489,12 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:
 		msr_info->data = pmu->fixed_ctr_ctrl;
 		break;
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+		msr_info->data = 0;
+		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		msr_info->data = intel_pmu_global_inuse_emulation(pmu);
+		break;
 	case MSR_IA32_PEBS_ENABLE:
 		msr_info->data = pmu->pebs_enable;
 		break;
@@ -364,19 +504,26 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_PEBS_DATA_CFG:
 		msr_info->data = pmu->pebs_data_cfg;
 		break;
+	case MSR_PERF_METRICS:
+		if (intel_pmu_handle_perf_metrics_access(vcpu, msr_info, true))
+			return 1;
+		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
-		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0))) {
+		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0)) ||
+		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CTR))) {
 			u64 val = pmc_read_counter(pmc);
 			msr_info->data =
 				val & pmu->counter_bitmask[KVM_PMC_GP];
 			break;
-		} else if ((pmc = get_fixed_pmc(pmu, msr))) {
+		} else if ((pmc = get_fixed_pmc(pmu, msr, MSR_CORE_PERF_FIXED_CTR0)) ||
+			   (pmc = get_fixed_pmc(pmu, msr, MSR_IA32_PMC_FX0_CTR))) {
 			u64 val = pmc_read_counter(pmc);
 			msr_info->data =
 				val & pmu->counter_bitmask[KVM_PMC_FIXED];
 			break;
-		} else if ((pmc = get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0))) {
+		} else if ((pmc = get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0)) ||
+			   (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CFG_A))) {
 			msr_info->data = pmc->eventsel;
 			break;
 		} else if (intel_pmu_handle_lbr_msrs_access(vcpu, msr_info, true)) {
@@ -404,6 +551,8 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (pmu->fixed_ctr_ctrl != data)
 			reprogram_fixed_counters(pmu, data);
 		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		return 1;   /* RO MSR */
 	case MSR_IA32_PEBS_ENABLE:
 		if (data & pmu->pebs_enable_mask)
 			return 1;
@@ -426,9 +575,48 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 		pmu->pebs_data_cfg = data;
 		break;
+	case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
+		/*
+		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
+		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
+		 */
+		if (data & pmu->global_status_mask)
+			return 1;
+		if (pmu->version >= 4 && !msr_info->host_initiated &&
+		    (data & MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE)) {
+			u64 debug_ctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
+			struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
+
+			if (!(debug_ctl & DEBUGCTLMSR_LBR) &&
+			    lbr_desc->freeze_on_pmi) {
+				debug_ctl |= DEBUGCTLMSR_LBR;
+				vmcs_write64(GUEST_IA32_DEBUGCTL, debug_ctl);
+				lbr_desc->freeze_on_pmi = false;
+			}
+		}
+
+		if (!msr_info->host_initiated)
+			pmu->global_status &= ~data;
+		break;
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+		/*
+		 * GLOBAL STATUS_SET, sets bits in GLOBAL_STATUS, so the
+		 * set of reserved bits are the same.
+		 */
+		if (data & pmu->global_status_mask)
+			return 1;
+
+		if (!msr_info->host_initiated)
+			pmu->global_status |= data;
+		break;
+	case MSR_PERF_METRICS:
+		if (intel_pmu_handle_perf_metrics_access(vcpu, msr_info, false))
+			return 1;
+		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
-		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0))) {
+		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0)) ||
+		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CTR))) {
 			if ((msr & MSR_PMC_FULL_WIDTH_BIT) &&
 			    (data & ~pmu->counter_bitmask[KVM_PMC_GP]))
 				return 1;
@@ -439,11 +627,13 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			pmc->counter += data - pmc_read_counter(pmc);
 			pmc_update_sample_period(pmc);
 			break;
-		} else if ((pmc = get_fixed_pmc(pmu, msr))) {
+		} else if ((pmc = get_fixed_pmc(pmu, msr, MSR_CORE_PERF_FIXED_CTR0)) ||
+			   (pmc = get_fixed_pmc(pmu, msr, MSR_IA32_PMC_FX0_CTR))) {
 			pmc->counter += data - pmc_read_counter(pmc);
 			pmc_update_sample_period(pmc);
 			break;
-		} else if ((pmc = get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0))) {
+		} else if ((pmc = get_gp_pmc(pmu, msr, MSR_P6_EVNTSEL0)) ||
+			   (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC_GP0_CFG_A))) {
 			reserved_bits = pmu->reserved_bits;
 			if ((pmc->idx == 2) &&
 			    (pmu->raw_event_mask & HSW_IN_TX_CHECKPOINTED))
@@ -468,12 +658,14 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 static void setup_fixed_pmc_eventsel(struct kvm_pmu *pmu)
 {
-	int i;
+	int s = INTEL_PMC_IDX_FIXED;
 
 	BUILD_BUG_ON(ARRAY_SIZE(fixed_pmc_events) != KVM_PMC_MAX_FIXED);
 
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
-		int index = array_index_nospec(i, KVM_PMC_MAX_FIXED);
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+
+		int index = array_index_nospec(s - INTEL_PMC_IDX_FIXED, KVM_PMC_MAX_FIXED);
 		struct kvm_pmc *pmc = &pmu->fixed_counters[index];
 		u32 event = fixed_pmc_events[index];
 
@@ -487,14 +679,15 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
 	struct kvm_cpuid_entry2 *entry;
+	struct kvm_cpuid_entry2 *entry23_0 = NULL;
+	struct kvm_cpuid_entry2 *entry23_1 = NULL;
+	struct kvm_cpuid_entry2 *entry23_3 = NULL;
 	union cpuid10_eax eax;
 	union cpuid10_edx edx;
 	u64 perf_capabilities;
 	u64 counter_mask;
 	int i;
 
-	pmu->nr_arch_gp_counters = 0;
-	pmu->nr_arch_fixed_counters = 0;
 	pmu->counter_bitmask[KVM_PMC_GP] = 0;
 	pmu->counter_bitmask[KVM_PMC_FIXED] = 0;
 	pmu->version = 0;
@@ -516,43 +709,86 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	if (KVM_BUG_ON(lbr_desc->msr_passthrough, vcpu->kvm))
 		return;
 
+	/* CPUID 0xa leaf */
 	entry = kvm_find_cpuid_entry(vcpu, 0xa);
 	if (!entry || !vcpu->kvm->arch.enable_pmu)
 		return;
 	eax.full = entry->eax;
 	edx.full = entry->edx;
 
+	/* CPUID 0x23 leaf */
+	entry23_0 = kvm_find_cpuid_entry(vcpu, 0x23);
+	if (entry23_0) {
+		u32 subleaves = entry23_0->eax;
+
+		if (subleaves & ARCH_PERFMON_CNT_BITMAP_LEAF_BIT)
+			entry23_1 = kvm_find_cpuid_entry_index(vcpu, 0x23, 0x1);
+		if (subleaves & ARCH_PERFMON_EVENTS_MAP_LEAF_BIT)
+			entry23_3 = kvm_find_cpuid_entry_index(vcpu, 0x23, 0x3);
+	}
+
 	pmu->version = eax.split.version_id;
 	if (!pmu->version)
 		return;
 
-	pmu->nr_arch_gp_counters = min_t(int, eax.split.num_counters,
-					 kvm_pmu_cap.num_counters_gp);
+	/* GP & Fixed counter bit-width */
 	eax.split.bit_width = min_t(int, eax.split.bit_width,
 				    kvm_pmu_cap.bit_width_gp);
-	pmu->counter_bitmask[KVM_PMC_GP] = ((u64)1 << eax.split.bit_width) - 1;
-	eax.split.mask_length = min_t(int, eax.split.mask_length,
-				      kvm_pmu_cap.events_mask_len);
-	pmu->available_event_types = ~entry->ebx &
-					((1ull << eax.split.mask_length) - 1);
-
-	if (pmu->version == 1) {
-		pmu->nr_arch_fixed_counters = 0;
-	} else {
-		pmu->nr_arch_fixed_counters = min_t(int, edx.split.num_counters_fixed,
-						    kvm_pmu_cap.num_counters_fixed);
+	pmu->counter_bitmask[KVM_PMC_GP] = BIT_ULL(eax.split.bit_width) - 1;
+	if (pmu->version > 1) {
 		edx.split.bit_width_fixed = min_t(int, edx.split.bit_width_fixed,
 						  kvm_pmu_cap.bit_width_fixed);
 		pmu->counter_bitmask[KVM_PMC_FIXED] =
-			((u64)1 << edx.split.bit_width_fixed) - 1;
-		setup_fixed_pmc_eventsel(pmu);
+				BIT_ULL(edx.split.bit_width_fixed) - 1;
 	}
 
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++)
-		pmu->fixed_ctr_ctrl_mask &= ~(0xbull << (i * 4));
-	counter_mask = ~(((1ull << pmu->nr_arch_gp_counters) - 1) |
-		(((1ull << pmu->nr_arch_fixed_counters) - 1) << INTEL_PMC_IDX_FIXED));
+	/* Events bitmap */
+	if (entry23_3) {
+		pmu->available_event_types = entry23_3->eax & kvm_pmu_cap.events_ext_mask;
+	} else {
+		eax.split.mask_length = min_t(int, eax.split.mask_length,
+					      kvm_pmu_cap.events_mask_len);
+		pmu->available_event_types = ~entry->ebx & (BIT_ULL(eax.split.mask_length) - 1);
+	}
+
+	/* GP counter bitmap */
+	if (entry23_1) {
+		pmu->all_valid_pmc_idxl = entry23_1->eax &
+					  x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+	} else {
+		pmu->all_valid_pmc_idxl = (BIT_ULL(eax.split.num_counters) - 1) &
+					  x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl);
+	}
+
+
+	if (pmu->version > 1) {
+		int s = INTEL_PMC_IDX_FIXED;
+
+		for_each_set_bit_from(s, kvm_pmu_cap.valid_pmc_bitmap,
+				      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+			i = s - INTEL_PMC_IDX_FIXED;
+			if (entry23_1) {
+				if (!(entry23_1->ebx & BIT_ULL(i)))
+					continue;
+			} else if (!(entry->ecx & BIT_ULL(i) ||
+				   edx.split.first_continuous_fixed_counters_num > i)) {
+				/*
+				 * FxCtr[i]_is_supported :=
+				 *      CPUID.0xA.ECX[i] || EDX[4:0] > i
+				 */
+				continue;
+			}
+			pmu->fixed_ctr_ctrl_mask &= ~(0xbull << (i * 4));
+			pmu->all_valid_pmc_idxl |= BIT_ULL(s);
+		}
+
+		setup_fixed_pmc_eventsel(pmu);
+	}
+	counter_mask = ~pmu->all_valid_pmc_idxl;
 	pmu->global_ctrl_mask = counter_mask;
+
+	if (intel_pmu_metrics_is_enabled(vcpu))
+		pmu->global_ctrl_mask &= ~(1ULL << GLOBAL_CTRL_EN_PERF_METRICS);
 
 	/*
 	 * GLOBAL_STATUS and GLOBAL_OVF_CONTROL (a.k.a. GLOBAL_STATUS_RESET)
@@ -565,6 +801,9 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	if (vmx_pt_mode_is_host_guest())
 		pmu->global_status_mask &=
 				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_TRACE_TOPA_PMI;
+	if (pmu->version >= 4)
+		pmu->global_status_mask &=
+				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
 
 	entry = kvm_find_cpuid_entry_index(vcpu, 7, 0);
 	if (entry &&
@@ -573,11 +812,6 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 		pmu->reserved_bits ^= HSW_IN_TX;
 		pmu->raw_event_mask |= (HSW_IN_TX|HSW_IN_TX_CHECKPOINTED);
 	}
-
-	bitmap_set(pmu->all_valid_pmc_idx,
-		0, pmu->nr_arch_gp_counters);
-	bitmap_set(pmu->all_valid_pmc_idx,
-		INTEL_PMC_MAX_GENERIC, pmu->nr_arch_fixed_counters);
 
 	perf_capabilities = vcpu_get_perf_capabilities(vcpu);
 	if (cpuid_model_is_consistent(vcpu) &&
@@ -591,16 +825,21 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	if (perf_capabilities & PERF_CAP_PEBS_FORMAT) {
 		if (perf_capabilities & PERF_CAP_PEBS_BASELINE) {
+			int s = INTEL_PMC_IDX_FIXED;
+			int e = INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED;
+
 			pmu->pebs_enable_mask = counter_mask;
 			pmu->reserved_bits &= ~ICL_EVENTSEL_ADAPTIVE;
-			for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+
+			for_each_set_bit_from(s, pmu->all_valid_pmc_idx, e) {
+				i = s - INTEL_PMC_IDX_FIXED;
 				pmu->fixed_ctr_ctrl_mask &=
 					~(1ULL << (INTEL_PMC_IDX_FIXED + i * 4));
 			}
 			pmu->pebs_data_cfg_mask = ~0xff00000full;
 		} else {
 			pmu->pebs_enable_mask =
-				~((1ull << pmu->nr_arch_gp_counters) - 1);
+				~(x86_get_gp_cnt_bitmap(pmu->all_valid_pmc_idxl));
 		}
 	}
 }
@@ -616,6 +855,8 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->gp_counters[i].vcpu = vcpu;
 		pmu->gp_counters[i].idx = i;
 		pmu->gp_counters[i].current_config = 0;
+		pmu->gp_counters[i].extra_config = 0;
+		pmu->gp_counters[i].max_nr_events = 1;
 	}
 
 	for (i = 0; i < KVM_PMC_MAX_FIXED; i++) {
@@ -623,11 +864,14 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->fixed_counters[i].vcpu = vcpu;
 		pmu->fixed_counters[i].idx = i + INTEL_PMC_IDX_FIXED;
 		pmu->fixed_counters[i].current_config = 0;
+		pmu->fixed_counters[i].extra_config = 0;
+		pmu->fixed_counters[i].max_nr_events = 1;
 	}
 
 	lbr_desc->records.nr = 0;
 	lbr_desc->event = NULL;
 	lbr_desc->msr_passthrough = false;
+	lbr_desc->freeze_on_pmi = false;
 }
 
 static void intel_pmu_reset(struct kvm_vcpu *vcpu)
@@ -670,7 +914,24 @@ static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 	if (data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) {
 		data &= ~DEBUGCTLMSR_LBR;
 		vmcs_write64(GUEST_IA32_DEBUGCTL, data);
+		vcpu_to_lbr_desc(vcpu)->freeze_on_pmi = true;
 	}
+}
+
+static void intel_pmu_streamlined_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
+{
+	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+
+	/*
+	 * Even if streamlined freezing LBR won't clear LBR_EN like legacy
+	 * freezing LBR, here legacy freezing LBR is called to freeze LBR HW
+	 * for streamlined freezing LBR when guest run. But guest VM will
+	 * see a fake guest DEBUGCTL MSR with LBR_EN bit set.
+	 */
+	intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	if ((data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) && (data & DEBUGCTLMSR_LBR))
+		pmu->global_status |= MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
 }
 
 static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
@@ -682,6 +943,8 @@ static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 
 	if (version > 1 && version < 4)
 		intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	else if (version >= 4)
+		intel_pmu_streamlined_freezing_lbrs_on_pmi(vcpu);
 }
 
 static void vmx_update_intercept_for_lbr_msrs(struct kvm_vcpu *vcpu, bool set)
@@ -761,7 +1024,8 @@ warn:
 
 static void intel_pmu_cleanup(struct kvm_vcpu *vcpu)
 {
-	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR))
+	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR) &&
+	    !vcpu_to_lbr_desc(vcpu)->freeze_on_pmi)
 		intel_pmu_release_guest_lbr_event(vcpu);
 }
 

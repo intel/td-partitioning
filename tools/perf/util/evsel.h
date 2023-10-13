@@ -191,6 +191,7 @@ struct perf_missing_features {
 	bool code_page_size;
 	bool weight_struct;
 	bool read_lost;
+	bool branch_event;
 };
 
 extern struct perf_missing_features perf_missing_features;
@@ -497,6 +498,11 @@ static inline bool evsel__has_branch_callstack(const struct evsel *evsel)
 static inline bool evsel__has_branch_hw_idx(const struct evsel *evsel)
 {
 	return evsel->core.attr.branch_sample_type & PERF_SAMPLE_BRANCH_HW_INDEX;
+}
+
+static inline bool evsel__has_branch_evt_cntrs(const struct evsel *evsel)
+{
+	return evsel->core.attr.branch_sample_type & PERF_SAMPLE_BRANCH_EVT_CNTRS;
 }
 
 static inline bool evsel__has_callchain(const struct evsel *evsel)

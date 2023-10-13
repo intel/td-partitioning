@@ -167,6 +167,23 @@ void __init intel_pmu_pebs_data_source_mtl(void)
 	__intel_pmu_pebs_data_source_cmt(data_source);
 }
 
+void __init intel_pmu_pebs_data_source_arl_h(void)
+{
+	u64 *data_source;
+
+	data_source = x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX].pebs_data_source;
+	memcpy(data_source, pebs_data_source, sizeof(pebs_data_source));
+	__intel_pmu_pebs_data_source_skl(false, data_source);
+
+	data_source = x86_pmu.hybrid_pmu[X86_HYBRID_PMU_ATOM_IDX].pebs_data_source;
+	memcpy(data_source, pebs_data_source, sizeof(pebs_data_source));
+	__intel_pmu_pebs_data_source_cmt(data_source);
+
+	data_source = x86_pmu.hybrid_pmu[X86_HYBRID_PMU_SOC_ATOM_IDX].pebs_data_source;
+	memcpy(data_source, pebs_data_source, sizeof(pebs_data_source));
+	__intel_pmu_pebs_data_source_cmt(data_source);
+}
+
 void __init intel_pmu_pebs_data_source_cmt(void)
 {
 	__intel_pmu_pebs_data_source_cmt(pebs_data_source);
@@ -1755,7 +1772,7 @@ static void setup_pebs_fixed_sample_data(struct perf_event *event,
 		setup_pebs_time(event, data, pebs->tsc);
 
 	if (has_branch_stack(event))
-		perf_sample_save_brstack(data, event, &cpuc->lbr_stack);
+		perf_sample_save_brstack(data, event, &cpuc->lbr_stack, NULL);
 }
 
 static void adaptive_pebs_save_regs(struct pt_regs *regs,
@@ -1912,7 +1929,7 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 
 		if (has_branch_stack(event)) {
 			intel_pmu_store_pebs_lbrs(lbr);
-			perf_sample_save_brstack(data, event, &cpuc->lbr_stack);
+			intel_pmu_lbr_save_brstack(data, cpuc, event);
 		}
 	}
 
@@ -2131,6 +2148,7 @@ static void intel_pmu_drain_pebs_core(struct pt_regs *iregs, struct perf_sample_
 
 static void intel_pmu_pebs_event_update_no_drain(struct cpu_hw_events *cpuc, int size)
 {
+	unsigned long *cnt_bitmap = hybrid(cpuc->pmu, cnt_bitmap);
 	struct perf_event *event;
 	int bit;
 
@@ -2142,6 +2160,8 @@ static void intel_pmu_pebs_event_update_no_drain(struct cpu_hw_events *cpuc, int
 	 * update the event->count for this case.
 	 */
 	for_each_set_bit(bit, (unsigned long *)&cpuc->pebs_enabled, size) {
+		if (!test_bit(bit, cnt_bitmap))
+			continue;
 		event = cpuc->events[bit];
 		if (event->hw.flags & PERF_X86_EVENT_AUTO_RELOAD)
 			intel_pmu_save_and_restart_reload(event, 0);
@@ -2167,11 +2187,11 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 
 	ds->pebs_index = ds->pebs_buffer_base;
 
-	mask = (1ULL << x86_pmu.max_pebs_events) - 1;
-	size = x86_pmu.max_pebs_events;
+	mask = x86_get_gp_cnt_bitmap(x86_pmu.cnt_bitmapl);
+	size = INTEL_PMC_MAX_GENERIC;
 	if (x86_pmu.flags & PMU_FL_PEBS_ALL) {
-		mask |= ((1ULL << x86_pmu.num_counters_fixed) - 1) << INTEL_PMC_IDX_FIXED;
-		size = INTEL_PMC_IDX_FIXED + x86_pmu.num_counters_fixed;
+		mask |= x86_pmu.cnt_bitmapl;
+		size = INTEL_PMC_MAX_GENERIC + INTEL_PMC_MAX_FIXED;
 	}
 
 	if (unlikely(base >= top)) {
@@ -2190,7 +2210,6 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 		if (x86_pmu.intel_cap.pebs_format >= 3) {
 			for_each_set_bit(bit, (unsigned long *)&pebs_status, size)
 				counts[bit]++;
-
 			continue;
 		}
 
@@ -2207,8 +2226,8 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 			pebs_status = p->status = cpuc->pebs_enabled;
 
 		bit = find_first_bit((unsigned long *)&pebs_status,
-					x86_pmu.max_pebs_events);
-		if (bit >= x86_pmu.max_pebs_events)
+					INTEL_PMC_MAX_GENERIC);
+		if (bit >= INTEL_PMC_MAX_GENERIC)
 			continue;
 
 		/*
@@ -2266,8 +2285,7 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 {
 	short counts[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS] = {};
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
-	int max_pebs_events = hybrid(cpuc->pmu, max_pebs_events);
-	int num_counters_fixed = hybrid(cpuc->pmu, num_counters_fixed);
+	u64 cnt_bitmapl = hybrid(cpuc->pmu, cnt_bitmapl);
 	struct debug_store *ds = cpuc->ds;
 	struct perf_event *event;
 	void *base, *at, *top;
@@ -2282,9 +2300,8 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 
 	ds->pebs_index = ds->pebs_buffer_base;
 
-	mask = ((1ULL << max_pebs_events) - 1) |
-	       (((1ULL << num_counters_fixed) - 1) << INTEL_PMC_IDX_FIXED);
-	size = INTEL_PMC_IDX_FIXED + num_counters_fixed;
+	mask = cnt_bitmapl;
+	size = X86_PMC_IDX_MAX;
 
 	if (unlikely(base >= top)) {
 		intel_pmu_pebs_event_update_no_drain(cpuc, size);
@@ -2379,6 +2396,9 @@ void __init intel_ds_init(void)
 			x86_pmu.large_pebs_flags |= PERF_SAMPLE_TIME;
 			break;
 
+		case 6:
+			x86_pmu.pebs_cntr = 1;
+			fallthrough;
 		case 5:
 			x86_pmu.pebs_ept = 1;
 			fallthrough;

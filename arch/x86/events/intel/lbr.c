@@ -29,7 +29,13 @@
  * the actual MSR. But it helps the constraint perf code to understand
  * that this is a separate configuration.
  */
-#define LBR_NO_INFO_BIT	       63 /* don't read LBR_INFO. */
+#define LBR_NO_INFO_BIT		63 /* don't read LBR_INFO. */
+/*
+ * Indicate a LBR event logging group.
+ * The event logging feature is only available for the ARCH LBR,
+ * while the NO INFO is only applied for the legacy LBR. Reuse the bit.
+ */
+#define LBR_EVENT_LOG_BIT	63
 
 #define LBR_KERNEL	(1 << LBR_KERNEL_BIT)
 #define LBR_USER	(1 << LBR_USER_BIT)
@@ -42,6 +48,7 @@
 #define LBR_FAR		(1 << LBR_FAR_BIT)
 #define LBR_CALL_STACK	(1 << LBR_CALL_STACK_BIT)
 #define LBR_NO_INFO	(1ULL << LBR_NO_INFO_BIT)
+#define LBR_EVENT_LOG	(1ULL << LBR_EVENT_LOG_BIT)
 
 #define LBR_PLM (LBR_KERNEL | LBR_USER)
 
@@ -676,6 +683,21 @@ void intel_pmu_lbr_del(struct perf_event *event)
 	WARN_ON_ONCE(cpuc->lbr_users < 0);
 	WARN_ON_ONCE(cpuc->lbr_pebs_users < 0);
 	perf_sched_cb_dec(event->pmu);
+
+	/*
+	 * The logged occurrences information is only valid for the
+	 * current LBR group. If another LBR group is scheduled in
+	 * later, the information from the stale LBRs will be wrongly
+	 * interpreted. Reset the LBRs here.
+	 * For the context switch, the LBR will be unconditionally
+	 * flushed when a new task is scheduled in. If both the new task
+	 * and the old task are monitored by a LBR event group. The
+	 * reset here is redundant. But the extra reset doesn't impact
+	 * the functionality. It's hard to distinguish the above case.
+	 * Keep the unconditionally reset for a LBR event group for now.
+	 */
+	if (intel_pmu_lbr_has_event_log(cpuc))
+		intel_pmu_lbr_reset();
 }
 
 static inline bool vlbr_exclude_host(void)
@@ -866,6 +888,18 @@ static __always_inline u16 get_lbr_cycles(u64 info)
 	return cycles;
 }
 
+static __always_inline void get_lbr_events(struct cpu_hw_events *cpuc,
+					   int i, u64 info)
+{
+	/*
+	 * The later code will decide what content can be disclosed
+	 * to the perf tool. It's no harmful to unconditionally update
+	 * the cpuc->lbr_events.
+	 * Pleae see intel_pmu_lbr_event_reorder()
+	 */
+	cpuc->lbr_events[i] = info & LBR_INFO_EVENTS;
+}
+
 static void intel_pmu_store_lbr(struct cpu_hw_events *cpuc,
 				struct lbr_entry *entries)
 {
@@ -898,9 +932,71 @@ static void intel_pmu_store_lbr(struct cpu_hw_events *cpuc,
 		e->abort	= !!(info & LBR_INFO_ABORT);
 		e->cycles	= get_lbr_cycles(info);
 		e->type		= get_lbr_br_type(info);
+
+		get_lbr_events(cpuc, i, info);
 	}
 
 	cpuc->lbr_stack.nr = i;
+}
+
+#define ARCH_LBR_EVENT_LOG_WIDTH	2
+#define ARCH_LBR_EVENT_LOG_MASK		0x3
+
+static __always_inline void intel_pmu_update_lbr_event(u64 *lbr_events, int idx, int pos)
+{
+	u64 logs = *lbr_events >> (LBR_INFO_EVENTS_OFFSET +
+				   idx * ARCH_LBR_EVENT_LOG_WIDTH);
+
+	logs &= ARCH_LBR_EVENT_LOG_MASK;
+	*lbr_events |= logs << (pos * ARCH_LBR_EVENT_LOG_WIDTH);
+}
+
+/*
+ * The enabled order may be different from the counter order.
+ * Update the lbr_events with the enabled order.
+ */
+static void intel_pmu_lbr_event_reorder(struct cpu_hw_events *cpuc,
+					struct perf_event *event)
+{
+	int i, j, pos = 0, enabled[X86_PMC_IDX_MAX];
+	struct perf_event *leader, *sibling;
+
+	leader = event->group_leader;
+	if (log_event_in_branch(event))
+		enabled[pos++] = leader->hw.idx;
+
+	for_each_sibling_event(sibling, leader) {
+		if (!log_event_in_branch(sibling))
+			continue;
+		enabled[pos++] = sibling->hw.idx;
+	}
+
+	if (!pos) {
+		cpuc->lbr_stack_ext.nr = 0;
+		return;
+	}
+
+	cpuc->lbr_stack_ext.nr = cpuc->lbr_stack.nr;
+	for (i = 0; i < cpuc->lbr_stack_ext.nr; i++) {
+		cpuc->lbr_entries[i].ext = true;
+
+		for (j = 0; j < pos; j++)
+			intel_pmu_update_lbr_event(&cpuc->lbr_events[i], enabled[j], j);
+
+		/* Clear the original counter order */
+		cpuc->lbr_events[i] &= ~LBR_INFO_EVENTS;
+	}
+}
+
+void intel_pmu_lbr_save_brstack(struct perf_sample_data *data,
+				struct cpu_hw_events *cpuc,
+				struct perf_event *event)
+{
+	if (!intel_pmu_lbr_has_event_log(cpuc))
+		perf_sample_save_brstack(data, event, &cpuc->lbr_stack, NULL);
+
+	intel_pmu_lbr_event_reorder(cpuc, event);
+	perf_sample_save_brstack(data, event, &cpuc->lbr_stack, &cpuc->lbr_stack_ext);
 }
 
 static void intel_pmu_arch_lbr_read(struct cpu_hw_events *cpuc)
@@ -1045,6 +1141,10 @@ static int intel_pmu_setup_hw_lbr_filter(struct perf_event *event)
 		 * Enable the branch type by default for the Arch LBR.
 		 */
 		reg->reg |= X86_BR_TYPE_SAVE;
+
+		if (log_event_in_branch(event))
+			reg->config |= LBR_EVENT_LOG;
+
 		return 0;
 	}
 
@@ -1089,6 +1189,54 @@ int intel_pmu_setup_lbr_filter(struct perf_event *event)
 		ret = intel_pmu_setup_hw_lbr_filter(event);
 
 	return ret;
+}
+
+bool intel_pmu_lbr_has_event_log(struct cpu_hw_events *cpuc)
+{
+	return cpuc->lbr_sel && (cpuc->lbr_sel->config & LBR_EVENT_LOG);
+}
+
+int intel_pmu_setup_lbr_event(struct perf_event *event)
+{
+	struct perf_event *leader, *sibling;
+
+	/*
+	 * The event logging is not supported in the call stack mode
+	 * yet, since we cannot simply flush the LBR during e.g.,
+	 * multiplexing. Also, there is no obvious usage with the call
+	 * stack mode. Simply forbids it for now.
+	 *
+	 * If any events in the group which enable the LBR event logging
+	 * feature, mark it as a LBR event logging group.
+	 */
+	leader = event->group_leader;
+	if (branch_sample_call_stack(leader))
+		return -EINVAL;
+	if (leader->hw.branch_reg.idx == EXTRA_REG_LBR)
+		leader->hw.branch_reg.config |= LBR_EVENT_LOG;
+
+	for_each_sibling_event(sibling, leader) {
+		if (branch_sample_call_stack(sibling))
+			return -EINVAL;
+		if (sibling->hw.branch_reg.idx == EXTRA_REG_LBR)
+			sibling->hw.branch_reg.config |= LBR_EVENT_LOG;
+	}
+
+	/*
+	 *  The PERF_SAMPLE_BRANCH_EVT_CNTRS is used to mark an event
+	 *  whose occurrences information should be recorded in the
+	 *  branch information.
+	 *  Only applying the PERF_SAMPLE_BRANCH_EVT_CNTRS doesn't
+	 *  require any branch stack setup. Clear the bit to avoid
+	 *  any branch stack setup.
+	 */
+	if (event->attr.branch_sample_type &
+	    ~(PERF_SAMPLE_BRANCH_EVT_CNTRS | PERF_SAMPLE_BRANCH_PLM_ALL))
+		event->attr.branch_sample_type &= ~PERF_SAMPLE_BRANCH_EVT_CNTRS;
+	else
+		event->attr.branch_sample_type = 0;
+
+	return 0;
 }
 
 enum {
@@ -1173,14 +1321,20 @@ intel_pmu_lbr_filter(struct cpu_hw_events *cpuc)
 	for (i = 0; i < cpuc->lbr_stack.nr; ) {
 		if (!cpuc->lbr_entries[i].from) {
 			j = i;
-			while (++j < cpuc->lbr_stack.nr)
+			while (++j < cpuc->lbr_stack.nr) {
 				cpuc->lbr_entries[j-1] = cpuc->lbr_entries[j];
+				if (cpuc->lbr_stack_ext.nr)
+					cpuc->lbr_events[j-1] = cpuc->lbr_events[j];
+			}
 			cpuc->lbr_stack.nr--;
 			if (!cpuc->lbr_entries[i].from)
 				continue;
 		}
 		i++;
 	}
+
+	if (cpuc->lbr_stack_ext.nr)
+		cpuc->lbr_stack_ext.nr = cpuc->lbr_stack.nr;
 }
 
 void intel_pmu_store_pebs_lbrs(struct lbr_entry *lbr)
@@ -1525,7 +1679,11 @@ void __init intel_pmu_arch_lbr_init(void)
 	x86_pmu.lbr_mispred = ecx.split.lbr_mispred;
 	x86_pmu.lbr_timed_lbr = ecx.split.lbr_timed_lbr;
 	x86_pmu.lbr_br_type = ecx.split.lbr_br_type;
+	x86_pmu.lbr_events = ecx.split.lbr_events;
 	x86_pmu.lbr_nr = lbr_nr;
+
+	if (!!x86_pmu.lbr_events)
+		x86_pmu.flags |= PMU_FL_LBR_EVENT;
 
 	if (x86_pmu.lbr_mispred)
 		static_branch_enable(&x86_lbr_mispred);

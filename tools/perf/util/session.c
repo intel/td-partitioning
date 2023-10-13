@@ -1153,6 +1153,7 @@ static void callchain__printf(struct evsel *evsel,
 static void branch_stack__printf(struct perf_sample *sample, bool callstack)
 {
 	struct branch_entry *entries = perf_sample__branch_entries(sample);
+	struct branch_stack_ext *branch_stack_ext = sample->branch_stack_ext;
 	uint64_t i;
 
 	if (!callstack) {
@@ -1192,6 +1193,13 @@ static void branch_stack__printf(struct perf_sample *sample, bool callstack)
 			} else {
 				printf("..... %2"PRIu64": %016" PRIx64 "\n", i+1, e->from);
 			}
+		}
+	}
+
+	if (branch_stack_ext) {
+		printf("... branch stack ext: nr:%" PRIu64 "\n", sample->branch_stack_ext->nr);
+		for (i = 0; i < branch_stack_ext->nr; i++) {
+			printf("..... %2"PRIu64": %016" PRIx64 "\n", i, branch_stack_ext->data[i]);
 		}
 	}
 }

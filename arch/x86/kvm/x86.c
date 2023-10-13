@@ -1466,22 +1466,11 @@ static const u32 msrs_to_save_base[] = {
 	MSR_IA32_XFD, MSR_IA32_XFD_ERR,
 };
 
-static const u32 msrs_to_save_pmu[] = {
-	MSR_ARCH_PERFMON_FIXED_CTR0, MSR_ARCH_PERFMON_FIXED_CTR1,
-	MSR_ARCH_PERFMON_FIXED_CTR0 + 2,
+static const u32 msrs_to_save_pmu_base[] = {
 	MSR_CORE_PERF_FIXED_CTR_CTRL, MSR_CORE_PERF_GLOBAL_STATUS,
 	MSR_CORE_PERF_GLOBAL_CTRL, MSR_CORE_PERF_GLOBAL_OVF_CTRL,
 	MSR_IA32_PEBS_ENABLE, MSR_IA32_DS_AREA, MSR_PEBS_DATA_CFG,
-
-	/* This part of MSRs should match KVM_INTEL_PMC_MAX_GENERIC. */
-	MSR_ARCH_PERFMON_PERFCTR0, MSR_ARCH_PERFMON_PERFCTR1,
-	MSR_ARCH_PERFMON_PERFCTR0 + 2, MSR_ARCH_PERFMON_PERFCTR0 + 3,
-	MSR_ARCH_PERFMON_PERFCTR0 + 4, MSR_ARCH_PERFMON_PERFCTR0 + 5,
-	MSR_ARCH_PERFMON_PERFCTR0 + 6, MSR_ARCH_PERFMON_PERFCTR0 + 7,
-	MSR_ARCH_PERFMON_EVENTSEL0, MSR_ARCH_PERFMON_EVENTSEL1,
-	MSR_ARCH_PERFMON_EVENTSEL0 + 2, MSR_ARCH_PERFMON_EVENTSEL0 + 3,
-	MSR_ARCH_PERFMON_EVENTSEL0 + 4, MSR_ARCH_PERFMON_EVENTSEL0 + 5,
-	MSR_ARCH_PERFMON_EVENTSEL0 + 6, MSR_ARCH_PERFMON_EVENTSEL0 + 7,
+	MSR_PERF_METRICS,
 
 	MSR_K7_EVNTSEL0, MSR_K7_EVNTSEL1, MSR_K7_EVNTSEL2, MSR_K7_EVNTSEL3,
 	MSR_K7_PERFCTR0, MSR_K7_PERFCTR1, MSR_K7_PERFCTR2, MSR_K7_PERFCTR3,
@@ -1497,8 +1486,12 @@ static const u32 msrs_to_save_pmu[] = {
 	MSR_AMD64_PERF_CNTR_GLOBAL_STATUS_CLR,
 };
 
+static u32 msrs_to_save_pmu_cntrs[2 * KVM_PMC_MAX_FIXED +
+				  4 * KVM_INTEL_PMC_MAX_GENERIC];
+
 static u32 msrs_to_save[ARRAY_SIZE(msrs_to_save_base) +
-			ARRAY_SIZE(msrs_to_save_pmu)];
+			ARRAY_SIZE(msrs_to_save_pmu_base) +
+			ARRAY_SIZE(msrs_to_save_pmu_cntrs)];
 static unsigned num_msrs_to_save;
 
 static const u32 emulated_msrs_all[] = {
@@ -7110,6 +7103,7 @@ static void kvm_probe_feature_msr(u32 msr_index)
 static void kvm_probe_msr_to_save(u32 msr_index)
 {
 	u32 dummy[2];
+	int idx;
 
 	if (rdmsr_safe(msr_index, &dummy[0], &dummy[1]))
 		return;
@@ -7156,18 +7150,32 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 			return;
 		break;
 	case MSR_ARCH_PERFMON_PERFCTR0 ... MSR_ARCH_PERFMON_PERFCTR_MAX:
-		if (msr_index - MSR_ARCH_PERFMON_PERFCTR0 >=
-		    kvm_pmu_cap.num_counters_gp)
+		if (!(BIT_ULL(msr_index - MSR_ARCH_PERFMON_PERFCTR0) &
+		    x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
 			return;
 		break;
 	case MSR_ARCH_PERFMON_EVENTSEL0 ... MSR_ARCH_PERFMON_EVENTSEL_MAX:
-		if (msr_index - MSR_ARCH_PERFMON_EVENTSEL0 >=
-		    kvm_pmu_cap.num_counters_gp)
+		if (!(BIT_ULL(msr_index - MSR_ARCH_PERFMON_EVENTSEL0) &
+		    x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
 			return;
 		break;
 	case MSR_ARCH_PERFMON_FIXED_CTR0 ... MSR_ARCH_PERFMON_FIXED_CTR_MAX:
-		if (msr_index - MSR_ARCH_PERFMON_FIXED_CTR0 >=
-		    kvm_pmu_cap.num_counters_fixed)
+		if (!(BIT_ULL(msr_index - MSR_ARCH_PERFMON_FIXED_CTR0) &
+		    x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
+			return;
+		break;
+	case MSR_IA32_PMC_GP0_CTR ... MSR_IA32_PMC_GP0_CFG_A_MAX:
+		idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_GP0_CTR, false);
+		if (idx < 0)
+			idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_GP0_CFG_A, false);
+		if (idx < 0 ||
+		    !(BIT_ULL(idx) & x86_get_gp_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
+			return;
+		break;
+	case MSR_IA32_PMC_FX0_CTR ... MSR_IA32_PMC_FX0_CTR_MAX:
+		idx = get_v6_cntr_idx(msr_index, MSR_IA32_PMC_FX0_CTR, true);
+		if (idx < 0 ||
+		    !(BIT_ULL(idx) & x86_get_fixed_cnt_bitmap(kvm_pmu_cap.valid_pmc_bitmapl)))
 			return;
 		break;
 	case MSR_AMD64_PERF_CNTR_GLOBAL_CTL:
@@ -7192,12 +7200,29 @@ static void kvm_probe_msr_to_save(u32 msr_index)
 	msrs_to_save[num_msrs_to_save++] = msr_index;
 }
 
+static void kvm_init_save_pmu_cntrs_msr_array(void)
+{
+	int idx = 0;
+	int i;
+
+	for (i = 0; i < KVM_PMC_MAX_FIXED; i++) {
+		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_FIXED_CTR0 + i;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_FX0_CTR + i * MSR_IA32_PMC_STEP;
+	}
+	for (i = 0; i < KVM_INTEL_PMC_MAX_GENERIC; i++) {
+		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_PERFCTR0 + i;
+		msrs_to_save_pmu_cntrs[idx++] = MSR_ARCH_PERFMON_EVENTSEL0 + i;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_GP0_CTR + i  * MSR_IA32_PMC_STEP;
+		msrs_to_save_pmu_cntrs[idx++] =
+			MSR_IA32_PMC_GP0_CFG_A + i  * MSR_IA32_PMC_STEP;
+	}
+}
+
 static void kvm_init_msr_lists(void)
 {
 	unsigned i;
-
-	BUILD_BUG_ON_MSG(KVM_PMC_MAX_FIXED != 3,
-			 "Please update the fixed PMCs in msrs_to_save_pmu[]");
 
 	num_msrs_to_save = 0;
 	num_emulated_msrs = 0;
@@ -7207,8 +7232,11 @@ static void kvm_init_msr_lists(void)
 		kvm_probe_msr_to_save(msrs_to_save_base[i]);
 
 	if (enable_pmu) {
-		for (i = 0; i < ARRAY_SIZE(msrs_to_save_pmu); i++)
-			kvm_probe_msr_to_save(msrs_to_save_pmu[i]);
+		kvm_init_save_pmu_cntrs_msr_array();
+		for (i = 0; i < ARRAY_SIZE(msrs_to_save_pmu_base); i++)
+			kvm_probe_msr_to_save(msrs_to_save_pmu_base[i]);
+		for (i = 0; i < ARRAY_SIZE(msrs_to_save_pmu_cntrs); i++)
+			kvm_probe_msr_to_save(msrs_to_save_pmu_cntrs[i]);
 	}
 
 	for (i = 0; i < ARRAY_SIZE(emulated_msrs_all); i++) {

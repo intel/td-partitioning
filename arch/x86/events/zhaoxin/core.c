@@ -536,7 +536,7 @@ __init int zhaoxin_pmu_init(void)
 	x86_pmu.events_maskl		= ebx.full;
 	x86_pmu.events_mask_len		= eax.split.mask_length;
 
-	x86_pmu.num_counters_fixed = edx.split.num_counters_fixed;
+	x86_pmu.num_counters_fixed = edx.split.first_continuous_fixed_counters_num;
 	x86_add_quirk(zhaoxin_arch_events_quirk);
 
 	switch (boot_cpu_data.x86) {

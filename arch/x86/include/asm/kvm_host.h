@@ -487,15 +487,21 @@ enum pmc_type {
 	KVM_PMC_FIXED,
 };
 
+enum topdown_events {
+	KVM_TD_SLOTS = 0,
+	KVM_TD_METRICS = 1,
+	KVM_TD_EVENTS_MAX = 2,
+};
+
 struct kvm_pmc {
 	enum pmc_type type;
 	u8 idx;
+	u8 max_nr_events;
 	bool is_paused;
 	bool intr;
 	u64 counter;
 	u64 prev_counter;
 	u64 eventsel;
-	struct perf_event *perf_event;
 	struct kvm_vcpu *vcpu;
 	/*
 	 * only for creating or reusing perf_event,
@@ -503,19 +509,32 @@ struct kvm_pmc {
 	 * ctrl value for fixed counters.
 	 */
 	u64 current_config;
+	/*
+	 * Non-leader events may need some extra information,
+	 * this field can be used to store this information.
+	 */
+	u64 extra_config;
+	union {
+		struct perf_event *perf_event;
+		struct perf_event *perf_events[KVM_TD_EVENTS_MAX];
+	};
 };
 
 /* More counters may conflict with other existing Architectural MSRs */
 #define KVM_INTEL_PMC_MAX_GENERIC	8
 #define MSR_ARCH_PERFMON_PERFCTR_MAX	(MSR_ARCH_PERFMON_PERFCTR0 + KVM_INTEL_PMC_MAX_GENERIC - 1)
 #define MSR_ARCH_PERFMON_EVENTSEL_MAX	(MSR_ARCH_PERFMON_EVENTSEL0 + KVM_INTEL_PMC_MAX_GENERIC - 1)
-#define KVM_PMC_MAX_FIXED	3
+#define KVM_PMC_MAX_FIXED		7
 #define MSR_ARCH_PERFMON_FIXED_CTR_MAX	(MSR_ARCH_PERFMON_FIXED_CTR0 + KVM_PMC_MAX_FIXED - 1)
+#define MSR_IA32_PMC_FX0_CTR_MAX	\
+	(MSR_IA32_PMC_FX0_CTR + (KVM_PMC_MAX_FIXED - 1) * MSR_IA32_PMC_STEP)
+#define MSR_IA32_PMC_GP0_CTR_MAX	\
+	(MSR_IA32_PMC_GP0_CTR + (KVM_INTEL_PMC_MAX_GENERIC - 1) * MSR_IA32_PMC_STEP)
+#define MSR_IA32_PMC_GP0_CFG_A_MAX	\
+	(MSR_IA32_PMC_GP0_CFG_A + (KVM_INTEL_PMC_MAX_GENERIC - 1) * MSR_IA32_PMC_STEP)
 #define KVM_AMD_PMC_MAX_GENERIC	6
 struct kvm_pmu {
 	u8 version;
-	unsigned nr_arch_gp_counters;
-	unsigned nr_arch_fixed_counters;
 	unsigned available_event_types;
 	u64 fixed_ctr_ctrl;
 	u64 fixed_ctr_ctrl_mask;
@@ -539,7 +558,10 @@ struct kvm_pmu {
 		DECLARE_BITMAP(reprogram_pmi, X86_PMC_IDX_MAX);
 		atomic64_t __reprogram_pmi;
 	};
-	DECLARE_BITMAP(all_valid_pmc_idx, X86_PMC_IDX_MAX);
+	union {
+		DECLARE_BITMAP(all_valid_pmc_idx, X86_PMC_IDX_MAX);
+		u64 all_valid_pmc_idxl;
+	};
 	DECLARE_BITMAP(pmc_in_use, X86_PMC_IDX_MAX);
 
 	u64 ds_area;

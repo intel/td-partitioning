@@ -47,6 +47,11 @@ struct uncore_event_desc;
 struct freerunning_counters;
 struct intel_uncore_topology;
 
+enum intel_uncore_scope {
+	INTEL_UNCORE_DIE	= 0,
+	INTEL_UNCORE_PKG,
+};
+
 struct intel_uncore_type {
 	const char *name;
 	int num_counters;
@@ -62,6 +67,7 @@ struct intel_uncore_type {
 	unsigned fixed_ctr;
 	unsigned fixed_ctl;
 	unsigned box_ctl;
+	enum intel_uncore_scope scope;
 	u64 *box_ctls;	/* Unit ctrl addr of the first box of each die */
 	union {
 		unsigned msr_offset;
@@ -72,9 +78,9 @@ struct intel_uncore_type {
 	unsigned single_fixed:1;
 	unsigned pair_ctr_ctl:1;
 	union {
-		unsigned *msr_offsets;
-		unsigned *pci_offsets;
-		unsigned *mmio_offsets;
+		u64 *msr_offsets;
+		u64 *pci_offsets;
+		u64 *mmio_offsets;
 	};
 	unsigned *box_ids;
 	struct event_constraint unconstrainted;
@@ -610,6 +616,7 @@ void mtl_uncore_cpu_init(void);
 void tgl_uncore_mmio_init(void);
 void tgl_l_uncore_mmio_init(void);
 void adl_uncore_mmio_init(void);
+void lnl_uncore_mmio_init(void);
 int snb_pci2phy_map_init(int devid);
 
 /* uncore_snbep.c */
@@ -634,6 +641,9 @@ void icx_uncore_mmio_init(void);
 int spr_uncore_pci_init(void);
 void spr_uncore_cpu_init(void);
 void spr_uncore_mmio_init(void);
+int gnr_uncore_pci_init(void);
+void gnr_uncore_cpu_init(void);
+void gnr_uncore_mmio_init(void);
 
 /* uncore_nhmex.c */
 void nhmex_uncore_cpu_init(void);

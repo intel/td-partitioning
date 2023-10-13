@@ -1831,6 +1831,8 @@ static int __evsel__prepare_open(struct evsel *evsel, struct perf_cpu_map *cpus,
 
 static void evsel__disable_missing_features(struct evsel *evsel)
 {
+	if (perf_missing_features.branch_event)
+		evsel->core.attr.branch_sample_type &= ~PERF_SAMPLE_BRANCH_EVT_CNTRS;
 	if (perf_missing_features.read_lost)
 		evsel->core.attr.read_format &= ~PERF_FORMAT_LOST;
 	if (perf_missing_features.weight_struct) {
@@ -1884,7 +1886,12 @@ bool evsel__detect_missing_features(struct evsel *evsel)
 	 * Must probe features in the order they were added to the
 	 * perf_event_attr interface.
 	 */
-	if (!perf_missing_features.read_lost &&
+	if (!perf_missing_features.branch_event &&
+	    (evsel->core.attr.branch_sample_type & PERF_SAMPLE_BRANCH_EVT_CNTRS)) {
+		perf_missing_features.branch_event = true;
+		pr_debug2("switching off branch event support\n");
+		return true;
+	} else if (!perf_missing_features.read_lost &&
 	    (evsel->core.attr.read_format & PERF_FORMAT_LOST)) {
 		perf_missing_features.read_lost = true;
 		pr_debug2("switching off PERF_FORMAT_LOST support\n");
@@ -2327,7 +2334,8 @@ u64 evsel__bitfield_swap_branch_flags(u64 value)
 		new_val |= bitfield_swap(value, 24, 2);
 		new_val |= bitfield_swap(value, 26, 4);
 		new_val |= bitfield_swap(value, 30, 3);
-		new_val |= bitfield_swap(value, 33, 31);
+		new_val |= bitfield_swap(value, 33, 1);
+		new_val |= bitfield_swap(value, 34, 30);
 	} else {
 		new_val = bitfield_swap(value, 63, 1);
 		new_val |= bitfield_swap(value, 62, 1);
@@ -2338,7 +2346,8 @@ u64 evsel__bitfield_swap_branch_flags(u64 value)
 		new_val |= bitfield_swap(value, 38, 2);
 		new_val |= bitfield_swap(value, 34, 4);
 		new_val |= bitfield_swap(value, 31, 3);
-		new_val |= bitfield_swap(value, 0, 31);
+		new_val |= bitfield_swap(value, 30, 1);
+		new_val |= bitfield_swap(value, 0, 30);
 	}
 
 	return new_val;
@@ -2538,7 +2547,8 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 	if (type & PERF_SAMPLE_BRANCH_STACK) {
 		const u64 max_branch_nr = UINT64_MAX /
 					  sizeof(struct branch_entry);
-		struct branch_entry *e;
+		struct branch_entry *e, *e0;
+		bool has_ext = false;
 		unsigned int i;
 
 		OVERFLOW_CHECK_u64(array);
@@ -2559,7 +2569,7 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 			 */
 			e = (struct branch_entry *)&data->branch_stack->hw_idx;
 		}
-
+		e0 = e;
 		if (swapped) {
 			/*
 			 * struct branch_flag does not have endian
@@ -2577,6 +2587,25 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 
 		OVERFLOW_CHECK(array, sz, max_size);
 		array = (void *)array + sz;
+
+		for (i = 0, e = e0; i < data->branch_stack->nr; i++, e++) {
+			if (e->flags.ext) {
+				has_ext = true;
+				break;
+			}
+		}
+
+		if (has_ext) {
+			OVERFLOW_CHECK_u64(array);
+
+			data->branch_stack_ext = (struct branch_stack_ext *)array++;
+			if (data->branch_stack_ext->nr > max_branch_nr)
+				return -EFAULT;
+			sz = data->branch_stack_ext->nr * sizeof(u64);
+
+			OVERFLOW_CHECK(array, sz, max_size);
+			array = (void *)array + sz;
+		}
 	}
 
 	if (type & PERF_SAMPLE_REGS_USER) {
@@ -3042,7 +3071,8 @@ int evsel__open_strerror(struct evsel *evsel, struct target *target,
 		break;
 	case ENODATA:
 		return scnprintf(msg, size, "Cannot collect data source with the load latency event alone. "
-				 "Please add an auxiliary event in front of the load latency event.");
+				 "Please add an auxiliary event in front of the load latency event. "
+				 "For example, -e {mem-loads-aux,%s}.", evsel__name(evsel));
 	default:
 		break;
 	}

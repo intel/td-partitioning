@@ -631,7 +631,7 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
 
 	attr.sample_period = compute_period(pmc, kvm_pmu_get_pmc_value(pmc));
 
-	event = perf_event_create_kernel_counter(&attr, -1, current,
+	event = perf_event_create_kernel_counter(&attr, -1, current, NULL,
 						 kvm_pmu_perf_overflow, pmc);
 
 	if (IS_ERR(event)) {

@@ -18,6 +18,8 @@
 #include "kvm_util.h"
 #include "vmx.h"
 
+uint8_t fixed_counter_num;
+
 union perf_capabilities {
 	struct {
 		u64	lbr_format:6;
@@ -233,6 +235,139 @@ static void test_lbr_perf_capabilities(union perf_capabilities host_cap)
 	kvm_vm_free(vm);
 }
 
+static void guest_v5_code(void)
+{
+	uint8_t  vector, i;
+	uint64_t val;
+
+	for (i = 0; i < fixed_counter_num; i++) {
+		vector = rdmsr_safe(MSR_CORE_PERF_FIXED_CTR0 + i, &val);
+
+		/*
+		 * Only the max fixed counter is supported, #GP will be generated
+		 * when guest access other fixed counters.
+		 */
+		if (i == fixed_counter_num - 1)
+			__GUEST_ASSERT(vector != GP_VECTOR,
+				       "Max Fixed counter is accessible, but get #GP");
+		else
+			__GUEST_ASSERT(vector == GP_VECTOR,
+				       "Fixed counter isn't accessible, but access is ok");
+	}
+
+	GUEST_DONE();
+}
+
+#define PMU_NR_FIXED_COUNTERS_MASK  0x1f
+
+static void test_fixed_counter_enumeration(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int r;
+	struct kvm_cpuid_entry2 *ent;
+	struct ucall uc;
+	uint32_t fixed_counter_bit_mask;
+
+	if (kvm_cpu_property(X86_PROPERTY_PMU_VERSION) != 5)
+		return;
+
+	vm = vm_create_with_one_vcpu(&vcpu, guest_v5_code);
+	vm_init_descriptor_tables(vm);
+	vcpu_init_descriptor_tables(vcpu);
+
+	ent = vcpu_get_cpuid_entry(vcpu, 0xa);
+	fixed_counter_num = ent->edx & PMU_NR_FIXED_COUNTERS_MASK;
+	TEST_ASSERT(fixed_counter_num > 0, "fixed counter isn't supported");
+	fixed_counter_bit_mask = (1ul << fixed_counter_num) - 1;
+	TEST_ASSERT(ent->ecx == fixed_counter_bit_mask,
+		    "cpuid.0xa.ecx != %x", fixed_counter_bit_mask);
+
+	/* Fixed counter 0 isn't in ecx, but in edx, set_cpuid should be error. */
+	ent->ecx &= ~0x1;
+	r = __vcpu_set_cpuid(vcpu);
+	TEST_ASSERT(r, "Setting in-consistency cpuid.0xa.ecx and edx success");
+
+	if (fixed_counter_num == 1) {
+		kvm_vm_free(vm);
+		return;
+	}
+
+	/* Support the max Fixed Counter only */
+	ent->ecx = 1UL << (fixed_counter_num - 1);
+	ent->edx &= ~(u32)PMU_NR_FIXED_COUNTERS_MASK;
+
+	r = __vcpu_set_cpuid(vcpu);
+	TEST_ASSERT(!r, "Setting modified cpuid.0xa.ecx and edx failed");
+
+	vcpu_run(vcpu);
+
+	switch (get_ucall(vcpu, &uc)) {
+	case UCALL_ABORT:
+		REPORT_GUEST_ASSERT(uc);
+		break;
+	case UCALL_DONE:
+		break;
+	default:
+		TEST_FAIL("Unexpected ucall: %lu", uc.cmd);
+	}
+
+	kvm_vm_free(vm);
+}
+
+static void guest_cntr_bitmap_validation_code(void)
+{
+	uint8_t vector;
+	uint64_t val = 0;
+
+	vector = wrmsr_safe(MSR_IA32_PERFCTR0, 0x3c);
+	__GUEST_ASSERT(vector == GP_VECTOR, "GP counter 0 disabled, but write ok");
+	vector = rdmsr_safe(MSR_IA32_PMC0, &val);
+	__GUEST_ASSERT(vector == GP_VECTOR, "GP counter 0 disabled, but read ok");
+
+	vector = rdmsr_safe(MSR_CORE_PERF_FIXED_CTR0, &val);
+	__GUEST_ASSERT(vector == GP_VECTOR, "Fixed counter 0 disabled, but read ok");
+
+	GUEST_DONE();
+}
+
+static void test_discountinuous_counter_bitmap(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int r;
+	struct kvm_cpuid_entry2 *ent;
+	struct ucall uc;
+
+	if (kvm_cpu_property(X86_PROPERTY_PMU_VERSION) < 6)
+		return;
+
+	vm = vm_create_with_one_vcpu(&vcpu, guest_cntr_bitmap_validation_code);
+	vm_init_descriptor_tables(vm);
+	vcpu_init_descriptor_tables(vcpu);
+
+	ent = __vcpu_get_cpuid_entry(vcpu, 0x23, 0x1);
+	/* Disable GP and Fixed counter 0 */
+	ent->eax &= ~0x1;
+	ent->ebx &= ~0x1;
+	r = __vcpu_set_cpuid(vcpu);
+	TEST_ASSERT(!r, "Disabling GP & Fixed counter 0 failed in CPUID.0x23");
+
+	vcpu_run(vcpu);
+
+	switch (get_ucall(vcpu, &uc)) {
+	case UCALL_ABORT:
+		REPORT_GUEST_ASSERT(uc);
+		break;
+	case UCALL_DONE:
+		break;
+	default:
+		TEST_FAIL("Unexpected ucall: %lu", uc.cmd);
+	}
+
+	kvm_vm_free(vm);
+}
+
 int main(int argc, char *argv[])
 {
 	union perf_capabilities host_cap;
@@ -253,4 +388,7 @@ int main(int argc, char *argv[])
 	test_immutable_perf_capabilities(host_cap);
 	test_guest_wrmsr_perf_capabilities(host_cap);
 	test_lbr_perf_capabilities(host_cap);
+
+	test_fixed_counter_enumeration();
+	test_discountinuous_counter_bitmap();
 }

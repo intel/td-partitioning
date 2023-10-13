@@ -8,17 +8,18 @@
  * Performance event hw details:
  */
 
-#define INTEL_PMC_MAX_GENERIC				       32
-#define INTEL_PMC_MAX_FIXED				       16
-#define INTEL_PMC_IDX_FIXED				       32
+#define INTEL_PMC_MAX_GENERIC				32
+#define INTEL_PMC_MAX_FIXED				16
+#define INTEL_PMC_IDX_FIXED				32
+#define INTEL_PMC_GP_BITMASK				(BIT_ULL(INTEL_PMC_IDX_FIXED) - 1)
 
-#define X86_PMC_IDX_MAX					       64
+#define X86_PMC_IDX_MAX					64
 
-#define MSR_ARCH_PERFMON_PERFCTR0			      0xc1
-#define MSR_ARCH_PERFMON_PERFCTR1			      0xc2
+#define MSR_ARCH_PERFMON_PERFCTR0			0xc1
+#define MSR_ARCH_PERFMON_PERFCTR1			0xc2
 
-#define MSR_ARCH_PERFMON_EVENTSEL0			     0x186
-#define MSR_ARCH_PERFMON_EVENTSEL1			     0x187
+#define MSR_ARCH_PERFMON_EVENTSEL0			0x186
+#define MSR_ARCH_PERFMON_EVENTSEL1			0x187
 
 #define ARCH_PERFMON_EVENTSEL_EVENT			0x000000FFULL
 #define ARCH_PERFMON_EVENTSEL_UMASK			0x0000FF00ULL
@@ -31,6 +32,9 @@
 #define ARCH_PERFMON_EVENTSEL_ENABLE			(1ULL << 22)
 #define ARCH_PERFMON_EVENTSEL_INV			(1ULL << 23)
 #define ARCH_PERFMON_EVENTSEL_CMASK			0xFF000000ULL
+#define ARCH_PERFMON_EVENTSEL_LBR_LOG			(1ULL << 35)
+#define ARCH_PERFMON_EVENTSEL_EQ			(1ULL << 36)
+#define ARCH_PERFMON_EVENTSEL_UMASK2			(0xFFULL << 40)
 
 #define INTEL_FIXED_BITS_MASK				0xFULL
 #define INTEL_FIXED_BITS_STRIDE			4
@@ -124,6 +128,7 @@
 
 #define ARCH_PERFMON_BRANCH_MISSES_RETIRED		6
 #define ARCH_PERFMON_EVENTS_COUNT			7
+#define ARCH_PERFMON_EXT_EVENTS_COUNT                  12
 
 #define PEBS_DATACFG_MEMINFO	BIT_ULL(0)
 #define PEBS_DATACFG_GP	BIT_ULL(1)
@@ -163,7 +168,11 @@ union cpuid10_ebx {
 
 union cpuid10_edx {
 	struct {
-		unsigned int num_counters_fixed:5;
+		/*
+		 * EDX[4:0] indicates the "Number of contiguous
+		 * fixed-function performance counters starting from 0".
+		 */
+		unsigned int first_continuous_fixed_counters_num:5;
 		unsigned int bit_width_fixed:8;
 		unsigned int reserved1:2;
 		unsigned int anythread_deprecated:1;
@@ -177,8 +186,17 @@ union cpuid10_edx {
  * detection/enumeration details:
  */
 #define ARCH_PERFMON_EXT_LEAF			0x00000023
-#define ARCH_PERFMON_NUM_COUNTER_LEAF_BIT	0x1
-#define ARCH_PERFMON_NUM_COUNTER_LEAF		0x1
+
+#define ARCH_PERFMON_CNT_BITMAP_LEAF_BIT	BIT(1)
+#define ARCH_PERFMON_AUTO_RELOAD_LEAF_BIT	BIT(2)
+#define ARCH_PERFMON_EVENTS_MAP_LEAF_BIT	BIT(3)
+
+#define ARCH_PERFMON_CNT_BITMAP_LEAF		0x1
+#define ARCH_PERFMON_AUTO_RELOAD_LEAF		0x2
+#define ARCH_PERFMON_EVENTS_MAP_LEAF		0x3
+
+#define ARCH_PERFMON_BIT_UMASK2			BIT(0)
+#define ARCH_PERFMON_BIT_EQ			BIT(1)
 
 /*
  * Intel Architectural LBR CPUID detection/enumeration details:
@@ -216,6 +234,9 @@ union cpuid28_ecx {
 		unsigned int    lbr_timed_lbr:1;
 		/* Branch Type Field Supported */
 		unsigned int    lbr_br_type:1;
+		unsigned int	reserved:13;
+		/* Event Logging Supported */
+		unsigned int	lbr_events:4;
 	} split;
 	unsigned int            full;
 };
@@ -238,13 +259,19 @@ union cpuid_0x80000022_ebx {
 
 struct x86_pmu_capability {
 	int		version;
-	int		num_counters_gp;
-	int		num_counters_fixed;
+	union {
+			u64 valid_pmc_bitmapl;
+			DECLARE_BITMAP(valid_pmc_bitmap, X86_PMC_IDX_MAX);
+	};
 	int		bit_width_gp;
 	int		bit_width_fixed;
 	unsigned int	events_mask;
 	int		events_mask_len;
-	unsigned int	pebs_ept	:1;
+	unsigned int	events_ext_mask;
+	int		events_ext_mask_len;
+	unsigned int	pebs_ept	:1,
+			umask2		:1,
+			eq		:1;
 };
 
 /*
@@ -293,6 +320,21 @@ struct x86_pmu_capability {
 #define MSR_ARCH_PERFMON_FIXED_CTR3	0x30c
 #define INTEL_PMC_IDX_FIXED_SLOTS	(INTEL_PMC_IDX_FIXED + 3)
 #define INTEL_PMC_MSK_FIXED_SLOTS	(1ULL << INTEL_PMC_IDX_FIXED_SLOTS)
+
+/* TOPDOWN_BAD_SPECULATION: event=0x73,umask=0x0 (Since Skymont) */
+#define MSR_ARCH_PERFMON_FIXED_CTR4	0x30d
+#define INTEL_PMC_IDX_ATOM_TD_BAD_SPEC	(INTEL_PMC_IDX_FIXED + 4)
+#define INTEL_PMC_MSK_ATOM_TD_BAD_SPEC	(1ULL << INTEL_PMC_IDX_ATOM_TD_BAD_SPEC)
+
+/* TOPDOWN_FE_BOUND: event=0x9c,umask=0x01 (Since Skymont) */
+#define MSR_ARCH_PERFMON_FIXED_CTR5	0x30e
+#define INTEL_PMC_IDX_ATOM_TD_FE_BOUND	(INTEL_PMC_IDX_FIXED + 5)
+#define INTEL_PMC_MSK_ATOM_TD_FE_BOUND	(1ULL << INTEL_PMC_IDX_ATOM_TD_FE_BOUND)
+
+/* TOPDOWN_RETIRING: event=0xc2,umask=0x02 (Since Skymont) */
+#define MSR_ARCH_PERFMON_FIXED_CTR6	0x30f
+#define INTEL_PMC_IDX_ATOM_TD_RETIRING	(INTEL_PMC_IDX_FIXED + 6)
+#define INTEL_PMC_MSK_ATOM_TD_RETIRING	(1ULL << INTEL_PMC_IDX_ATOM_TD_RETIRING)
 
 static inline bool use_fixed_pseudo_encoding(u64 code)
 {
@@ -386,15 +428,30 @@ static inline bool is_topdown_idx(int idx)
  *
  * With this fake counter assigned, the guest LBR event user (such as KVM),
  * can program the LBR registers on its own, and we don't actually do anything
- * with then in the host context.
+ * with them in the host context.
  */
-#define INTEL_PMC_IDX_FIXED_VLBR	(GLOBAL_STATUS_LBRS_FROZEN_BIT)
+#define INTEL_PMC_IDX_FIXED_VLBR		(GLOBAL_STATUS_LBRS_FROZEN_BIT)
 
+/*
+ * We model guest TopDown metrics event tracing similarly.
+ *
+ * Guest metric events are recognized as vCPU process's events on host, they
+ * would be time-sharing multiplexed with other host metric events, so that
+ * we choose bit 48 (INTEL_PMC_IDX_METRIC_BASE) as the index of virtual
+ * metrics event.
+ */
+#define INTEL_PMC_IDX_FIXED_VMETRICS		(INTEL_PMC_IDX_METRIC_BASE)
+
+/*
+ * Pseudo-encoding the guest metrics event as event=0x00,umask=0x11,
+ * since it would claim bit 48 which is effectively Fixed16.
+ */
+#define INTEL_FIXED_VMETRICS_EVENT		0x1100
 /*
  * Pseudo-encoding the guest LBR event as event=0x00,umask=0x1b,
  * since it would claim bit 58 which is effectively Fixed26.
  */
-#define INTEL_FIXED_VLBR_EVENT	0x1b00
+#define INTEL_FIXED_VLBR_EVENT			0x1b00
 
 /*
  * Adaptive PEBS v4
@@ -614,5 +671,15 @@ static __always_inline void perf_lopwr_cb(bool lopwr_in)
 #endif
 
 #define arch_perf_out_copy_user copy_from_user_nmi
+
+static inline u64 x86_get_gp_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl & INTEL_PMC_GP_BITMASK;
+}
+
+static inline u64 x86_get_fixed_cnt_bitmap(u64 cnt_bitmapl)
+{
+	return cnt_bitmapl >> INTEL_PMC_IDX_FIXED;
+}
 
 #endif /* _ASM_X86_PERF_EVENT_H */
