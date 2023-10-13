@@ -261,6 +261,8 @@ drivers-$(CONFIG_PM) += arch/x86/power/
 
 drivers-$(CONFIG_FB_CORE) += arch/x86/video/
 
+drivers-$(CONFIG_INTEL_TDX_COMPLIANCE) += tools/testing/selftests/tdx-compliance/
+
 ####
 # boot loader support. Several targets are kept for legacy purposes
 
