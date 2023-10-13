@@ -11,6 +11,7 @@
 #include "capabilities.h"
 #include "../kvm_cache_regs.h"
 #include "posted_intr.h"
+#include "pmu_intel.h"
 #include "vmcs.h"
 #include "vmx_ops.h"
 #include "../cpuid.h"
@@ -251,6 +252,14 @@ struct nested_vmx {
 
 struct vcpu_vmx {
 	struct kvm_vcpu       vcpu;
+
+	/* Posted interrupt descriptor */
+	struct pi_desc pi_desc;
+
+	/* Used if this vCPU is waiting for PI notification wakeup. */
+	struct list_head pi_wakeup_list;
+	/* Until here same layout to struct vcpu_pi. */
+
 	u8                    fail;
 	u8		      x2apic_msr_bitmap_mode;
 
@@ -320,12 +329,6 @@ struct vcpu_vmx {
 
 	union vmx_exit_reason exit_reason;
 
-	/* Posted interrupt descriptor */
-	struct pi_desc pi_desc;
-
-	/* Used if this vCPU is waiting for PI notification wakeup. */
-	struct list_head pi_wakeup_list;
-
 	/* Support for a guest hypervisor (nested VMX) */
 	struct nested_vmx nested;
 
@@ -365,6 +368,9 @@ struct vcpu_vmx {
 		DECLARE_BITMAP(read, MAX_POSSIBLE_PASSTHROUGH_MSRS);
 		DECLARE_BITMAP(write, MAX_POSSIBLE_PASSTHROUGH_MSRS);
 	} shadow_msr_intercept;
+
+	/* ve_info must be page aligned. */
+	struct vmx_ve_information *ve_info;
 };
 
 struct kvm_vmx {
@@ -392,7 +398,6 @@ int vmx_get_cpl(struct kvm_vcpu *vcpu);
 bool vmx_emulation_required(struct kvm_vcpu *vcpu);
 unsigned long vmx_get_rflags(struct kvm_vcpu *vcpu);
 void vmx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
-u32 vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu);
 void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 int vmx_set_efer(struct kvm_vcpu *vcpu, u64 efer);
 void vmx_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0);
@@ -584,7 +589,8 @@ static inline u8 vmx_get_rvi(void)
 	 SECONDARY_EXEC_BUS_LOCK_DETECTION |				\
 	 SECONDARY_EXEC_NOTIFY_VM_EXITING |				\
 	 SECONDARY_EXEC_ENCLS_EXITING |                                 \
-	 SECONDARY_EXEC_PASID_TRANSLATION)
+	 SECONDARY_EXEC_PASID_TRANSLATION |				\
+	 SECONDARY_EXEC_EPT_VIOLATION_VE)
 
 #define KVM_REQUIRED_VMX_TERTIARY_VM_EXEC_CONTROL 0
 #define KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL			\
@@ -659,32 +665,17 @@ static inline unsigned long vmx_l1_guest_owned_cr0_bits(void)
 
 static __always_inline struct kvm_vmx *to_kvm_vmx(struct kvm *kvm)
 {
+	KVM_BUG_ON(kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM, kvm);
 	return container_of(kvm, struct kvm_vmx, kvm);
 }
 
 static __always_inline struct vcpu_vmx *to_vmx(struct kvm_vcpu *vcpu)
 {
+	KVM_BUG_ON(vcpu->kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   vcpu->kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM,
+		   vcpu->kvm);
 	return container_of(vcpu, struct vcpu_vmx, vcpu);
-}
-
-static inline struct lbr_desc *vcpu_to_lbr_desc(struct kvm_vcpu *vcpu)
-{
-	return &to_vmx(vcpu)->lbr_desc;
-}
-
-static inline struct x86_pmu_lbr *vcpu_to_lbr_records(struct kvm_vcpu *vcpu)
-{
-	return &vcpu_to_lbr_desc(vcpu)->records;
-}
-
-static inline bool intel_pmu_lbr_is_enabled(struct kvm_vcpu *vcpu)
-{
-	return !!vcpu_to_lbr_records(vcpu)->nr;
-}
-
-static inline bool intel_pmu_metrics_is_enabled(struct kvm_vcpu *vcpu)
-{
-	return vcpu->arch.perf_capabilities & PMU_CAP_PERF_METRICS;
 }
 
 void intel_pmu_cross_mapped_check(struct kvm_pmu *pmu);
@@ -701,14 +692,18 @@ static __always_inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)
 	return vmx->exit_qualification;
 }
 
-static __always_inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
+/* For noinstr vmx_vcpu_enter_exit(). See the comment on it. */
+static __always_inline u32 __vmx_get_intr_info(struct vcpu_vmx *vmx)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-
-	if (!kvm_register_test_and_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_2))
+	if (!kvm_register_test_and_mark_available(&vmx->vcpu, VCPU_EXREG_EXIT_INFO_2))
 		vmx->exit_intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
 
 	return vmx->exit_intr_info;
+}
+
+static __always_inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
+{
+	return __vmx_get_intr_info(to_vmx(vcpu));
 }
 
 struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags);

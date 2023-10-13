@@ -382,6 +382,18 @@ static int vfio_group_ioctl_get_status(struct vfio_group *group,
 	return 0;
 }
 
+static int vfio_group_ioctl_set_attrs(struct vfio_group *group,
+				      void __user *arg)
+{
+	unsigned int attrs;
+
+	if (get_user(attrs, (unsigned int __user *)arg))
+		return -EFAULT;
+
+	group->attrs = attrs;
+	return 0;
+}
+
 static long vfio_group_fops_unl_ioctl(struct file *filep,
 				      unsigned int cmd, unsigned long arg)
 {
@@ -397,6 +409,8 @@ static long vfio_group_fops_unl_ioctl(struct file *filep,
 		return vfio_group_ioctl_set_container(group, uarg);
 	case VFIO_GROUP_UNSET_CONTAINER:
 		return vfio_group_ioctl_unset_container(group);
+	case VFIO_GROUP_SET_ATTRS:
+		return vfio_group_ioctl_set_attrs(group, uarg);
 	default:
 		return -ENOTTY;
 	}
@@ -495,6 +509,7 @@ static int vfio_group_fops_release(struct inode *inode, struct file *filep)
 		group->iommufd = NULL;
 	}
 	group->opened_file = NULL;
+	group->attrs = 0;
 	mutex_unlock(&group->group_lock);
 	return 0;
 }

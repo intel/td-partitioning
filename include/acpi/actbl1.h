@@ -53,6 +53,8 @@
 
 #define ACPI_SIG_NBFT		"NBFT"	/* NVMe Boot Firmware Table */
 
+#define ACPI_SIG_KEYP		"KEYP"	/* Key Programming Table */
+
 /* Reserved table signatures */
 
 #define ACPI_SIG_MATR           "MATR"	/* Memory Address Translation Table */
@@ -1934,6 +1936,51 @@ struct acpi_ibft_target {
 	u16 reverse_chap_name_offset;
 	u16 reverse_chap_secret_length;
 	u16 reverse_chap_secret_offset;
+};
+
+/*******************************************************************************
+ *
+ * KEYP - Key Programming Table
+ *        Version 1
+ *
+ * Conforms to "Root Complex IDE Key Configuration Unit Software Programing
+ * Guide",
+ * Version 0.9 November, 2021
+ *
+ ******************************************************************************/
+
+struct acpi_table_keyp {
+	struct acpi_table_header header;	/* Common ACPI table header */
+	u8 reserved[4];
+
+	/* A list of keyp key configuration unit structures immediately follow */
+};
+
+enum acpi_keyp_kcu_prot_type {
+	ACPI_KEYP_KCU_PROT_TYPE_PCIE_CXLIO = 1,
+	ACPI_KEYP_KCU_PROT_TYPE_CXLCACHE_CLXMEM = 2,
+};
+
+#define ACPI_KEYP_KCU_FLAG_TEE_IO_CAP	0x01
+
+/* key configuration unit structure */
+struct acpi_keyp_kcu {
+	u8 type;
+	u8 reserved;
+	u16 length;
+	u8 prot_type;
+	u8 version;
+	u8 rp_count;
+	u8 flags;
+	u64 kcb_addr;
+
+	/* A list of keyp root port information structures immediately follow */
+};
+
+struct acpi_keyp_kcu_rp {
+	u16 segment;
+	u8 bus;
+	u8 devfn;
 };
 
 /* Reset to default packing */

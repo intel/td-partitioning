@@ -174,14 +174,19 @@ static int pci_doe_send_req(struct pci_doe_mb *doe_mb,
 	val = FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_1_VID, task->prot.vid) |
 		FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_1_TYPE, task->prot.type);
 	pci_write_config_dword(pdev, offset + PCI_DOE_WRITE, val);
+	pci_dbg(pdev, "Write data obj header(1) 0x%08x\n", val);
 	pci_write_config_dword(pdev, offset + PCI_DOE_WRITE,
 			       FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_2_LENGTH,
 					  length));
-
+	pci_dbg(pdev, "Write data obj header(2) 0x%08x\n",
+		FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_2_LENGTH, length));
 	/* Write payload */
-	for (i = 0; i < task->request_pl_sz / sizeof(__le32); i++)
+	for (i = 0; i < task->request_pl_sz / sizeof(__le32); i++) {
 		pci_write_config_dword(pdev, offset + PCI_DOE_WRITE,
 				       le32_to_cpu(task->request_pl[i]));
+		pci_dbg(pdev, "Write payload data 0x%08x\n",
+			le32_to_cpu(task->request_pl[i]));
+	}
 
 	/* Write last payload dword */
 	remainder = task->request_pl_sz % sizeof(__le32);
@@ -227,10 +232,12 @@ static int pci_doe_recv_resp(struct pci_doe_mb *doe_mb, struct pci_doe_task *tas
 				    FIELD_GET(PCI_DOE_DATA_OBJECT_HEADER_1_TYPE, val));
 		return -EIO;
 	}
+	pci_dbg(pdev, "Read data obj header(1) 0x%08x\n", val);
 
 	pci_write_config_dword(pdev, offset + PCI_DOE_READ, 0);
 	/* Read the second dword to get the length */
 	pci_read_config_dword(pdev, offset + PCI_DOE_READ, &val);
+	pci_dbg(pdev, "Read data obj header(2) 0x%08x\n", val);
 	pci_write_config_dword(pdev, offset + PCI_DOE_READ, 0);
 
 	length = FIELD_GET(PCI_DOE_DATA_OBJECT_HEADER_2_LENGTH, val);
@@ -269,6 +276,8 @@ static int pci_doe_recv_resp(struct pci_doe_mb *doe_mb, struct pci_doe_task *tas
 		pci_read_config_dword(pdev, offset + PCI_DOE_READ, &val);
 		cpu_to_le32s(&val);
 		memcpy(&task->response_pl[i], &val, remainder);
+		pci_dbg(pdev, "Read payload data 0x%08x\n",
+			task->response_pl[i]);
 		/* Prior to the last ack, ensure Data Object Ready */
 		if (!pci_doe_data_obj_ready(doe_mb))
 			return -EIO;
@@ -722,3 +731,52 @@ void pci_doe_disconnected(struct pci_dev *pdev)
 	xa_for_each(&pdev->doe_mbs, index, doe_mb)
 		pci_doe_cancel_tasks(doe_mb);
 }
+
+#define PCI_DOE_HEADER_1_OFFSET		0
+#define PCI_DOE_HEADER_2_OFFSET		1
+#define PCI_DOE_PAYLOAD_OFFSET		2
+#define PCI_DOE_HEADER_SIZE		8
+
+int pci_doe_msg_exchange_sync(struct pci_doe_mb *doe_mb, u32 *request,
+			      u32 *response, size_t response_buf_sz)
+{
+	DECLARE_COMPLETION_ONSTACK(c);
+	struct pci_doe_task task = {
+		.complete = pci_doe_task_complete,
+		.private = &c,
+	};
+	int rc;
+
+	if (!request || !response)
+		return -EINVAL;
+
+	task.prot.vid = FIELD_GET(PCI_DOE_DATA_OBJECT_HEADER_1_VID,
+				  request[PCI_DOE_HEADER_1_OFFSET]),
+	task.prot.type = FIELD_GET(PCI_DOE_DATA_OBJECT_HEADER_1_TYPE,
+				   request[PCI_DOE_HEADER_1_OFFSET]),
+	task.request_pl = &request[PCI_DOE_PAYLOAD_OFFSET],
+	task.request_pl_sz = FIELD_GET(PCI_DOE_DATA_OBJECT_HEADER_2_LENGTH,
+				       request[PCI_DOE_HEADER_2_OFFSET]) *
+			     sizeof(u32) - PCI_DOE_HEADER_SIZE,
+	task.response_pl = &response[PCI_DOE_PAYLOAD_OFFSET],
+	task.response_pl_sz = response_buf_sz - PCI_DOE_HEADER_SIZE,
+
+	rc = pci_doe_submit_task(doe_mb, &task);
+	if (rc < 0)
+		return rc;
+
+	wait_for_completion(&c);
+	if (task.rv < 0)
+		return task.rv;
+
+	response[PCI_DOE_HEADER_1_OFFSET] = FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_1_VID,
+						       task.prot.vid) |
+					    FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_1_TYPE,
+						       task.prot.type);
+	response[PCI_DOE_HEADER_2_OFFSET] = FIELD_PREP(PCI_DOE_DATA_OBJECT_HEADER_2_LENGTH,
+						       (task.rv + PCI_DOE_HEADER_SIZE) /
+						       sizeof(u32));
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pci_doe_msg_exchange_sync);

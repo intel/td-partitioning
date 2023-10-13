@@ -139,10 +139,25 @@
 #define DMAR_ECMD_REG		0x400
 #define DMAR_ECEO_REG		0x408
 #define DMAR_ECRSP_REG		0x410
+#define DMAR_ECSTS_REG		0x420
 #define DMAR_ECCAP_REG		0x430
 #define DMAR_VCCAP_REG		0xe30 /* Virtual command capability register */
 #define DMAR_VCMD_REG		0xe00 /* Virtual command register */
 #define DMAR_VCRSP_REG		0xe10 /* Virtual command response register */
+
+/* For TDX-IO mode */
+#define DMAR_IOMMU_ID_REG	0x80000001
+#define DMAR_IOMMU_STATE_REG	0x80000002
+#define DMAR_IQPAGE_REG		0x80000003
+#define DMAR_IQCTXPAGE_REG	0x80000004
+#define DMAR_RTPAGE_REG		0x80000005
+#define DMAR_STINFOPA0_REG	0x80000006
+#define DMAR_STINFOPA1_REG	0x80000007
+#define DMAR_SPDMDIRPA_REG	0x80000008
+#define DMAR_CONFIG_IOMMU_REG	0x80000009
+#define DMAR_CLEAR_IOMMU_REG	0x8000000A
+#define DMAR_CONFIG_RP_REG	0x8000000B
+#define DMAR_CLEAR_RP_REG	0x8000000C
 
 #define DMAR_IQER_REG_IQEI(reg)		FIELD_GET(GENMASK_ULL(3, 0), reg)
 #define DMAR_IQER_REG_ITESID(reg)	FIELD_GET(GENMASK_ULL(47, 32), reg)
@@ -157,6 +172,17 @@
 
 #define DMAR_VER_MAJOR(v)		(((v) & 0xf0) >> 4)
 #define DMAR_VER_MINOR(v)		((v) & 0x0f)
+
+/*
+ * ECMD Response Register
+ */
+#define ecrsp_ip(r)             ((r) & 1)
+#define ecrsp_sc(r)             (((r) >> 1) & 0x7f)
+
+/*
+ * ECMD Status Register
+ */
+#define ecsts_tdx_mode(s)        (((s) >> 1) & 1)
 
 /*
  * Decoding Capability Register
@@ -196,6 +222,7 @@
  */
 
 #define ecap_pms(e)		(((e) >> 51) & 0x1)
+#define ecap_tdxio(e)		(((e) >> 50) & 0x1)
 #define ecap_rps(e)		(((e) >> 49) & 0x1)
 #define ecap_smpwc(e)		(((e) >> 48) & 0x1)
 #define ecap_flts(e)		(((e) >> 47) & 0x1)
@@ -544,6 +571,7 @@ enum {
 #define sm_supported(iommu)	(intel_iommu_sm && ecap_smts((iommu)->ecap))
 #define pasid_supported(iommu)	(sm_supported(iommu) &&			\
 				 ecap_pasid((iommu)->ecap))
+#define tdxio_supported(iommu)  (tdx_io_support() && ecap_tdxio((iommu)->ecap))
 
 struct pasid_entry;
 struct pasid_state_entry;
@@ -584,6 +612,13 @@ struct iommu_domain_info {
 					 * to VT-d spec, section 9.3 */
 };
 
+/*
+ * When VT-d works in the TEE-IO mode, it allows a separated DMA translation
+ * managed by trusted agent. This bit marks that the DMA translation for the
+ * domain goes to the trusted IO page tables.
+ */
+#define DOMAIN_FLAG_TRUSTED			BIT(2)
+
 struct dmar_domain {
 	int	nid;			/* node id */
 	struct xarray iommu_array;	/* Attached IOMMU array */
@@ -607,6 +642,8 @@ struct dmar_domain {
 	struct list_head devices;	/* all devices' list */
 	struct list_head dev_pasids;	/* all attached pasids */
 
+	/* flags to find out type of domain */
+	int		flags;
 	int		iommu_superpage;/* Level of superpages supported:
 					   0 == 4KiB (no superpages), 1 == 2MiB,
 					   2 == 1GiB, 3 == 512GiB, 4 == 1TiB */
@@ -729,6 +766,10 @@ struct intel_iommu {
 	void *perf_statistic;
 
 	struct iommu_pmu *pmu;
+
+	unsigned long tdxio_pages_pa;
+	bool tdxio_enabled;
+	u64 id;
 };
 
 /* PCI domain-device relationship */

@@ -16,6 +16,8 @@
 #include <linux/pci.h>
 #include <linux/random.h>
 #include <linux/virtio_anchor.h>
+#include <linux/uuid.h>
+#include <linux/set_memory.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/i8259.h>
@@ -24,6 +26,10 @@
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
 #include <asm/irqdomain.h>
+#include <asm/apic.h>
+#include <asm/idtentry.h>
+
+#include "tdx.h"
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -59,7 +65,7 @@ int tdx_notify_irq = -1;
 EXPORT_SYMBOL_GPL(tdx_notify_irq);
 
 /* Traced version of __tdx_hypercall */
-static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args)
+static u64 __trace_tdx_hypercall(struct tdx_module_args *args)
 {
 	u64 err;
 
@@ -72,39 +78,25 @@ static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args)
 	return err;
 }
 
-static u64 __trace_tdx_hypercall_ret(struct tdx_hypercall_args *args)
-{
-	u64 err;
-
-	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
-			args->r14, args->r15);
-	err = __tdx_hypercall_ret(args);
-	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
-			args->r13, args->r14, args->r15);
-
-	return err;
-}
-
 /* Traced version of __tdx_module_call */
-static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8,
-		u64 r9, struct tdx_module_output *out)
+static u64 __trace_tdcall_ret(u64 fn, struct tdx_module_args *args)
 {
-	struct tdx_module_output dummy_out;
+	struct tdx_module_args dummy_out;
 	u64 err;
 
-	if (!out)
-		out = &dummy_out;
+	if (!args)
+		args = &dummy_out;
 
-	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
-	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
-	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx,
-			out->r8, out->r9, out->r10, out->r11);
+	trace_tdx_module_call_enter_rcuidle(fn, args->rcx, args->rdx, args->r8, args->r9);
+	err = tdcall_ret(fn, args);
+	trace_tdx_module_call_exit_rcuidle(err, args->rcx, args->rdx,
+			args->r8, args->r9, args->r10, args->r11);
 
 	return err;
 }
 
 /* Called from __tdx_hypercall() for unrecoverable failure */
-noinstr void __tdx_hypercall_failed(void)
+noinstr void __noreturn __tdx_hypercall_failed(void)
 {
 	instrumentation_begin();
 	panic("TDVMCALL failed. TDX module bug?");
@@ -114,7 +106,7 @@ noinstr void __tdx_hypercall_failed(void)
 long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		       unsigned long p3, unsigned long p4)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = nr,
 		.r11 = p1,
 		.r12 = p2,
@@ -132,10 +124,9 @@ EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
  * should only be used for calls that have no legitimate reason to fail
  * or where the kernel can not survive the call failing.
  */
-static inline void tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-				   struct tdx_module_output *out)
+static inline void tdcall_ret_with_trace(u64 fn, struct tdx_module_args *args)
 {
-	if (__trace_tdx_module_call(fn, rcx, rdx, r8, r9, out))
+	if (__trace_tdcall_ret(fn, args))
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
 }
 
@@ -155,11 +146,14 @@ static inline void tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
  */
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 {
+	struct tdx_module_args args = {
+		.rcx = virt_to_phys(tdreport),
+		.rdx = virt_to_phys(reportdata),
+		.r8 = TDREPORT_SUBTYPE_0,
+	};
 	u64 ret;
 
-	ret = __trace_tdx_module_call(TDX_GET_REPORT, virt_to_phys(tdreport),
-				      virt_to_phys(reportdata), TDREPORT_SUBTYPE_0,
-				      0, NULL);
+	ret = tdcall(TDG_MR_REPORT, &args);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -172,7 +166,7 @@ EXPORT_SYMBOL_GPL(tdx_mcall_get_report0);
 
 static void __noreturn tdx_panic(const char *msg)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = TDVMCALL_REPORT_FATAL_ERROR,
 		.r12 = 0, /* Error code: 0 is Panic */
@@ -219,8 +213,10 @@ static void __noreturn tdx_panic(const char *msg)
  */
 u64 tdx_mcall_verify_report(u8 *reportmac)
 {
-	return __tdx_module_call(TDX_VERIFYREPORT, virt_to_phys(reportmac),
-				0, 0, 0, NULL);
+	struct tdx_module_args args = {
+		.rcx = virt_to_phys(reportmac),
+	};
+	return tdcall(TDG_VERIFYREPORT, &args);
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
 
@@ -240,10 +236,13 @@ EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
  */
 int tdx_mcall_extend_rtmr(u8 *data, u8 index)
 {
+	struct tdx_module_args args = {
+		.rcx = virt_to_phys(data),
+		.rdx = index,
+	};
 	u64 ret;
 
-	ret = __tdx_module_call(TDX_EXTEND_RTMR, virt_to_phys(data), index,
-				0, 0, NULL);
+	ret = tdcall(TDG_EXTEND_RTMR, &args);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -273,7 +272,7 @@ EXPORT_SYMBOL_GPL(tdx_mcall_extend_rtmr);
  */
 int tdx_hcall_get_quote(void *tdquote, int size)
 {
-        struct tdx_hypercall_args args = {0};
+        struct tdx_module_args args = {0};
 
         args.r10 = TDX_HYPERCALL_STANDARD;
         args.r11 = TDVMCALL_GET_QUOTE;
@@ -292,7 +291,7 @@ EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 
 static void tdx_parse_tdinfo(u64 *cc_mask)
 {
-	struct tdx_module_output out;
+	struct tdx_module_args args = {};
 	unsigned int gpa_width;
 
 	/*
@@ -302,7 +301,7 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
 	 * [TDG.VP.INFO].
 	 */
-	tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out);
+	tdcall_ret_with_trace(TDG_VP_INFO, &args);
 
 	/*
 	 * The highest bit of a guest physical address is the "sharing" bit.
@@ -311,7 +310,7 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 	 * The GPA width that comes out of this call is critical. TDX guests
 	 * can not meaningfully run without it.
 	 */
-	gpa_width = out.rcx & GENMASK(5, 0);
+	gpa_width = args.rcx & GENMASK(5, 0);
 	*cc_mask = BIT_ULL(gpa_width - 1);
 
 	/*
@@ -319,7 +318,7 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 	 * memory.  Ensure that no #VE will be delivered for accesses to
 	 * TD-private memory.  Only VMM-shared memory (MMIO) will #VE.
 	 */
-	td_attr = out.rdx;
+	td_attr = args.rdx;
 	if (!(td_attr & ATTR_SEPT_VE_DISABLE)) {
 		const char *msg = "TD misconfiguration: SEPT_VE_DISABLE attribute must be set.";
 
@@ -383,7 +382,7 @@ bool tdx_debug_enabled(void)
 
 static u64 __cpuidle __halt(const bool irq_disabled)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_HLT),
 		.r12 = irq_disabled,
@@ -427,7 +426,7 @@ void __cpuidle tdx_safe_halt(void)
 
 static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_MSR_READ),
 		.r12 = regs->cx,
@@ -438,7 +437,7 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (__trace_tdx_hypercall_ret(&args))
+	if (__trace_tdx_hypercall(&args))
 		return -EIO;
 
 	regs->ax = lower_32_bits(args.r11);
@@ -448,7 +447,7 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 
 static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_MSR_WRITE),
 		.r12 = regs->cx,
@@ -494,7 +493,7 @@ static bool tdx_fast_tdcall_path_msr(unsigned int msr)
 
 static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_MSR_WRITE),
 		.r12 = msr,
@@ -509,12 +508,41 @@ static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
 
 static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_CPUID),
 		.r12 = regs->ax,
 		.r13 = regs->cx,
 	};
+
+	/*
+	 * CPUID leaf 0x2 provides cache and TLB information.
+	 *
+	 * The leaf is obsolete. There are leafs that provides the same
+	 * information in a structured form. See leaf 0x4 on cache info and
+	 * leaf 0x18 on TLB info.
+	 */
+	if (regs->ax == 2) {
+		/*
+		 * Each byte in EAX/EBX/ECX/EDX is an informational descriptor.
+		 *
+		 * The least-significant byte in register EAX always returns
+		 * 0x01. Software should ignore this value and not interpret
+		 * it as an informational descriptor.
+		 *
+		 * Descriptors used here:
+		 *
+		 *  - 0xff: use CPUID leaf 0x4 to query cache parameters;
+		 *
+		 *  - 0xfe: use CPUID leaf 0x18 to query TLB and other address
+		 *          translation parameters.
+		 *
+		 * XXX: provide prefetch information?
+		 */
+		regs->ax = 0xf1ff01;
+		regs->bx = regs->cx = regs->dx = 0;
+		return ve_instr_len(ve);
+	}
 
 	/*
 	 * Only allow VMM to control range reserved for hypervisor
@@ -533,7 +561,7 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (__trace_tdx_hypercall_ret(&args))
+	if (__trace_tdx_hypercall(&args))
 		return -EIO;
 
 	/*
@@ -551,7 +579,7 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 
 static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_EPT_VIOLATION),
 		.r12 = size,
@@ -560,8 +588,9 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 		.r15 = *val,
 	};
 
-	if (__trace_tdx_hypercall_ret(&args))
+	if (__trace_tdx_hypercall(&args))
 		return false;
+
 	*val = args.r11;
 	return true;
 }
@@ -775,7 +804,7 @@ static const struct iomap_mmio tdx_iomap_mmio = {
 
 static bool handle_in(struct pt_regs *regs, int size, int port)
 {
-	struct tdx_hypercall_args args = {
+	struct tdx_module_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = hcall_func(EXIT_REASON_IO_INSTRUCTION),
 		.r12 = size,
@@ -796,7 +825,7 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
 	 * "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	success = !__trace_tdx_hypercall_ret(&args);
+	success = !__trace_tdx_hypercall(&args);
 
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
@@ -877,7 +906,7 @@ __init bool tdx_early_handle_ve(struct pt_regs *regs)
 
 void tdx_get_ve_info(struct ve_info *ve)
 {
-	struct tdx_module_output out;
+	struct tdx_module_args args = {};
 
 	/*
 	 * Called during #VE handling to retrieve the #VE info from the
@@ -894,15 +923,15 @@ void tdx_get_ve_info(struct ve_info *ve)
 	 * Note, the TDX module treats virtual NMIs as inhibited if the #VE
 	 * valid flag is set. It means that NMI=>#VE will not result in a #DF.
 	 */
-	tdx_module_call(TDX_GET_VEINFO, 0, 0, 0, 0, &out);
+	tdcall_ret_with_trace(TDG_VP_VEINFO_GET, &args);
 
 	/* Transfer the output parameters */
-	ve->exit_reason = out.rcx;
-	ve->exit_qual   = out.rdx;
-	ve->gla         = out.r8;
-	ve->gpa         = out.r9;
-	ve->instr_len   = lower_32_bits(out.r10);
-	ve->instr_info  = upper_32_bits(out.r10);
+	ve->exit_reason = args.rcx;
+	ve->exit_qual   = args.rdx;
+	ve->gla         = args.r8;
+	ve->gpa         = args.r9;
+	ve->instr_len   = lower_32_bits(args.r10);
+	ve->instr_info  = upper_32_bits(args.r10);
 }
 
 /*
@@ -1019,6 +1048,57 @@ static bool tdx_cache_flush_required(void)
 }
 
 /*
+ * Notify the VMM about page mapping conversion. More info about ABI
+ * can be found in TDX Guest-Host-Communication Interface (GHCI),
+ * section "TDG.VP.VMCALL<MapGPA>".
+ */
+static bool tdx_map_gpa(phys_addr_t start, phys_addr_t end, bool enc)
+{
+	/* Retrying the hypercall a second time should succeed; use 3 just in case */
+	const int max_retries_per_page = 3;
+	int retry_count = 0;
+
+	if (!enc) {
+		/* Set the shared (decrypted) bits: */
+		start |= cc_mkdec(0);
+		end   |= cc_mkdec(0);
+	}
+
+	while (retry_count < max_retries_per_page) {
+		struct tdx_module_args args = {
+			.r10 = TDX_HYPERCALL_STANDARD,
+			.r11 = TDVMCALL_MAP_GPA,
+			.r12 = start,
+			.r13 = end - start };
+
+		u64 map_fail_paddr;
+		u64 ret = __tdx_hypercall(&args);
+
+		if (ret != TDVMCALL_STATUS_RETRY)
+			return !ret;
+		/*
+		 * The guest must retry the operation for the pages in the
+		 * region starting at the GPA specified in R11. R11 comes
+		 * from the untrusted VMM. Sanity check it.
+		 */
+		map_fail_paddr = args.r11;
+		if (map_fail_paddr < start || map_fail_paddr >= end)
+			return false;
+
+		/* "Consume" a retry without forward progress */
+		if (map_fail_paddr == start) {
+			retry_count++;
+			continue;
+		}
+
+		start = map_fail_paddr;
+		retry_count = 0;
+	}
+
+	return false;
+}
+
+/*
  * Inform the VMM of the guest's intent for this physical page: shared with
  * the VMM or private to the guest.  The VMM is expected to change its mapping
  * of the page in response.
@@ -1028,18 +1108,7 @@ static bool tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
 	phys_addr_t start = __pa(vaddr);
 	phys_addr_t end   = __pa(vaddr + numpages * PAGE_SIZE);
 
-	if (!enc) {
-		/* Set the shared (decrypted) bits: */
-		start |= cc_mkdec(0);
-		end   |= cc_mkdec(0);
-	}
-
-	/*
-	 * Notify the VMM about page mapping conversion. More info about ABI
-	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
-	 * section "TDG.VP.VMCALL<MapGPA>"
-	 */
-	if (_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+	if (!tdx_map_gpa(start, end, enc))
 		return false;
 
 	/* shared->private conversion requires memory to be accepted before use */
@@ -1073,8 +1142,679 @@ static bool tdx_enc_status_change_finish(unsigned long vaddr, int numpages,
 	return true;
 }
 
+int tdx_dmar_accept(u64 func_id, u64 gpasid, u64 parm0, u64 parm1, u64 parm2, u64 parm3,
+		    u64 parm4, u64 parm5, u64 parm6, u64 parm7)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = gpasid,
+		.r8 = parm0,
+		.r9 = parm1,
+		.r10 = parm2,
+		.r11 = parm3,
+		.r12 = parm4,
+		.r13 = parm5,
+		.r14 = parm6,
+		.r15 = parm7,
+	};
+	u64 ret;
+
+	ret = tdcall_saved(TDG_DMAR_ACCEPT, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx gpasid %llx param %llx %llx %llx %llx %llx %llx %llx %llx\n",
+		 __func__, ret, func_id, gpasid, parm0, parm1, parm2, parm3,
+		 parm4, parm5, parm6, parm7);
+
+	return ret ? -EIO : 0;
+}
+
+int tdx_devif_read(u64 func_id, u64 field, u64 field_parm, u64 *value)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = field,
+		.r8 = field_parm,
+	};
+	u64 ret;
+
+	ret = tdcall_ret(TDG_DEVIF_READ, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx field %llx parm %llx data %llx\n",
+		 __func__, ret, func_id, field, field_parm, args.rdx);
+
+	if (!ret)
+		*value = args.rdx;
+
+	return ret ? -EIO : 0;
+}
+
+int tdx_devif_validate(u64 func_id, u64 pkh5, u64 pkh4, u64 pkh3, u64 pkh2, u64 pkh1, u64 pkh0)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = pkh5,
+		.r8 = pkh4,
+		.r9 = pkh3,
+		.r10 = pkh2,
+		.r11 = pkh1,
+		.r12 = pkh0,
+	};
+	u64 ret;
+
+	ret = tdcall_saved(TDG_DEVIF_VALIDATE, &args);
+
+	pr_debug("%s ret 0x%llx func_id %llx pkh %llx %llx %llx %llx %llx %llx\n", __func__,
+		 ret, func_id, pkh5, pkh4, pkh3, pkh2, pkh1, pkh0);
+
+	return ret ? -EIO : 0;
+}
+
+static int __tdx_devif_request(u64 func_id, u64 payload)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = payload,
+	};
+	u64 ret;
+
+	ret = tdcall(TDG_DEVIF_REQUEST, &args);
+
+	pr_debug("%s ret 0x%llx func_id 0x%llx payload 0x%llx\n", __func__,
+		 ret, func_id, payload);
+
+	return ret ? -EIO : 0;
+}
+
+static int __tdx_devif_response(u64 func_id, u64 payload, u32 *size)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = payload,
+	};
+	u64 ret;
+
+	ret = tdcall_ret(TDG_DEVIF_RESPONSE, &args);
+
+	pr_debug("%s ret 0x%llx func_id 0x%llx payload 0x%llx size 0x%llx\n",
+		 __func__, ret, func_id, payload, args.rdx);
+
+	if (!ret)
+		*size = (u32)args.rdx;
+
+	return ret ? -EIO : 0;
+}
+
+/**
+ * struct tdx_serv - Generic Data structure for TDVMCALL Service.xxx
+ *
+ * @cmd_va: TDVMCALL Service command buffer
+ * @cmd_len: size for TDVMCALL Service command
+ * @resp_va: TDVMCALL Service response buffer
+ * @resp_len: size for TDVMCALL Service response
+ * @vector: vector for response ready notification
+ * @timeout: timeout for service command
+ */
+struct tdx_serv {
+	unsigned long cmd_va;
+	unsigned int cmd_len;
+	unsigned long resp_va;
+	unsigned int resp_len;
+	u64 vector;
+	u64 timeout;
+};
+
+static struct completion tdcm_completion;
+
+/* TDCM Service GUID */
+static guid_t tdcm_guid =
+	GUID_INIT(0x6270da51, 0x9a23, 0x4b6b,
+		  0x81, 0xce, 0xdd, 0xd8, 0x69, 0x70, 0xf2, 0x96);
+
+#define TDCM_EVENT_VECTOR	0xc0
+
+#pragma pack(push, 1)
+
+/**
+ * struct tdx_serv_cmd - common command for TDVMCALL Service.xxx
+ *
+ * @guid: guid to identify service.
+ * @length: total length of command, including service specific data.
+ * @rsvd: reserved.
+ */
+struct tdx_serv_cmd {
+	guid_t guid;
+	u32 length;
+	u32 rsvd;
+};
+
+/**
+ * struct tdx_serv_resp - common response for TDVMCALL Service.xxx
+ *
+ * @guid: guid to identify service
+ * @length: total length of response, including service specific data.
+ * @status: 0 - success, 1 - failure
+ */
+struct tdx_serv_resp {
+	guid_t guid;
+	u32 length;
+	u32 status;
+#define SERV_RESP_STS_OK		0
+#define SERV_RESP_STS_DEV_ERR		1
+#define SERV_RESP_STS_TIMEOUT		2
+#define SERV_RESP_STS_RESP2BIG		3
+#define SERV_RESP_STS_BAD_CMDSIZE	4
+#define SERV_RESP_STS_BAD_RSPSIZE	5
+#define SERV_RESP_STS_BUSY		6
+#define SERV_RESP_STS_INVALID		7
+#define SERV_RESP_STS_NO_RES		8
+#define SERV_RESP_STS_NO_SERV		0xfffffffe
+#define SERV_RESP_STS_DEFAULT		0xffffffff
+};
+
+/* TDG.VP.VMCALL <Service.TDCM> command header */
+struct tdcm_cmd_hdr {
+	struct tdx_serv_cmd cmd;
+
+	u8  version;
+	u8  command;
+#define TDCM_CMD_GET_DEV_CTX   0
+#define TDCM_CMD_TDISP         1
+#define TDCM_CMD_GET_DEV_INFO  3
+	u16 rsvd;
+	u32 devid;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM> response header */
+struct tdcm_resp_hdr {
+	struct tdx_serv_resp resp;
+
+	u8 version;
+	u8 command;
+	u8 status;
+#define TDCM_RESP_STS_OK   0
+#define TDCM_RESP_STS_FAIL 1
+	u8 rsvd;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceContext> command */
+struct tdcm_cmd_get_dev_ctx {
+	struct tdcm_cmd_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceHandle> response */
+struct tdcm_resp_get_dev_ctx {
+	struct tdcm_resp_hdr hdr;
+	u32 func_id;
+	u64 rsvd;
+	u64 nonce[4];
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.TDISP> command */
+struct tdcm_cmd_tdisp {
+	struct tdcm_cmd_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.TDISP> response */
+struct tdcm_resp_tdisp {
+	struct tdcm_resp_hdr hdr;
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceInfo> command */
+struct tdcm_cmd_get_dev_info {
+	struct tdcm_cmd_hdr hdr;
+	u64 tpa_request_nonce[4];
+};
+
+/* TDG.VP.VMCALL <Service.TDCM.GetDeviceInfo> response */
+struct tdcm_resp_get_dev_info {
+	struct tdcm_resp_hdr hdr;
+	u8 dev_info_data[0];
+};
+
+#pragma pack(pop)
+
+static int tdx_serv_resp_status(unsigned long resp_va)
+{
+	struct tdx_serv_resp *resp = (struct tdx_serv_resp *)resp_va;
+
+	if (!resp->status)
+		return 0;
+
+	pr_err("%s: resp status 0x%x\n", __func__, resp->status);
+	return -EFAULT;
+}
+
+static int tdx_tdcm_resp_status(unsigned long resp_va)
+{
+	struct tdcm_resp_hdr *hdr = (struct tdcm_resp_hdr *)resp_va;
+	int ret;
+
+	ret = tdx_serv_resp_status(resp_va);
+	if (ret)
+		return ret;
+
+	return hdr->status ? -EFAULT : 0;
+}
+
+DEFINE_IDTENTRY_SYSVEC(sysvec_tdcm_event_callback)
+{
+	apic_eoi();
+	pr_info("TDVMCALL<Service> complete notification\n");
+	complete(&tdcm_completion);
+}
+
+/*
+ * TDVMCALL service request
+ */
+static int __tdx_service(u64 cmd, u64 resp, u64 notify, u64 timeout)
+{
+	u64 ret;
+
+	ret = _tdx_hypercall(TDVMCALL_SERVICE, cmd, resp, notify, timeout);
+
+	pr_debug("%s ret 0x%llx cmd %llx resp %llx notify %llx timeout %llx\n",
+		 __func__, ret, cmd, resp, notify, timeout);
+
+	return ret ? -EIO : 0;
+}
+
+/*
+ * @serv: service data structure to be initialized.
+ * @cmd_len: size of command.
+ * @resp_len: the max size that service responder can fill.
+ * @vector: vector for notification when response is ready.
+ * @timeout: timeout for this service request
+ */
+static int tdx_service_init(struct tdx_serv *serv, guid_t *guid,
+			    u32 cmd_len, u32 resp_len, u64 vector, u64 timeout)
+{
+	unsigned long total_sz = PAGE_ALIGN(cmd_len) + PAGE_ALIGN(resp_len);
+	unsigned long va = __get_free_pages(GFP_KERNEL, get_order(total_sz));
+	struct tdx_serv_resp *resp;
+	struct tdx_serv_cmd *cmd;
+
+	if (!va)
+		return -ENOMEM;
+
+	if (set_memory_decrypted(va, 1 << get_order(total_sz))) {
+		free_pages(va, get_order(total_sz));
+		return -EFAULT;
+	}
+
+	serv->cmd_va = va;
+	serv->cmd_len = cmd_len;
+	serv->resp_va = va + PAGE_ALIGN(cmd_len);
+	serv->resp_len = resp_len;
+	serv->vector = vector;
+	serv->timeout = timeout;
+
+	cmd = (struct tdx_serv_cmd *)serv->cmd_va;
+	guid_copy(&cmd->guid, guid);
+	cmd->length = cmd_len;
+
+	resp = (struct tdx_serv_resp *)serv->resp_va;
+	guid_copy(&resp->guid, guid);
+	resp->status = SERV_RESP_STS_DEFAULT;
+	resp->length = PAGE_ALIGN(resp_len);
+
+	return 0;
+}
+
+static int tdx_tdcm_serv_init(struct tdx_serv *serv, bool notify, u8 command,
+			      u32 devid, u32 cmd_len, u32 resp_len)
+{
+	struct tdcm_resp_hdr *resp;
+	struct tdcm_cmd_hdr *cmd;
+	int ret;
+
+	ret = tdx_service_init(serv, &tdcm_guid, cmd_len, resp_len,
+			       notify ? TDCM_EVENT_VECTOR : 0, 0);
+	if (ret)
+		return ret;
+
+	cmd = (struct tdcm_cmd_hdr *)serv->cmd_va;
+	resp = (struct tdcm_resp_hdr *)serv->resp_va;
+
+	cmd->version = 0;
+	cmd->command = command;
+	cmd->devid = devid;
+	resp->version = 0;
+	resp->command = command;
+	resp->status = TDCM_RESP_STS_FAIL;
+	return ret;
+}
+
+static void tdx_service_deinit(struct tdx_serv *serv)
+{
+	unsigned long total_sz = PAGE_ALIGN(serv->cmd_len) + PAGE_ALIGN(serv->resp_len);
+	int order = get_order(total_sz);
+
+	WARN_ON(set_memory_encrypted(serv->cmd_va, 1 << order));
+	free_pages(serv->cmd_va, order);
+}
+
+static struct completion *tdx_get_completion(u64 vector)
+{
+	switch (vector) {
+	case TDCM_EVENT_VECTOR:
+		return &tdcm_completion;
+	default:
+		return NULL;
+	}
+}
+
+static int tdx_service(struct tdx_serv *serv)
+{
+	struct tdx_serv_resp *resp = (struct tdx_serv_resp *)serv->resp_va;
+	struct tdx_serv_cmd *cmd = (struct tdx_serv_cmd *)serv->cmd_va;
+	struct completion *cmplt;
+	u64 cmd_gpa, resp_gpa;
+	int ret;
+
+	cmd_gpa = __pa(serv->cmd_va) | cc_mkdec(0);
+	resp_gpa = __pa(serv->resp_va) | cc_mkdec(0);
+
+	ret = __tdx_service(cmd_gpa, resp_gpa, serv->vector, serv->timeout);
+	if (ret)
+		return ret;
+
+	if (serv->vector) {
+		cmplt = tdx_get_completion(serv->vector);
+		if (cmplt)
+			wait_for_completion(cmplt);
+	}
+
+	if (resp->status != SERV_RESP_STS_OK) {
+		pr_err("%s: failed to get a valid response. - %x\n",
+		       __func__, resp->status);
+		return -EIO;
+	} else if (!guid_equal(&resp->guid, &cmd->guid)) {
+		pr_info("%s: Unknown GUID: %pUl\n", __func__, &resp->guid);
+		return -EFAULT;
+	}
+
+	return ret;
+}
+
+int tdx_get_dev_context(u32 devid, u32 *func_id,
+			u64 *nonce0, u64 *nonce1, u64 *nonce2, u64 *nonce3)
+{
+	struct tdcm_resp_get_dev_ctx *resp;
+	struct tdx_serv serv;
+	int ret;
+
+	ret = tdx_tdcm_serv_init(&serv, 0, TDCM_CMD_GET_DEV_CTX, devid,
+				 sizeof(struct tdcm_cmd_get_dev_ctx),
+				 sizeof(struct tdcm_resp_get_dev_ctx));
+	if (ret) {
+		pr_info("%s: tdcm_serv_init failed\n", __func__);
+		return ret;
+	}
+
+	ret = tdx_service(&serv);
+	if (ret) {
+		pr_info("%s: service request failed\n", __func__);
+		goto done;
+	}
+
+	if (tdx_tdcm_resp_status(serv.resp_va)) {
+		pr_info("%s: service respnse bad status\n", __func__);
+		ret = -EFAULT;
+		goto done;
+	}
+
+	resp = (struct tdcm_resp_get_dev_ctx *)serv.resp_va;
+
+	*func_id = resp->func_id;
+	*nonce0 = resp->nonce[0];
+	*nonce1 = resp->nonce[1];
+	*nonce2 = resp->nonce[2];
+	*nonce3 = resp->nonce[3];
+
+	pr_info("%s: devid %x func_id %x nonce0 %llx nonce1 %llx nonce2 %llx nonce3 %llx\n",
+		__func__, devid, *func_id, *nonce0, *nonce1, *nonce2, *nonce3);
+done:
+	tdx_service_deinit(&serv);
+	return ret;
+}
+
+struct tdx_tdi_request {
+	struct tdisp_request_parm parm;
+
+	unsigned long req_va;
+	unsigned long rsp_va;
+
+	size_t req_sz;
+	size_t rsp_sz;
+};
+
+struct tdx_payload_parm {
+	union {
+		u64 raw;
+		struct {
+			u64 size:12;
+			u64 pa:52;
+		};
+	};
+};
+
+#define TDI_BUFF_SIZE		PAGE_SIZE
+/*
+ * TDI_BUFF_SIZE - 8 (DOE header) - 8 (SPDM Secured Msg.header) -
+ * 11 (PCISIG vendor header) - 16 (SPDM Secured Msg.MAC) - 3 (max DW padding)
+ * - 1 (application id byte)
+ * = PAGE_SIZE - 47 = 4049
+ */
+#define TDI_MAX_PAYLOAD_SIZE	(TDI_BUFF_SIZE - 46)
+#define TDI_MIN_PAYLOAD_SIZE	16
+
+static void tdx_tdi_request_free(struct tdx_tdi_request *req)
+{
+	free_pages(req->req_va, get_order(req->req_sz));
+	free_pages(req->rsp_va, get_order(req->rsp_sz));
+}
+
+static struct tdx_tdi_request *tdx_tdi_request_alloc(void)
+{
+	unsigned int order = get_order(TDI_BUFF_SIZE);
+	struct tdx_tdi_request *req;
+
+	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	if (!req)
+		return NULL;
+
+	/*
+	 * TDX module only supports MAX message size to 4K including
+	 * DOE and SPDM header, per current version of TDX module it
+	 * only supports SPDM 1.2 and DOE 1.0. The headers are 44
+	 * byte, so MAX_TDX_SPDM_PAYLOAD_SIZE is PAGE_SIZE - 47, same
+	 * for TDISP requests and response, PAGE_SIZE buffer is enough
+	 */
+	req->req_sz = TDI_BUFF_SIZE;
+	req->rsp_sz = TDI_BUFF_SIZE;
+
+	req->req_va = __get_free_pages(GFP_KERNEL, order);
+	req->rsp_va = __get_free_pages(GFP_KERNEL, order);
+
+	if (!req->req_va || !req->rsp_va) {
+		tdx_tdi_request_free(req);
+		return NULL;
+	}
+
+	return req;
+}
+
+static inline u8 req_to_rsp_message(u8 message)
+{
+	return message & 0x7f;
+}
+
+/* For TDG.VP.VMCALL <service.TDCM.TDISP> */
+int tdx_devif_tdisp(struct pci_tdi *tdi, struct tdisp_request_parm *parm)
+{
+	struct tdisp_response_parm rsp_parm = { 0 };
+	struct tdx_payload_parm payload = { 0 };
+	u32 devid = pci_dev_id(tdi->pdev);
+	struct tdx_tdi_request *req;
+	struct tdx_serv serv;
+	unsigned int size;
+	int ret;
+
+	req = tdx_tdi_request_alloc();
+	if (!req)
+		return -ENOMEM;
+
+	ret = pci_tdi_gen_req(tdi, req->req_va, req->req_sz, parm, &size);
+	if (ret)
+		goto exit_req_free;
+
+	payload.raw = __pa(req->req_va);
+	payload.size = size;
+
+	ret = __tdx_devif_request(tdi->intf_id.func_id, payload.raw);
+	if (ret)
+		goto exit_req_free;
+
+	ret = tdx_tdcm_serv_init(&serv, true, TDCM_CMD_TDISP, devid,
+				 sizeof(struct tdcm_cmd_tdisp),
+				 sizeof(struct tdcm_resp_tdisp));
+	if (ret)
+		goto exit_req_free;
+
+	ret = tdx_service(&serv);
+	if (ret)
+		goto exit_serv_deinit;
+
+	ret = tdx_tdcm_resp_status(serv.resp_va);
+	if (ret)
+		goto exit_serv_deinit;
+
+	payload.raw = __pa(req->rsp_va);
+
+	ret = __tdx_devif_response(tdi->intf_id.func_id, payload.raw, &size);
+	if (ret)
+		goto exit_serv_deinit;
+
+	rsp_parm.message = req_to_rsp_message(parm->message);
+
+	ret = pci_tdi_process_rsp(tdi, req->rsp_va, size, &rsp_parm);
+
+exit_serv_deinit:
+	tdx_service_deinit(&serv);
+exit_req_free:
+	tdx_tdi_request_free(req);
+	return ret;
+}
+
+/* For TDG.VP.VMCALL <service.TDCM.GetDeviceInfo> */
+#define DEVICE_INFO_DATA_BUF_SZ		(8 * PAGE_SIZE)
+
+int tdx_get_dev_info(struct pci_tdi *tdi, void **buf_ptr, unsigned int *actual_sz)
+{
+	struct tdcm_resp_get_dev_info *resp;
+	u32 devid = pci_dev_id(tdi->pdev);
+	struct tdx_serv serv;
+	unsigned int size;
+	void *buf_va;
+	int ret;
+
+	ret = tdx_tdcm_serv_init(&serv, 0, TDCM_CMD_GET_DEV_INFO, devid,
+				 sizeof(struct tdcm_cmd_get_dev_info),
+				 DEVICE_INFO_DATA_BUF_SZ);
+	if (ret)
+		return ret;
+
+	ret = tdx_service(&serv);
+	if (ret)
+		goto done;
+
+	ret = tdx_tdcm_resp_status(serv.resp_va);
+	if (ret)
+		goto done;
+
+	resp = (struct tdcm_resp_get_dev_info *)serv.resp_va;
+
+	size = resp->hdr.resp.length - sizeof(*resp);
+
+	pr_debug("%s: dev_info_size 0x%x resp.length %x\n",
+		 __func__, size, resp->hdr.resp.length);
+
+	buf_va = kzalloc(size, GFP_KERNEL);
+	if (buf_va) {
+		memcpy(buf_va, (void *)resp->dev_info_data, size);
+		*buf_ptr = buf_va;
+		*actual_sz = size;
+	} else {
+		ret = -ENOMEM;
+	}
+
+done:
+	tdx_service_deinit(&serv);
+	return ret;
+}
+
+static int __tdx_map_gpa(phys_addr_t gpa, int numpages, bool enc)
+{
+	u64 ret;
+
+	if (!enc)
+		gpa |= cc_mkdec(0);
+
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0);
+	return ret ? -EIO : 0;
+}
+
+struct tdx_page_mapping_info {
+	union {
+		u64 raw;
+		struct {
+			u64 level:3;
+			u64 reserved0:9;
+			u64 gpa:40;
+			u64 reserved1:12;
+		};
+	};
+};
+
+static long tdx_mmio_accept(phys_addr_t gpa, u64 mmio_offset)
+{
+	struct tdx_page_mapping_info gpa_info = { 0 };
+	struct tdx_module_args args = { 0 };
+	u64 ret;
+
+	gpa_info.level = 0;
+	gpa_info.gpa = (gpa & GENMASK(51, 12)) >> 12;
+
+	args.rcx = gpa_info.raw;
+	args.rdx = mmio_offset;
+	ret = tdcall(TDG_MMIO_ACCEPT, &args);
+
+	pr_debug("%s gpa_info=%llx, mmio_offset=%llx, ret 0x%llx\n", __func__,
+		 gpa_info.raw, mmio_offset, ret);
+
+	return ret ? -EIO: 0;
+}
+
+int tdx_map_private_mmio(phys_addr_t gpa, u64 offset, int numpages)
+{
+	int ret, i;
+
+	ret = __tdx_map_gpa(gpa, numpages, true);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < numpages; i++)
+		ret = tdx_mmio_accept(gpa + i * PAGE_SIZE, offset + i * PAGE_SIZE);
+
+	return 0;
+}
+
 void __init tdx_early_init(void)
 {
+	struct tdx_module_args args = {
+		.rdx = TDCS_NOTIFY_ENABLES,
+		.r9 = -1ULL,
+	};
 	u64 cc_mask;
 	u32 eax, sig[3];
 
@@ -1123,7 +1863,7 @@ void __init tdx_early_init(void)
 	cc_set_mask(cc_mask);
 
 	/* Kernel does not use NOTIFY_ENABLES and does not need random #VEs */
-	tdx_module_call(TDX_WR, 0, TDCS_NOTIFY_ENABLES, 0, -1ULL, NULL);
+	tdcall_ret_with_trace(TDG_VM_WR, &args);
 
 	/*
 	 * All bits above GPA width are reserved and kernel treats shared bit
@@ -1173,6 +1913,8 @@ void __init tdx_early_init(void)
 
 	pci_disable_early();
 	pci_disable_mmconf();
+
+	init_completion(&tdcm_completion);
 
 	pr_info("Guest detected\n");
 }

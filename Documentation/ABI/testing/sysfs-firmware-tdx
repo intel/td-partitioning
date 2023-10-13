@@ -1,0 +1,97 @@
+What:           /sys/firmware/tdx/
+Date:           March 2023
+KernelVersion:  6.3
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Users:          libvirt
+Description:
+                Intel's Trust Domain Extensions (TDX) protect guest VMs from
+                malicious hosts and some physical attacks.  This directory
+                represents the entry point directory for the TDX.
+
+                This feature requires the TDX firmware to load into an isolated
+                memory region.  It uses two-step loading process; the first
+                phase is NP-SEAMLDR loader that loads the next one and the
+                second phase is P-SEAMLDR loader that loads the TDX firmware
+                (a.k.a the "TDX module").
+
+                =============== ================================================
+                keyid_num       the number of SEAM keyid as an hexadecimal
+                                number with the "0x" prefix.
+                =============== ================================================
+
+What:           /sys/firmware/tdx/tdx_module/
+Date:           March 2023
+KernelVersion:  6.3
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Users:          libvirt
+Description:
+                The TDX feature requires a firmware that is known as the TDX
+                module. The module exposes its information in the following
+                read-only files. The information corresponds to the data
+                structure named TDSYSINFO_STRUCT. Administrators or VMM
+                managers like libvirt can refer to it to determine if TDX is
+                supported and identify the loaded module.
+
+                ================== ============================================
+                status             string of the TDX module status.
+
+                                   * "unknown", "none": the TDX module is not
+                                     loaded
+                                   * "loaded": The TDX module is loaded, but
+                                     not initialized
+                                   * "initialized": the TDX module is fully
+                                     initialized
+                                   * "shutdown": the TDX module is shutdown due
+                                     to error during initialization.
+
+                attributes         32-bit flags of the TDX module attributes as
+                                   a hexadecimal number with the "0x" prefix.
+
+                                   * Bits 31 - a production module(0) or
+                                     a debug module(1).
+                                   * Bits 0-30 - Reserved - set to 0.
+
+                vendor_id          vendor ID as a hexadecimal number with the
+                                   "0x" prefix.
+                build_date         build date in yyyymmdd BCD format.
+                build_num          build number as a hexadecimal number with
+                                   the "0x" prefix.
+                minor_version      minor version as a hexadecimal number with
+                                   the "0x" prefix.
+                major_version      major version as a hexadecimal number with
+                                   the "0x" prefix.
+                ================== ============================================
+
+What:           /sys/firmware/tdx/tdx_module/metadata/
+Date:           March 2023
+KernelVersion:  6.3
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Users:          qemu, libvirt
+Description:
+                The TDX feature requires a firmware that is known as the TDX
+                module.  The TDX module exposes its metadata in the following
+                read-only files.  The information corresponds to the TDX global
+                metadata specified by 64bit field id.  The file name is hex
+                string in lower case.  The value is binary.
+                User space VMM like qemu needs refer to them to determine what
+                parameters are needed or allowed to configure guest TDs.
+
+                ================ =============== ==============================
+                path name        value type      content
+                field id in hex
+                in lower case
+                ================ =============== ==============================
+                1900000300000000 64bit value     ATTRIBUTES_FIXED0
+                1900000300000001 64bit value     ATTRIBUTES_FIXED1
+                1900000300000002 64bit value     XFAM_FIXED0
+                1900000300000003 64bit value     XFAM_FIXED1
+                9900000100000004 64bit value     NUM_CPUID_CONFIG
+                9900000300000400 array of        CPUID_LEAVES
+                                 (32bit leaf,    array size is NUM_CPUID_CONFIG
+                                  32bit subleaf)
+                9900000300000500 array of        CPUID_VALUES
+                                 (32bit eax,     array size is NUM_CPUID_CONFIG
+                                  32bit ebx,
+                                  32bit ecx,
+                                  32bit edx)
+                ================ =============== ==============================

@@ -15,9 +15,22 @@
 #include <linux/bitops.h>
 #include <linux/bug.h>
 #include <linux/types.h>
+#include <linux/percpu-defs.h>
 
 #include <uapi/asm/vmx.h>
 #include <asm/vmxfeatures.h>
+#include <asm/processor.h>
+
+struct vmcs_hdr {
+	u32 revision_id:31;
+	u32 shadow_vmcs:1;
+};
+
+struct vmcs {
+	struct vmcs_hdr hdr;
+	u32 abort;
+	char data[];
+};
 
 #define VMCS_CONTROL_BIT(x)	BIT(VMX_FEATURE_##x & 0x1f)
 
@@ -70,6 +83,7 @@
 #define SECONDARY_EXEC_ENCLS_EXITING		VMCS_CONTROL_BIT(ENCLS_EXITING)
 #define SECONDARY_EXEC_RDSEED_EXITING		VMCS_CONTROL_BIT(RDSEED_EXITING)
 #define SECONDARY_EXEC_ENABLE_PML               VMCS_CONTROL_BIT(PAGE_MOD_LOGGING)
+#define SECONDARY_EXEC_EPT_VIOLATION_VE		VMCS_CONTROL_BIT(EPT_VIOLATION_VE)
 #define SECONDARY_EXEC_PT_CONCEAL_VMX		VMCS_CONTROL_BIT(PT_CONCEAL_VMX)
 #define SECONDARY_EXEC_ENABLE_XSAVES		VMCS_CONTROL_BIT(XSAVES)
 #define SECONDARY_EXEC_PASID_TRANSLATION	VMCS_CONTROL_BIT(PASID_TRANSLATION)
@@ -142,6 +156,11 @@ static inline u32 vmx_basic_vmcs_revision_id(u64 vmx_basic)
 static inline u32 vmx_basic_vmcs_size(u64 vmx_basic)
 {
 	return (vmx_basic & GENMASK_ULL(44, 32)) >> 32;
+}
+
+static inline u32 vmx_basic_cap(u64 vmx_basic)
+{
+	return (vmx_basic & ~GENMASK_ULL(44, 32)) >> 32;
 }
 
 static inline int vmx_misc_preemption_timer_rate(u64 vmx_misc)
@@ -226,6 +245,8 @@ enum vmcs_field {
 	VMREAD_BITMAP_HIGH              = 0x00002027,
 	VMWRITE_BITMAP                  = 0x00002028,
 	VMWRITE_BITMAP_HIGH             = 0x00002029,
+	VE_INFORMATION_ADDRESS		= 0x0000202A,
+	VE_INFORMATION_ADDRESS_HIGH	= 0x0000202B,
 	XSS_EXIT_BITMAP                 = 0x0000202C,
 	XSS_EXIT_BITMAP_HIGH            = 0x0000202D,
 	ENCLS_EXITING_BITMAP		= 0x0000202E,
@@ -238,6 +259,7 @@ enum vmcs_field {
 	PASID_DIR0_HIGH                 = 0x00002039,
 	PASID_DIR1                      = 0x0000203a,
 	PASID_DIR1_HIGH                 = 0x0000203b,
+	SHARED_EPT_POINTER		= 0x0000203C,
 	PID_POINTER_TABLE		= 0x00002042,
 	PID_POINTER_TABLE_HIGH		= 0x00002043,
 	GUEST_PHYSICAL_ADDRESS          = 0x00002400,
@@ -518,6 +540,7 @@ enum vmcs_field {
 #define VMX_EPT_IPAT_BIT    			(1ull << 6)
 #define VMX_EPT_ACCESS_BIT			(1ull << 8)
 #define VMX_EPT_DIRTY_BIT			(1ull << 9)
+#define VMX_EPT_SUPPRESS_VE_BIT			(1ull << 63)
 #define VMX_EPT_RWX_MASK                        (VMX_EPT_READABLE_MASK |       \
 						 VMX_EPT_WRITABLE_MASK |       \
 						 VMX_EPT_EXECUTABLE_MASK)
@@ -671,5 +694,27 @@ extern enum vmx_l1d_flush_state l1tf_vmx_mitigation;
 #define PASID_TE_NUM			1024
 #define pasid_te_hpasid_valid(pte)	(*(pte) & PASID_TE_VALID)
 #define pasid_te_hpasid(pte)		(*(pte) & PASID_TE_HOST_PASID)
+
+struct vmx_ve_information {
+	u32 exit_reason;
+	u32 delivery;
+	u64 exit_qualification;
+	u64 guest_linear_address;
+	u64 guest_physical_address;
+	u16 eptp_index;
+};
+
+#ifdef CONFIG_HAVE_VMX_GENERIC
+DECLARE_PER_CPU(u64, vmx_basic);
+int cpu_vmxop_get(void);
+int cpu_vmxop_put(void);
+int cpu_vmxop_get_all(void);
+int cpu_vmxop_put_all(void);
+#else
+static inline int cpu_vmxop_get(void) { return -EOPNOTSUPP; }
+static inline int cpu_vmxop_put(void) { return -EOPNOTSUPP; }
+static inline int cpu_vmxop_get_all(void) { return -EOPNOTSUPP; }
+static inline int cpu_vmxop_put_all(void) { return -EOPNOTSUPP; }
+#endif
 
 #endif

@@ -402,6 +402,11 @@ static inline int domain_type_is_si(struct dmar_domain *domain)
 	return domain->domain.type == IOMMU_DOMAIN_IDENTITY;
 }
 
+static inline bool domain_is_trusted(struct dmar_domain *domain)
+{
+	return domain->flags & DOMAIN_FLAG_TRUSTED;
+}
+
 static inline int domain_pfn_supported(struct dmar_domain *domain,
 				       unsigned long pfn)
 {
@@ -1643,6 +1648,130 @@ static void iommu_disable_protect_mem_regions(struct intel_iommu *iommu)
 	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
 }
 
+/* allocates 16 pages, but only use 12 */
+#define TDX_IO_BUFF_ORDER	4
+#define TDX_IO_BUFF_PG_NUM	12
+
+static int iommu_tdxio_init(struct intel_iommu *iommu)
+{
+	unsigned long va;
+	u64 id, ret;
+
+	preempt_disable();
+	cpu_vmxop_get();
+	ret = tdh_iommu_getreg(iommu->reg_phys, DMAR_IOMMU_ID_REG, &id);
+	cpu_vmxop_put();
+	preempt_enable();
+
+	if (ret)
+		return 0;
+
+	iommu->id = id;
+
+	/*
+	 * TDX-IO mode initialization requires 12 free pages, some should be
+	 * contiguous. e.g. 4 contiguous pages for IQ, 4 for IQCTX. For
+	 * simplicity, alloc 16 contiguous pages and leave last 4 unused.
+	 */
+	va = __get_free_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, TDX_IO_BUFF_ORDER);
+	if (!va)
+		return -ENOMEM;
+
+	iommu->tdxio_pages_pa = __pa(va);
+
+	return 0;
+}
+
+static void iommu_tdxio_free(struct intel_iommu *iommu)
+{
+	if (iommu->tdxio_pages_pa)
+		free_pages((unsigned long)__va(iommu->tdxio_pages_pa), TDX_IO_BUFF_ORDER);
+}
+
+static void iommu_tdxio_reclaim_pages(unsigned long pages_pa)
+{
+	int i;
+
+	/* Don't reclaim unused pages */
+	for (i = 0; i < TDX_IO_BUFF_PG_NUM; i++)
+		WARN_ON(tdx_reclaim_page(pages_pa + (i * PAGE_SIZE),
+					 false, 0));
+}
+
+static int iommu_tdxio_enable(struct intel_iommu *iommu)
+{
+	unsigned long pa;
+	u64 id, v;
+
+	if (!iommu->tdxio_pages_pa)
+		return -ENOENT;
+
+	if (iommu->tdxio_enabled)
+		return 0;
+
+	pa = iommu->tdxio_pages_pa;
+	id = iommu->id;
+
+	cpu_vmxop_get();
+	tdh_iommu_setreg(id, DMAR_RTPAGE_REG,    pa);
+	tdh_iommu_setreg(id, DMAR_STINFOPA0_REG, pa + (1 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_STINFOPA1_REG, pa + (2 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQPAGE_REG,    pa + (3 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQPAGE_REG,    pa + (4 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQPAGE_REG,    pa + (5 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQPAGE_REG,    pa + (6 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQCTXPAGE_REG, pa + (7 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQCTXPAGE_REG, pa + (8 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQCTXPAGE_REG, pa + (9 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_IQCTXPAGE_REG, pa + (10 * PAGE_SIZE));
+	tdh_iommu_setreg(id, DMAR_SPDMDIRPA_REG, pa + (11 * PAGE_SIZE));
+
+	/*
+	 * set CONFIG_IOMMU to start ECMD to set TDX mode.
+	 * poll ERESP and ESTS to confirm result.
+	 */
+	tdh_iommu_setreg(id, DMAR_CONFIG_IOMMU_REG, 0);
+	cpu_vmxop_put();
+
+	IOMMU_WAIT_OP(iommu, DMAR_ECRSP_REG, readq, !ecrsp_ip(v), v);
+
+	if (ecrsp_sc(v))
+		goto error_clear_iommu_reg;
+
+	v = readq(iommu->reg + DMAR_ECSTS_REG);
+	if (!ecsts_tdx_mode(v))
+		goto error_clear_iommu_reg;
+
+	iommu->tdxio_enabled = true;
+
+	pr_info("%s: TDX mode initialized\n", iommu->name);
+	return 0;
+
+error_clear_iommu_reg:
+	cpu_vmxop_get();
+	tdh_iommu_setreg(id, DMAR_CLEAR_IOMMU_REG, 0);
+	iommu_tdxio_reclaim_pages(pa);
+	cpu_vmxop_put();
+
+	return -EFAULT;
+}
+
+static int iommu_tdxio_disable(struct intel_iommu *iommu)
+{
+	if (iommu->tdxio_enabled) {
+		iommu->tdxio_enabled = 0;
+
+		cpu_vmxop_get();
+		tdh_iommu_setreg(iommu->id, DMAR_CLEAR_IOMMU_REG, 0);
+		iommu_tdxio_reclaim_pages(iommu->tdxio_pages_pa);
+		cpu_vmxop_put();
+
+		pr_info("%s: TDX mode de-initialized\n", iommu->name);
+	}
+
+	return 0;
+}
+
 static void iommu_enable_translation(struct intel_iommu *iommu)
 {
 	u32 sts;
@@ -1655,6 +1784,9 @@ static void iommu_enable_translation(struct intel_iommu *iommu)
 	/* Make sure hardware complete it */
 	IOMMU_WAIT_OP(iommu, DMAR_GSTS_REG,
 		      readl, (sts & DMA_GSTS_TES), sts);
+
+	if (tdxio_supported(iommu))
+		iommu_tdxio_enable(iommu);
 
 	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
 }
@@ -1669,6 +1801,10 @@ static void iommu_disable_translation(struct intel_iommu *iommu)
 		return;
 
 	raw_spin_lock_irqsave(&iommu->register_lock, flag);
+
+	if (tdxio_supported(iommu))
+		iommu_tdxio_disable(iommu);
+
 	iommu->gcmd &= ~DMA_GCMD_TE;
 	writel(iommu->gcmd, iommu->reg + DMAR_GCMD_REG);
 
@@ -1755,6 +1891,9 @@ static void free_dmar_iommu(struct intel_iommu *iommu)
 		ioasid_unregister_allocator(&iommu->pasid_allocator);
 
 #endif
+
+	if (tdxio_supported(iommu))
+		iommu_tdxio_free(iommu);
 }
 
 /*
@@ -2937,6 +3076,12 @@ static int __init init_dmars(void)
 		if (!ecap_pass_through(iommu->ecap))
 			hw_pass_through = 0;
 		intel_svm_check(iommu);
+
+		if (tdxio_supported(iommu)) {
+			ret = iommu_tdxio_init(iommu);
+			if (ret)
+				goto free_iommu;
+		}
 	}
 
 	/*
@@ -3414,6 +3559,16 @@ static int intel_iommu_add(struct dmar_drhd_unit *dmaru)
 		goto out;
 
 	intel_svm_check(iommu);
+
+	/*
+	 * No hotplugable tdxio capable iommu yet, so it is not tested. Will
+	 * revisit when hardware supports it.
+	 */
+	if (tdxio_supported(iommu)) {
+		ret = iommu_tdxio_init(iommu);
+		if (ret)
+			goto out;
+	}
 
 	if (dmaru->ignored) {
 		/*
@@ -4083,6 +4238,16 @@ void device_block_translation(struct device *dev)
 	struct intel_iommu *iommu = info->iommu;
 	unsigned long flags;
 
+	if (info->domain && domain_is_trusted(info->domain)) {
+		/*
+		 * FIXME: currently leave tdx code cleanup trusted IO page
+		 * tables directly, to be moved to iommu driver.
+		 */
+		info->domain = NULL;
+		dev_dbg(dev, "trusted domain cleared\n");
+		return;
+	}
+
 	iommu_disable_pci_caps(info);
 	if (!dev_is_real_dma_subdevice(dev)) {
 		if (sm_supported(iommu))
@@ -4202,8 +4367,14 @@ static void intel_iommu_domain_free(struct iommu_domain *domain)
 		domain_exit(to_dmar_domain(domain));
 }
 
+static int intel_iommu_domain_set_trusted(struct iommu_domain *domain)
+{
+	to_dmar_domain(domain)->flags |= DOMAIN_FLAG_TRUSTED;
+	return 0;
+}
+
 int prepare_domain_attach_device(struct iommu_domain *domain,
-				 struct device *dev)
+					struct device *dev)
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 	struct intel_iommu *iommu;
@@ -4254,6 +4425,26 @@ static int intel_iommu_attach_device(struct iommu_domain *domain,
 
 	if (info->domain)
 		device_block_translation(dev);
+
+	if (domain_is_trusted(to_dmar_domain(domain))) {
+		struct intel_iommu *iommu = device_to_iommu(dev, NULL, NULL);
+
+		if (tdxio_supported(iommu)) {
+			struct device_domain_info *info = dev_iommu_priv_get(dev);
+
+			/*
+			 * FIXME: currently leave tdx code setup trusted IO
+			 * page tables directly, to be moved to iommu driver.
+			 */
+			info->domain = to_dmar_domain(domain);
+			dev_dbg(dev, "trusted domain attach\n");
+			return 0;
+		}
+
+		return -ENOTTY;
+	}
+
+	dev_dbg(dev, "normal domain attach\n");
 
 	ret = prepare_domain_attach_device(domain, dev);
 	if (ret)
@@ -4996,6 +5187,7 @@ static void *intel_iommu_hw_info(struct device *dev, u32 *length, u32 *type)
 	vtd->flags = IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17;
 	vtd->cap_reg = iommu->cap;
 	vtd->ecap_reg = iommu->ecap;
+	vtd->id = iommu->id;
 	*length = sizeof(*vtd);
 	*type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
 
@@ -5144,6 +5336,7 @@ const struct iommu_ops intel_iommu_ops = {
 		.enforce_cache_coherency = intel_iommu_enforce_cache_coherency,
 		.set_dirty_tracking	= intel_iommu_set_dirty_tracking,
 		.read_and_clear_dirty   = intel_iommu_read_and_clear_dirty,
+		.set_trusted		= intel_iommu_domain_set_trusted,
 	}
 };
 

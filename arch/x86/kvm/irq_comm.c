@@ -143,7 +143,7 @@ int kvm_set_msi(struct kvm_kernel_irq_routing_entry *e,
 
 	return kvm_irq_delivery_to_apic(kvm, NULL, &irq, NULL);
 }
-
+EXPORT_SYMBOL_GPL(kvm_set_msi);
 
 static int kvm_hv_set_sint(struct kvm_kernel_irq_routing_entry *e,
 		    struct kvm *kvm, int irq_source_id, int level,

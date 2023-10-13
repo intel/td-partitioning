@@ -21,5 +21,7 @@ struct pci_doe_mb *pci_find_doe_mailbox(struct pci_dev *pdev, u16 vendor,
 int pci_doe(struct pci_doe_mb *doe_mb, u16 vendor, u8 type,
 	    const void *request, size_t request_sz,
 	    void *response, size_t response_sz);
+int pci_doe_msg_exchange_sync(struct pci_doe_mb *doe_mb, u32 *request,
+			      u32 *response, size_t response_buf_sz);
 
 #endif

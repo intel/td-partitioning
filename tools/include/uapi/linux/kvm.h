@@ -1193,6 +1193,12 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_ARM_EAGER_SPLIT_CHUNK_SIZE 228
 #define KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES 229
 
+/* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 300
+#define KVM_CAP_MEMORY_ATTRIBUTES 500
+#define KVM_CAP_USER_MEMORY2 750
+#define KVM_CAP_VM_TYPES 1000
+
 #ifdef KVM_CAP_IRQ_ROUTING
 
 struct kvm_irq_routing_irqchip {

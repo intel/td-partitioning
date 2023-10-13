@@ -9,6 +9,7 @@
 
 #include <linux/dma-direct.h>
 #include <linux/memremap.h>
+#include <linux/set_memory.h>
 
 int dma_direct_get_sgtable(struct device *dev, struct sg_table *sgt,
 		void *cpu_addr, dma_addr_t dma_addr, size_t size,
@@ -88,10 +89,22 @@ static inline dma_addr_t dma_direct_map_page(struct device *dev,
 	phys_addr_t phys = page_to_phys(page) + offset;
 	dma_addr_t dma_addr = phys_to_dma(dev, phys);
 
+	if (dev->authorized == MODE_SECURE && !(attrs & DMA_ATTR_FORCEUNENCRYPTED)) {
+		unsigned long vaddr = (unsigned long)page_address(page) + offset;
+
+		set_memory_encrypted(vaddr, PFN_UP(size));
+		return dma_addr;
+	}
+
 	if (is_swiotlb_force_bounce(dev)) {
 		if (is_pci_p2pdma_page(page))
 			return DMA_MAPPING_ERROR;
-		return swiotlb_map(dev, phys, size, dir, attrs);
+
+		dma_addr = swiotlb_map(dev, phys, size, dir, attrs);
+		if (dev->authorized == MODE_SECURE && (attrs & DMA_ATTR_FORCEUNENCRYPTED))
+			dma_addr |= cc_mkdec(0);
+
+		return dma_addr;
 	}
 
 	if (unlikely(!dma_capable(dev, dma_addr, size, true)) ||

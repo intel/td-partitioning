@@ -144,4 +144,15 @@ struct pci_setup_rom {
 	uint8_t romdata[];
 };
 
+/* per device IDE operation */
+int pci_arch_ide_dev_init(struct pci_dev *dev);
+void pci_arch_ide_dev_release(struct pci_dev *dev);
+int pci_arch_ide_stream_id_alloc(struct pci_dev *dev1, struct pci_dev *dev2);
+void pci_arch_ide_stream_id_free(struct pci_dev *dev1, struct pci_dev *dev2, int stream_id);
+int pci_arch_ide_dev_tee_enter(struct pci_dev *dev);
+int pci_arch_ide_dev_tee_exit(struct pci_dev *dev);
+/* per stream IDE operation */
+int pci_arch_ide_stream_setup(struct pci_ide_stream *stm);
+int pci_arch_ide_stream_remove(struct pci_ide_stream *stm);
+
 #endif /* _ASM_X86_PCI_H */

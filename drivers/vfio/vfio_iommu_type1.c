@@ -82,6 +82,7 @@ struct vfio_domain {
 	struct list_head	group_list;
 	bool			fgsp : 1;	/* Fine-grained super pages */
 	bool			enforce_cache_coherency : 1;
+	bool			trusted : 1;
 };
 
 struct vfio_dma {
@@ -2149,7 +2150,8 @@ static int vfio_iommu_domain_alloc(struct device *dev, void *data)
 }
 
 static int vfio_iommu_type1_attach_group(void *iommu_data,
-		struct iommu_group *iommu_group, enum vfio_group_type type)
+					 struct iommu_group *iommu_group,
+					 enum vfio_group_type type, unsigned int attrs)
 {
 	struct vfio_iommu *iommu = iommu_data;
 	struct vfio_iommu_group *group;
@@ -2206,6 +2208,11 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 				 vfio_iommu_domain_alloc);
 	if (!domain->domain)
 		goto out_free_domain;
+
+	if (attrs & VFIO_GROUP_ATTRS_TRUSTED) {
+		iommu_domain_set_trusted(domain->domain);
+		domain->trusted = true;
+	}
 
 	ret = iommu_attach_group(domain->domain, group->iommu_group);
 	if (ret)
@@ -2279,7 +2286,8 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	list_for_each_entry(d, &iommu->domain_list, next) {
 		if (d->domain->ops == domain->domain->ops &&
 		    d->enforce_cache_coherency ==
-			    domain->enforce_cache_coherency) {
+			    domain->enforce_cache_coherency &&
+		    d->trusted == domain->trusted) {
 			iommu_detach_group(domain->domain, group->iommu_group);
 			if (!iommu_attach_group(d->domain,
 						group->iommu_group)) {

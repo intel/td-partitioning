@@ -3497,6 +3497,16 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 }
 #endif
 
+#ifndef io_remap_pfn_range_encrypted
+static inline int
+io_remap_pfn_range_encrypted(struct vm_area_struct *vma,
+			     unsigned long addr, unsigned long pfn,
+			     unsigned long size, pgprot_t prot)
+{
+	return remap_pfn_range(vma, addr, pfn, size, pgprot_encrypted(prot));
+}
+#endif
+
 static inline vm_fault_t vmf_error(int err)
 {
 	if (err == -ENOMEM)
@@ -4047,6 +4057,7 @@ madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 
 bool range_contains_unaccepted_memory(phys_addr_t start, phys_addr_t end);
 void accept_memory(phys_addr_t start, phys_addr_t end);
+bool unaccept_memory(phys_addr_t start, phys_addr_t end);
 
 #else
 
@@ -4058,6 +4069,11 @@ static inline bool range_contains_unaccepted_memory(phys_addr_t start,
 
 static inline void accept_memory(phys_addr_t start, phys_addr_t end)
 {
+}
+
+static inline bool unaccept_memory(phys_addr_t start, phys_addr_t end)
+{
+	return false;
 }
 
 #endif

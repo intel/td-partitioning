@@ -13,7 +13,12 @@
  * better code than for a high bit, e.g. 56+.  MMU present checks are pervasive
  * enough that the improved code generation is noticeable in KVM's footprint.
  */
-#define SPTE_MMU_PRESENT_MASK		BIT_ULL(11)
+#define SPTE_MMU_PRESENT_HIGH_MASK	BIT_ULL(61)
+#define SPTE_MMU_PRESENT_LOW_MASK	BIT_ULL(11)
+#define SPTE_MMU_PRESENT_MASK		(SPTE_MMU_PRESENT_LOW_MASK | SPTE_MMU_PRESENT_HIGH_MASK)
+
+/* Masks that used to track metadata for not-present SPTEs. */
+#define SPTE_PRIVATE_ZAPPED		BIT_ULL(62)
 
 /*
  * TDP SPTES (more specifically, EPT SPTEs) may not have A/D bits, and may also
@@ -97,11 +102,11 @@ static_assert(!(EPT_SPTE_MMU_WRITABLE & SHADOW_ACC_TRACK_SAVED_MASK));
 #undef SHADOW_ACC_TRACK_SAVED_MASK
 
 /*
- * Due to limited space in PTEs, the MMIO generation is a 19 bit subset of
+ * Due to limited space in PTEs, the MMIO generation is a 18 bit subset of
  * the memslots generation and is derived as follows:
  *
  * Bits 0-7 of the MMIO generation are propagated to spte bits 3-10
- * Bits 8-18 of the MMIO generation are propagated to spte bits 52-62
+ * Bits 8-17 of the MMIO generation are propagated to spte bits 52-61
  *
  * The KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS flag is intentionally not included in
  * the MMIO generation number, as doing so would require stealing a bit from
@@ -115,7 +120,7 @@ static_assert(!(EPT_SPTE_MMU_WRITABLE & SHADOW_ACC_TRACK_SAVED_MASK));
 #define MMIO_SPTE_GEN_LOW_END		10
 
 #define MMIO_SPTE_GEN_HIGH_START	52
-#define MMIO_SPTE_GEN_HIGH_END		62
+#define MMIO_SPTE_GEN_HIGH_END		60
 
 #define MMIO_SPTE_GEN_LOW_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_END, \
 						    MMIO_SPTE_GEN_LOW_START)
@@ -142,12 +147,27 @@ static_assert(!(SPTE_MMIO_ALLOWED_MASK &
 #define MMIO_SPTE_GEN_HIGH_BITS		(MMIO_SPTE_GEN_HIGH_END - MMIO_SPTE_GEN_HIGH_START + 1)
 
 /* remember to adjust the comment above as well if you change these */
-static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 11);
+static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 9);
 
 #define MMIO_SPTE_GEN_LOW_SHIFT		(MMIO_SPTE_GEN_LOW_START - 0)
 #define MMIO_SPTE_GEN_HIGH_SHIFT	(MMIO_SPTE_GEN_HIGH_START - MMIO_SPTE_GEN_LOW_BITS)
 
 #define MMIO_SPTE_GEN_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_BITS + MMIO_SPTE_GEN_HIGH_BITS - 1, 0)
+
+/*
+ * Non-present SPTE value for both VMX and SVM for TDP MMU.
+ * For SVM NPT, for non-present spte (bit 0 = 0), other bits are ignored.
+ * For VMX EPT, bit 63 is ignored if #VE is disabled. (EPT_VIOLATION_VE=0)
+ *              bit 63 is #VE suppress if #VE is enabled. (EPT_VIOLATION_VE=1)
+ * For TDX:
+ *   TDX module sets EPT_VIOLATION_VE for Secure-EPT and conventional EPT
+ */
+#ifdef CONFIG_X86_64
+#define SHADOW_NONPRESENT_VALUE	BIT_ULL(63)
+static_assert(!(SHADOW_NONPRESENT_VALUE & SPTE_MMU_PRESENT_MASK));
+#else
+#define SHADOW_NONPRESENT_VALUE	0ULL
+#endif
 
 extern u64 __read_mostly shadow_host_writable_mask;
 extern u64 __read_mostly shadow_mmu_writable_mask;
@@ -194,10 +214,14 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
  *
  * Only used by the TDP MMU.
  */
-#define REMOVED_SPTE	0x5a0ULL
+#define REMOVED_SPTE	(SHADOW_NONPRESENT_VALUE | 0x5a0ULL)
 
-/* Removed SPTEs must not be misconstrued as shadow present PTEs. */
+/*
+ * Removed SPTEs must not be misconstrued as shadow present PTEs, and
+ * temporarily blocked private PTEs.
+ */
 static_assert(!(REMOVED_SPTE & SPTE_MMU_PRESENT_MASK));
+static_assert(!(REMOVED_SPTE & SPTE_PRIVATE_ZAPPED));
 
 static inline bool is_removed_spte(u64 spte)
 {
@@ -249,15 +273,27 @@ static inline struct kvm_mmu_page *root_to_sp(hpa_t root)
 	return spte_to_child_sp(root);
 }
 
-static inline bool is_mmio_spte(u64 spte)
+static inline bool is_private_sptep(u64 *sptep)
 {
-	return (spte & shadow_mmio_mask) == shadow_mmio_value &&
+	WARN_ON_ONCE(!sptep);
+	return is_private_sp(sptep_to_sp(sptep));
+}
+
+static inline bool is_mmio_spte(struct kvm *kvm, u64 spte)
+{
+	return (spte & shadow_mmio_mask) == kvm->arch.shadow_mmio_value &&
 	       likely(enable_mmio_caching);
 }
 
 static inline bool is_shadow_present_pte(u64 pte)
 {
 	return !!(pte & SPTE_MMU_PRESENT_MASK);
+}
+
+static inline u64 sp_mmu_present_mask(struct kvm_mmu_page *sp)
+{
+	return !!sp->role.is_io_compat ?
+	       SPTE_MMU_PRESENT_HIGH_MASK : SPTE_MMU_PRESENT_LOW_MASK;
 }
 
 /*
@@ -308,6 +344,11 @@ static inline u64 spte_shadow_dirty_mask(u64 spte)
 static inline bool is_access_track_spte(u64 spte)
 {
 	return !spte_ad_enabled(spte) && (spte & shadow_acc_track_mask) == 0;
+}
+
+static inline bool is_private_zapped_spte(u64 spte)
+{
+	return !!(spte & SPTE_PRIVATE_ZAPPED);
 }
 
 static inline bool is_large_pte(u64 pte)
@@ -478,7 +519,7 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	       bool host_writable, u64 *new_spte);
 u64 make_huge_page_split_spte(struct kvm *kvm, u64 huge_spte,
 		      	      union kvm_mmu_page_role role, int index);
-u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled);
+u64 make_nonleaf_spte(u64 *child_pt, bool ad_disabled, u64 spte_mmu_present_mask);
 u64 make_mmio_spte(struct kvm_vcpu *vcpu, u64 gfn, unsigned int access);
 u64 mark_spte_for_access_track(u64 spte);
 

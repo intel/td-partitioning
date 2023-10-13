@@ -604,6 +604,31 @@ static int vfio_basic_config_write(struct vfio_pci_core_device *vdev, int pos,
 		    (new_io && virt_io && !phys_io) ||
 		    vfio_need_bar_restore(vdev))
 			vfio_bar_restore(vdev);
+
+		/*
+		 * Skip PCI_COMMAND_MASTER/MEMORY clear operation for TDI case.
+		 * This can prevent TDI entering TDISP ERROR state by above unexpected
+		 * operataion.
+		 */
+		if (vdev->tdi) {
+			bool phys_master, new_master;
+
+			dev_dbg(&pdev->dev, "TDI: phys_cmd %x new_cmd %x virt_cmd %x\n",
+				phys_cmd, new_cmd, *virt_cmd);
+
+			phys_master = !!(phys_cmd & PCI_COMMAND_MASTER);
+			new_master = !!(new_cmd & PCI_COMMAND_MASTER);
+
+			if (phys_master && !new_master)
+				new_cmd |= PCI_COMMAND_MASTER;
+
+			if (phys_mem && !new_mem)
+				new_cmd |= PCI_COMMAND_MEMORY;
+
+			val = cpu_to_le32(new_cmd);
+
+			dev_dbg(&pdev->dev, "TDI: fix new_cmd %x val %x\n", new_cmd, val);
+		}
 	}
 
 	count = vfio_default_config_write(vdev, pos, count, perm, offset, val);

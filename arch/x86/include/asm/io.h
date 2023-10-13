@@ -178,6 +178,8 @@ extern void __iomem *ioremap_prot(resource_size_t offset, unsigned long size, un
 #define ioremap_prot ioremap_prot
 extern void __iomem *ioremap_encrypted(resource_size_t phys_addr, unsigned long size);
 #define ioremap_encrypted ioremap_encrypted
+extern void __iomem *ioremap_encrypted_flag(resource_size_t phys_addr, unsigned long size, unsigned long flags);
+#define ioremap_encrypted_flag ioremap_encrypted_flag
 
 /**
  * ioremap     -   map bus memory into CPU space

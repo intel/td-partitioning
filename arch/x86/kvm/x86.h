@@ -9,6 +9,10 @@
 #include "kvm_cache_regs.h"
 #include "kvm_emulate.h"
 
+#define KVM_MAX_MCE_BANKS 32
+
+bool __kvm_is_vm_type_supported(unsigned long type);
+
 struct kvm_caps {
 	/* control of guest tsc rate supported? */
 	bool has_tsc_control;
@@ -548,5 +552,21 @@ int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 unsigned int port, void *data,  unsigned int count,
 			 int in);
+
+int lock_two_vms_for_migration(struct kvm *dst_kvm, struct kvm *src_kvm,
+			       atomic_t *dst_migration_in_progress,
+			       atomic_t *src_migration_in_progress);
+
+void unlock_two_vms_for_migration(struct kvm *dst_kvm, struct kvm *src_kvm,
+				  atomic_t *dst_migration_in_progress,
+				  atomic_t *src_migration_in_progress);
+
+int pre_move_enc_context_from(struct kvm *dst_kvm, struct kvm *src_kvm,
+			      atomic_t *dst_migration_in_progress,
+			      atomic_t *src_migration_in_progress);
+
+void post_move_enc_context_from(struct kvm *dst_kvm, struct kvm *src_kvm,
+				atomic_t *dst_migration_in_progress,
+				atomic_t *src_migration_in_progress);
 
 #endif

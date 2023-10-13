@@ -3112,7 +3112,7 @@ static void klist_children_put(struct klist_node *n)
  * set as "allow all". Used __weak attribute allow ARCH code override
  * the default status.
  */
-bool __weak dev_authorized_init(void)
+int __weak dev_authorized_init(void)
 {
 	return true;
 }
@@ -3165,7 +3165,7 @@ void device_initialize(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(device_initialize);
 
-bool __weak arch_dev_authorized(struct device *dev)
+int __weak arch_dev_authorized(struct device *dev)
 {
 	return dev->authorized;
 }

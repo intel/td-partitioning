@@ -1420,6 +1420,8 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 
 	if (!init_event)
 		__svm_vcpu_reset(vcpu);
+
+	kvm_rip_write(vcpu, 0xfff0);
 }
 
 void svm_switch_vmcb(struct vcpu_svm *svm, struct kvm_vmcb_info *target_vmcb)
@@ -2023,6 +2025,7 @@ static void svm_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
+	KVM_BUG_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH, vcpu->kvm);
 	if (WARN_ON_ONCE(sev_es_guest(vcpu->kvm)))
 		return;
 
@@ -4893,6 +4896,12 @@ static void svm_vm_destroy(struct kvm *kvm)
 	sev_vm_destroy(kvm);
 }
 
+static bool svm_is_vm_type_supported(unsigned long type)
+{
+	/* FIXME: Check if CPU is capable of SEV-SNP. */
+	return __kvm_is_vm_type_supported(type);
+}
+
 static int svm_vm_init(struct kvm *kvm)
 {
 	if (!pause_filter_count || !pause_filter_thresh)
@@ -4921,6 +4930,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.vcpu_free = svm_vcpu_free,
 	.vcpu_reset = svm_vcpu_reset,
 
+	.is_vm_type_supported = svm_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_svm),
 	.vm_init = svm_vm_init,
 	.vm_destroy = svm_vm_destroy,
@@ -4952,10 +4962,13 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.set_gdt = svm_set_gdt,
 	.set_dr7 = svm_set_dr7,
 	.sync_dirty_debug_regs = svm_sync_dirty_debug_regs,
+	.load_guest_debug_regs = load_guest_debug_regs,
 	.cache_reg = svm_cache_reg,
 	.get_rflags = svm_get_rflags,
 	.set_rflags = svm_set_rflags,
 	.get_if_flag = svm_get_if_flag,
+	.get_cr2 = kvm_get_cr2,
+	.get_xcr = kvm_get_xcr,
 
 	.flush_tlb_all = svm_flush_tlb_all,
 	.flush_tlb_current = svm_flush_tlb_current,
@@ -5037,6 +5050,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.complete_emulated_msr = svm_complete_emulated_msr,
 
 	.vcpu_deliver_sipi_vector = svm_vcpu_deliver_sipi_vector,
+	.vcpu_deliver_init = kvm_vcpu_deliver_init,
 	.vcpu_get_apicv_inhibit_reasons = avic_vcpu_get_apicv_inhibit_reasons,
 };
 

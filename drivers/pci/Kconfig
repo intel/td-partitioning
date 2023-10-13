@@ -119,6 +119,13 @@ config PCI_ATS
 config PCI_DOE
 	bool
 
+config PCI_IDE
+        bool "PCI IDE support"
+        help
+          Integrity & Data Encryption (IDE) provides confidentiality, integrity,
+	  and replay protection for TLPs Transmitted and Received between two
+	  Ports.
+
 config PCI_ECAM
 	bool
 
@@ -127,6 +134,20 @@ config PCI_LOCKLESS_CONFIG
 
 config PCI_BRIDGE_EMUL
 	bool
+
+config PCI_TDISP
+	bool "PCI TDISP support"
+	depends on KVM
+	select PCI_DOE
+	select PCI_IDE
+	select SPDM_MGR
+	help
+	  Trusted Execution Environment (TEE) Device Interface Security Protocol
+	  defines the secure method to attach/detach TEE Device Interface (TDI)
+	  to/from TEE VMs. Select this option if you want to enable TDISP
+	  support from PCIe Device side.
+
+	  If unsure, say N.
 
 config PCI_IOV
 	bool "PCI IOV support"

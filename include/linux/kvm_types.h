@@ -41,6 +41,7 @@ typedef u64            gpa_t;
 typedef u64            gfn_t;
 
 #define INVALID_GPA	(~(gpa_t)0)
+#define INVALID_GFN	(INVALID_GPA / PAGE_SIZE)
 
 typedef unsigned long  hva_t;
 typedef u64            hpa_t;
@@ -93,6 +94,7 @@ struct gfn_to_pfn_cache {
 struct kvm_mmu_memory_cache {
 	gfp_t gfp_zero;
 	gfp_t gfp_custom;
+	u64 init_value;
 	struct kmem_cache *kmem_cache;
 	int capacity;
 	int nobjs;

@@ -500,6 +500,18 @@ static inline int pci_iov_bus_range(struct pci_bus *bus)
 
 #endif /* CONFIG_PCI_IOV */
 
+#ifdef CONFIG_PCI_IDE
+int pci_ide_init(struct pci_dev *dev);
+void pci_ide_release(struct pci_dev *dev);
+#else
+static inline int pci_ide_init(struct pci_dev *dev)
+{
+	return -ENODEV;
+}
+
+static inline void pci_ide_release(struct pci_dev *dev) {}
+#endif /* CONFIG_PCI_IDE */
+
 #ifdef CONFIG_PCIE_PTM
 void pci_ptm_init(struct pci_dev *dev);
 void pci_save_ptm_state(struct pci_dev *dev);

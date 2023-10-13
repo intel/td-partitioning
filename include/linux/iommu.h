@@ -439,6 +439,7 @@ struct iommu_domain_ops {
 	bool (*enforce_cache_coherency)(struct iommu_domain *domain);
 	int (*set_pgtable_quirks)(struct iommu_domain *domain,
 				  unsigned long quirks);
+	int (*set_trusted)(struct iommu_domain *domain);
 
 	void (*free)(struct iommu_domain *domain);
 	struct iommu_domain *
@@ -858,6 +859,9 @@ ioasid_t iommu_alloc_global_pasid(struct device *dev);
 void iommu_free_global_pasid(ioasid_t pasid);
 void iommu_free_pgtbl_pages(struct iommu_domain *domain,
 			    struct list_head *pages);
+int iommu_domain_set_trusted(struct iommu_domain *domain);
+int iommu_get_hw_info(struct device *dev, enum iommu_hw_info_type type,
+		      void *info, size_t length);
 #else /* CONFIG_IOMMU_API */
 
 struct iommu_ops {};
@@ -1226,6 +1230,18 @@ static inline ioasid_t iommu_alloc_global_pasid(struct device *dev)
 }
 
 static inline void iommu_free_global_pasid(ioasid_t pasid) {}
+
+static inline int iommu_domain_set_trusted(struct iommu_domain *domain)
+{
+	return -ENODEV;
+}
+
+static inline int iommu_get_hw_info(struct device *dev,
+				    enum iommu_hw_info_type type,
+				    void *info, size_t length)
+{
+	return -ENODEV;
+}
 #endif /* CONFIG_IOMMU_API */
 
 /**

@@ -153,12 +153,18 @@ static const __initconst struct idt_data apic_idts[] = {
 	INTG(POSTED_INTR_VECTOR,		asm_sysvec_kvm_posted_intr_ipi),
 	INTG(POSTED_INTR_WAKEUP_VECTOR,		asm_sysvec_kvm_posted_intr_wakeup_ipi),
 	INTG(POSTED_INTR_NESTED_VECTOR,		asm_sysvec_kvm_posted_intr_nested_ipi),
+#ifdef CONFIG_INTEL_TDX_HOST
+	INTG(TDX_GUEST_PMI_VECTOR,		asm_sysvec_kvm_tdx_guest_pmi),
+#endif
 # endif
 # ifdef CONFIG_IRQ_WORK
 	INTG(IRQ_WORK_VECTOR,			asm_sysvec_irq_work),
 # endif
 	INTG(SPURIOUS_APIC_VECTOR,		asm_sysvec_spurious_apic_interrupt),
 	INTG(ERROR_APIC_VECTOR,			asm_sysvec_error_interrupt),
+#ifdef CONFIG_INTEL_TDX_GUEST
+	INTG(TDCM_EVENT_VECTOR,			asm_sysvec_tdcm_event_callback),
+#endif
 #endif
 };
 

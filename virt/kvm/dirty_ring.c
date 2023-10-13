@@ -29,7 +29,7 @@ bool kvm_use_dirty_bitmap(struct kvm *kvm)
 }
 
 #ifndef CONFIG_NEED_KVM_DIRTY_RING_WITH_BITMAP
-bool kvm_arch_allow_write_without_running_vcpu(struct kvm *kvm)
+bool __weak kvm_arch_allow_write_without_running_vcpu(struct kvm *kvm)
 {
 	return false;
 }
@@ -58,7 +58,7 @@ static void kvm_reset_dirty_gfn(struct kvm *kvm, u32 slot, u64 offset, u64 mask)
 	as_id = slot >> 16;
 	id = (u16)slot;
 
-	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_USER_MEM_SLOTS)
+	if (as_id >= kvm_arch_nr_memslot_as_ids(kvm) || id >= KVM_USER_MEM_SLOTS)
 		return;
 
 	memslot = id_to_memslot(__kvm_memslots(kvm, as_id), id);

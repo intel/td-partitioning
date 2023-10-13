@@ -16,6 +16,9 @@ void kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 {
 	INIT_LIST_HEAD(&kvm->arch.tdp_mmu_roots);
 	spin_lock_init(&kvm->arch.tdp_mmu_pages_lock);
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	mutex_init(&kvm->arch.private_spt_for_split_lock);
+#endif
 }
 
 /* Arbitrarily returns true so that this may be used in if statements. */
@@ -37,10 +40,11 @@ void kvm_mmu_uninit_tdp_mmu(struct kvm *kvm)
 	 * for zapping and thus puts the TDP MMU's reference to each root, i.e.
 	 * ultimately frees all roots.
 	 */
-	kvm_tdp_mmu_invalidate_all_roots(kvm);
+	kvm_tdp_mmu_invalidate_all_roots(kvm, false);
 	kvm_tdp_mmu_zap_invalidated_roots(kvm);
 
 	WARN_ON(atomic64_read(&kvm->arch.tdp_mmu_pages));
+	WARN_ON(atomic64_read(&kvm->arch.tdp_private_mmu_pages));
 	WARN_ON(!list_empty(&kvm->arch.tdp_mmu_roots));
 
 	/*
@@ -53,6 +57,7 @@ void kvm_mmu_uninit_tdp_mmu(struct kvm *kvm)
 
 static void tdp_mmu_free_sp(struct kvm_mmu_page *sp)
 {
+	kvm_mmu_free_private_spt(sp);
 	free_page((unsigned long)sp->spt);
 	kmem_cache_free(mmu_page_header_cache, sp);
 }
@@ -178,24 +183,33 @@ static struct kvm_mmu_page *tdp_mmu_next_root(struct kvm *kvm,
 		    kvm_mmu_page_as_id(_root) != _as_id) {		\
 		} else
 
-static struct kvm_mmu_page *tdp_mmu_alloc_sp(struct kvm_vcpu *vcpu)
+static struct kvm_mmu_page *tdp_mmu_alloc_sp(struct kvm_vcpu *vcpu,
+					     union kvm_mmu_page_role role)
 {
 	struct kvm_mmu_page *sp;
 
 	sp = kvm_mmu_memory_cache_alloc(&vcpu->arch.mmu_page_header_cache);
 	sp->spt = kvm_mmu_memory_cache_alloc(&vcpu->arch.mmu_shadow_page_cache);
+	sp->role = role;
+
+	if (kvm_mmu_page_role_is_private(role))
+		kvm_mmu_alloc_private_spt(vcpu, sp);
 
 	return sp;
 }
 
 static void tdp_mmu_init_sp(struct kvm_mmu_page *sp, tdp_ptep_t sptep,
-			    gfn_t gfn, union kvm_mmu_page_role role)
+			    gfn_t gfn)
 {
 	INIT_LIST_HEAD(&sp->possible_nx_huge_page_link);
 
 	set_page_private(virt_to_page(sp->spt), (unsigned long)sp);
 
-	sp->role = role;
+	/*
+	 * role must be set before calling this function.  At least role.level
+	 * is not 0 (PG_LEVEL_NONE).
+	 */
+	WARN_ON_ONCE(!sp->role.word);
 	sp->gfn = gfn;
 	sp->ptep = sptep;
 	sp->tdp_mmu_page = true;
@@ -203,21 +217,25 @@ static void tdp_mmu_init_sp(struct kvm_mmu_page *sp, tdp_ptep_t sptep,
 	trace_kvm_mmu_get_page(sp, true);
 }
 
-static void tdp_mmu_init_child_sp(struct kvm_mmu_page *child_sp,
-				  struct tdp_iter *iter)
+static struct kvm_mmu_page *
+kvm_tdp_mmu_get_vcpu_root_no_alloc(struct kvm_vcpu *vcpu, union kvm_mmu_page_role role)
 {
-	struct kvm_mmu_page *parent_sp;
-	union kvm_mmu_page_role role;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_mmu_page *root;
 
-	parent_sp = sptep_to_sp(rcu_dereference(iter->sptep));
+	lockdep_assert_held(&kvm->mmu_lock);
 
-	role = parent_sp->role;
-	role.level--;
+	for_each_tdp_mmu_root(kvm, root, kvm_mmu_role_as_id(role)) {
+		if (root->role.word == role.word &&
+		    kvm_tdp_mmu_get_root(root))
+			return root;
+	}
 
-	tdp_mmu_init_sp(child_sp, iter->sptep, iter->gfn, role);
+	return NULL;
 }
 
-hpa_t kvm_tdp_mmu_get_vcpu_root_hpa(struct kvm_vcpu *vcpu)
+static struct kvm_mmu_page *kvm_tdp_mmu_get_vcpu_root(struct kvm_vcpu *vcpu,
+						      bool private)
 {
 	union kvm_mmu_page_role role = vcpu->arch.mmu->root_role;
 	struct kvm *kvm = vcpu->kvm;
@@ -229,14 +247,14 @@ hpa_t kvm_tdp_mmu_get_vcpu_root_hpa(struct kvm_vcpu *vcpu)
 	 * Check for an existing root before allocating a new one.  Note, the
 	 * role check prevents consuming an invalid root.
 	 */
-	for_each_tdp_mmu_root(kvm, root, kvm_mmu_role_as_id(role)) {
-		if (root->role.word == role.word &&
-		    kvm_tdp_mmu_get_root(root))
-			goto out;
-	}
+	if (private)
+		kvm_mmu_page_role_set_private(&role);
+	root = kvm_tdp_mmu_get_vcpu_root_no_alloc(vcpu, role);
+	if (!!root)
+		goto out;
 
-	root = tdp_mmu_alloc_sp(vcpu);
-	tdp_mmu_init_sp(root, NULL, 0, role);
+	root = tdp_mmu_alloc_sp(vcpu, role);
+	tdp_mmu_init_sp(root, NULL, 0);
 
 	/*
 	 * TDP MMU roots are kept until they are explicitly invalidated, either
@@ -252,23 +270,86 @@ hpa_t kvm_tdp_mmu_get_vcpu_root_hpa(struct kvm_vcpu *vcpu)
 	spin_unlock(&kvm->arch.tdp_mmu_pages_lock);
 
 out:
+	return root;
+}
+
+hpa_t kvm_tdp_mmu_move_private_pages_from(struct kvm_vcpu *vcpu,
+					  struct kvm_vcpu *src_vcpu)
+{
+	union kvm_mmu_page_role role = vcpu->arch.mmu->root_role;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm *src_kvm = src_vcpu->kvm;
+	struct kvm_mmu_page *private_root = NULL;
+	struct kvm_mmu_page *root;
+	s64 num_private_pages, old;
+
+	lockdep_assert_held_write(&vcpu->kvm->mmu_lock);
+	lockdep_assert_held_write(&src_vcpu->kvm->mmu_lock);
+
+	/* Find the private root of the source. */
+	kvm_mmu_page_role_set_private(&role);
+	for_each_tdp_mmu_root(src_kvm, root, kvm_mmu_role_as_id(role)) {
+		if (root->role.word == role.word) {
+			private_root = root;
+			break;
+		}
+	}
+	if (!private_root)
+		return INVALID_PAGE;
+
+	/* Remove the private root from the src kvm and add it to dst kvm. */
+	list_del_rcu(&private_root->link);
+	list_add_rcu(&private_root->link, &kvm->arch.tdp_mmu_roots);
+
+	num_private_pages = atomic64_read(&src_kvm->arch.tdp_private_mmu_pages);
+	old = atomic64_cmpxchg(&kvm->arch.tdp_private_mmu_pages, 0,
+			       num_private_pages);
+	/* The destination VM should have no private pages at this point. */
+	WARN_ON(old);
+	atomic64_set(&src_kvm->arch.tdp_private_mmu_pages, 0);
+
+	return __pa(private_root->spt);
+}
+
+hpa_t kvm_tdp_mmu_get_vcpu_root_hpa_no_alloc(struct kvm_vcpu *vcpu, bool private)
+{
+	struct kvm_mmu_page *root;
+	union kvm_mmu_page_role role = vcpu->arch.mmu->root_role;
+
+	if (private)
+		kvm_mmu_page_role_set_private(&role);
+	root = kvm_tdp_mmu_get_vcpu_root_no_alloc(vcpu, role);
+	if (!root)
+		return INVALID_PAGE;
+
 	return __pa(root->spt);
 }
 
+hpa_t kvm_tdp_mmu_get_vcpu_root_hpa(struct kvm_vcpu *vcpu, bool private)
+{
+	return __pa(kvm_tdp_mmu_get_vcpu_root(vcpu, private)->spt);
+}
+
 static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
-				u64 old_spte, u64 new_spte, int level,
-				bool shared);
+				u64 old_spte, u64 new_spte,
+				union kvm_mmu_page_role role, bool shared);
 
 static void tdp_account_mmu_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	kvm_account_pgtable_pages((void *)sp->spt, +1);
-	atomic64_inc(&kvm->arch.tdp_mmu_pages);
+	if (is_private_sp(sp))
+		atomic64_inc(&kvm->arch.tdp_private_mmu_pages);
+	else
+		atomic64_inc(&kvm->arch.tdp_mmu_pages);
 }
 
 static void tdp_unaccount_mmu_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	kvm_account_pgtable_pages((void *)sp->spt, -1);
-	atomic64_dec(&kvm->arch.tdp_mmu_pages);
+	if (is_private_sp(sp))
+		atomic64_dec(&kvm->arch.tdp_private_mmu_pages);
+	else
+		atomic64_dec(&kvm->arch.tdp_mmu_pages);
 }
 
 /**
@@ -359,7 +440,13 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 			 * unreachable.
 			 */
 			old_spte = kvm_tdp_mmu_read_spte(sptep);
-			if (!is_shadow_present_pte(old_spte))
+			/*
+			 * It comes here when zapping all pages when destroying
+			 * vm.  It means TLB shootdown optimization doesn't make
+			 * sense.  Zap private_zapped entry.
+			 */
+			if (!is_shadow_present_pte(old_spte) &&
+			    !is_private_zapped_spte(old_spte))
 				continue;
 
 			/*
@@ -394,10 +481,107 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 							  REMOVED_SPTE, level);
 		}
 		handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
-				    old_spte, REMOVED_SPTE, level, shared);
+				    old_spte, REMOVED_SPTE, sp->role,
+				    shared);
+	}
+
+	KVM_BUG_ON(is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
+	if (is_private_sp(sp) &&
+	    WARN_ON(static_call(kvm_x86_free_private_spt)(kvm, sp->gfn, sp->role.level,
+							  kvm_mmu_private_spt(sp)))) {
+		/*
+		 * Failed to unlink Secure EPT page and there is nothing to do
+		 * further.  Intentionally leak the page to prevent the kernel
+		 * from accessing the encrypted page.
+		 */
+		kvm_mmu_init_private_spt(sp, NULL);
 	}
 
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
+}
+
+static void *get_private_spt(gfn_t gfn, u64 new_spte, int level)
+{
+	if (is_shadow_present_pte(new_spte) && !is_last_spte(new_spte, level)) {
+		struct kvm_mmu_page *sp = to_shadow_page(pfn_to_hpa(spte_to_pfn(new_spte)));
+		void *private_spt = kvm_mmu_private_spt(sp);
+
+		WARN_ON_ONCE(!private_spt);
+		WARN_ON_ONCE(sp->role.level + 1 != level);
+		WARN_ON_ONCE(sp->gfn != gfn);
+		return private_spt;
+	}
+
+	return NULL;
+}
+
+static void handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
+				       u64 old_spte, u64 new_spte, int level)
+{
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	bool was_present = is_shadow_present_pte(old_spte);
+	bool is_present = is_shadow_present_pte(new_spte);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	int ret = 0;
+
+	/* Temporarily blocked private SPTE can only be leaf. */
+	KVM_BUG_ON(!is_last_spte(old_spte, level), kvm);
+	KVM_BUG_ON(is_private_zapped, kvm);
+	KVM_BUG_ON(was_present, kvm);
+	KVM_BUG_ON(!was_private_zapped, kvm);
+	KVM_BUG_ON(is_present, kvm);
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	ret = static_call(kvm_x86_remove_private_spte)(kvm, gfn, level, old_pfn);
+	KVM_BUG_ON(ret, kvm);
+}
+
+static void handle_removed_private_spte(struct kvm *kvm, gfn_t gfn,
+					u64 old_spte, u64 new_spte,
+					int level)
+{
+	bool was_present = is_shadow_present_pte(old_spte);
+	bool is_present = is_shadow_present_pte(new_spte);
+	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool is_leaf = is_present && is_last_spte(new_spte, level);
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
+	int ret;
+
+	/* Ignore change of software only bits. e.g. host_writable */
+	if (was_leaf == is_leaf && was_present == is_present &&
+	    was_private_zapped == is_private_zapped)
+		return;
+
+	/*
+	 * Allow only leaf page to be zapped.  Reclaim Non-leaf page tables at
+	 * destroying VM.
+	 */
+	KVM_BUG_ON(was_private_zapped && is_private_zapped, kvm);
+	WARN_ON_ONCE(is_present);
+	if (!was_leaf)
+		return;
+
+	/* Zapping leaf spte is allowed only when write lock is held. */
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
+	if (is_private_zapped) {
+		/* page migration isn't supported yet. */
+		KVM_BUG_ON(new_pfn != old_pfn, kvm);
+		return;
+	}
+	/* Because write lock is held, operation should success. */
+	if (KVM_BUG_ON(ret, kvm))
+		return;
+
+	/* non-present -> non-present doesn't make sense. */
+	KVM_BUG_ON(!was_present, kvm);
+	KVM_BUG_ON(new_pfn, kvm);
+	ret = static_call(kvm_x86_remove_private_spte)(kvm, gfn, level, old_pfn);
+	KVM_BUG_ON(ret, kvm);
 }
 
 /**
@@ -407,7 +591,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
  * @gfn: the base GFN that was mapped by the SPTE
  * @old_spte: The value of the SPTE before the change
  * @new_spte: The value of the SPTE after the change
- * @level: the level of the PT the SPTE is part of in the paging structure
+ * @role: the role of the PT the SPTE is part of in the paging structure
  * @shared: This operation may not be running under the exclusive use of
  *	    the MMU lock and the operation must synchronize with other
  *	    threads that might be modifying SPTEs.
@@ -417,18 +601,26 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
  * and fast_pf_fix_direct_spte()).
  */
 static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
-				u64 old_spte, u64 new_spte, int level,
-				bool shared)
+				u64 old_spte, u64 new_spte,
+				union kvm_mmu_page_role role, bool shared)
 {
+	bool is_private = kvm_mmu_page_role_is_private(role);
+	int level = role.level;
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
-	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool was_last = is_last_spte(old_spte, level);
+	bool was_leaf = was_present && was_last;
 	bool is_leaf = is_present && is_last_spte(new_spte, level);
-	bool pfn_changed = spte_to_pfn(old_spte) != spte_to_pfn(new_spte);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
+	bool pfn_changed = old_pfn != new_pfn;
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
 
 	WARN_ON_ONCE(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON_ONCE(level < PG_LEVEL_4K);
 	WARN_ON_ONCE(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
+	KVM_BUG_ON(was_private_zapped && !is_private, kvm);
+	KVM_BUG_ON(kvm_is_private_gpa(kvm, gfn_to_gpa(gfn)) != is_private, kvm);
 
 	/*
 	 * If this warning were to trigger it would indicate that there was a
@@ -461,6 +653,11 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	if (is_leaf)
 		check_spte_writable_invariants(new_spte);
 
+	if (was_private_zapped && !is_present) {
+		handle_private_zapped_spte(kvm, gfn, old_spte, new_spte, level);
+		return;
+	}
+
 	/*
 	 * The only times a SPTE should be changed from a non-present to
 	 * non-present state is when an MMIO entry is installed/modified/
@@ -473,8 +670,8 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		 * impact the guest since both the former and current SPTEs
 		 * are nonpresent.
 		 */
-		if (WARN_ON_ONCE(!is_mmio_spte(old_spte) &&
-				 !is_mmio_spte(new_spte) &&
+		if (WARN_ON_ONCE(!is_mmio_spte(kvm, old_spte) &&
+				 !is_mmio_spte(kvm, new_spte) &&
 				 !is_removed_spte(new_spte)))
 			pr_err("Unexpected SPTE change! Nonpresent SPTEs\n"
 			       "should not be replaced with another,\n"
@@ -491,7 +688,7 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 
 	if (was_leaf && is_dirty_spte(old_spte) &&
 	    (!is_present || !is_dirty_spte(new_spte) || pfn_changed))
-		kvm_set_pfn_dirty(spte_to_pfn(old_spte));
+		kvm_set_pfn_dirty(old_pfn);
 
 	/*
 	 * Recursively handle child PTs if the change removed a subtree from
@@ -499,13 +696,169 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	 * SPTE being converted to a hugepage (leaf) or being zapped.  Shadow
 	 * pages are kernel allocations and should never be migrated.
 	 */
-	if (was_present && !was_leaf &&
-	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed)))
+	if (was_present && !was_last &&
+	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed))) {
+		KVM_BUG_ON(is_private != is_private_sptep(spte_to_child_pt(old_spte, level)),
+			   kvm);
 		handle_removed_pt(kvm, spte_to_child_pt(old_spte, level), shared);
+	}
+
+	/*
+	 * Secure-EPT requires to remove Secure-EPT tables after removing
+	 * children.  hooks after handling lower page table by above
+	 * handle_remove_pt().
+	 */
+	if (is_private && !is_present) {
+		/*
+		 * When write lock is held, leaf pte should be zapping or
+		 * prohibiting.  Not directly was_present=1 -> zero EPT entry.
+		 */
+		KVM_BUG_ON(!shared && is_leaf && !is_private_zapped_spte(new_spte), kvm);
+		handle_removed_private_spte(kvm, gfn, old_spte, new_spte, role.level);
+	}
 
 	if (was_leaf && is_accessed_spte(old_spte) &&
 	    (!is_present || !is_accessed_spte(new_spte) || pfn_changed))
 		kvm_set_pfn_accessed(spte_to_pfn(old_spte));
+}
+
+static int private_spte_change_flags(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+				     u64 new_spte, int level)
+{
+	bool was_writable = is_writable_pte(old_spte);
+	bool is_writable = is_writable_pte(new_spte);
+
+	/* Write block. TODO: Optimize with batching */
+	if (was_writable && !is_writable) {
+		/* Sanity check: should be 4KB only */
+		KVM_BUG_ON(level != PG_LEVEL_4K, kvm);
+		static_call(kvm_x86_write_block_private_pages)(kvm,
+							(gfn_t *)&gfn, 1);
+	}
+
+	/* Write unblock should have been handled by the fast page fault */
+	WARN_ON_ONCE(!was_writable && is_writable);
+
+	return 0;
+}
+
+static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t sptep,
+						   gfn_t gfn, u64 old_spte,
+						   u64 new_spte, int level)
+{
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	bool was_last = is_last_spte(old_spte, level);
+	bool is_last = is_last_spte(new_spte, level);
+	bool was_present = is_shadow_present_pte(old_spte);
+	bool is_present = is_shadow_present_pte(new_spte);
+	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool is_leaf = is_present && is_last_spte(new_spte, level);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
+	void *private_spt;
+	int ret = 0;
+
+	lockdep_assert_held(&kvm->mmu_lock);
+
+	/*
+	 * Handle special case of old_spte being temporarily blocked private
+	 * SPTE.  There are two cases: 1) Need to restore the original mapping
+	 * (unblock) when guest accesses the private page; 2) Need to truly zap
+	 * the SPTE because of zapping aliasing in fault handler, or when VM is
+	 * being destroyed.
+	 * See handel_private_zapped_spte() for zapping case.
+	 */
+	if (was_private_zapped) {
+		/* Temporarily blocked private SPTE can only be leaf. */
+		KVM_BUG_ON(!is_last_spte(old_spte, level), kvm);
+		KVM_BUG_ON(!is_present, kvm);
+		KVM_BUG_ON(is_private_zapped, kvm);
+		KVM_BUG_ON(was_present, kvm);
+		KVM_BUG_ON(!was_private_zapped, kvm);
+
+		if (old_pfn == new_pfn) {
+			ret = static_call(kvm_x86_unzap_private_spte)(kvm, gfn,
+								      level);
+		} else if (level > PG_LEVEL_4K && was_last && !is_last) {
+			/*
+			 * Splitting private_zapped large page doesn't happen.
+			 * Unzap and then split.
+			 */
+			pr_err("gfn 0x%llx old_spte 0x%llx new_spte 0x%llx level %d\n",
+			       gfn, old_spte, new_spte, level);
+			WARN_ON(1);
+		} else {
+			/*
+			 * Because page is pinned (refer to
+			 * kvm_faultin_pfn_private()), page migration shouldn't
+			 * be triggered for private page.  kvm private memory
+			 * slot case should also prevent page migration.
+			 */
+			pr_err("gfn 0x%llx old_spte 0x%llx new_spte 0x%llx level %d\n",
+			       gfn, old_spte, new_spte, level);
+			WARN_ON(1);
+		}
+
+		return ret;
+	}
+
+	/*
+	 * Use different call to either set up middle level
+	 * private page table, or leaf.
+	 */
+	if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
+		/*
+		 * splitting large page into 4KB.
+		 * tdp_mmu_split_huage_page() => tdp_mmu_link_sp()
+		 */
+		private_spt = get_private_spt(gfn, new_spte, level);
+		KVM_BUG_ON(!private_spt, kvm);
+		ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
+		kvm_flush_remote_tlbs(kvm);
+		if (!ret)
+			ret = static_call(kvm_x86_split_private_spt)(kvm, gfn,
+								     level, private_spt);
+	} else if (is_leaf) {
+		if (was_present)
+			return private_spte_change_flags(kvm, gfn, old_spte,
+							 new_spte, level);
+
+		ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level, new_pfn);
+	} else {
+		private_spt = get_private_spt(gfn, new_spte, level);
+		KVM_BUG_ON(!private_spt, kvm);
+		ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
+	}
+
+	return ret;
+}
+
+static int __must_check set_private_spte_present(struct kvm *kvm, tdp_ptep_t sptep,
+						 gfn_t gfn, u64 old_spte,
+						 u64 new_spte, int level)
+{
+	int ret;
+
+	/*
+	 * For private page table, callbacks are needed to propagate SPTE
+	 * change into the protected page table.  In order to atomically update
+	 * both the SPTE and the protected page tables with callbacks, utilize
+	 * freezing SPTE.
+	 * - Freeze the SPTE. Set entry to REMOVED_SPTE.
+	 * - Trigger callbacks for protected page tables.
+	 * - Unfreeze the SPTE.  Set the entry to new_spte.
+	 */
+	lockdep_assert_held(&kvm->mmu_lock);
+	if (!try_cmpxchg64(sptep, &old_spte, REMOVED_SPTE))
+		return -EBUSY;
+
+	ret = __set_private_spte_present(kvm, sptep, gfn, old_spte, new_spte, level);
+	if (ret)
+		__kvm_tdp_mmu_write_spte(sptep, old_spte);
+	else
+		__kvm_tdp_mmu_write_spte(sptep, new_spte);
+	return ret;
 }
 
 /*
@@ -525,11 +878,14 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
  *            no side-effects other than setting iter->old_spte to the last
  *            known value of the spte.
  */
-static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
-					  struct tdp_iter *iter,
-					  u64 new_spte)
+static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
+						       struct tdp_iter *iter,
+						       u64 new_spte)
 {
 	u64 *sptep = rcu_dereference(iter->sptep);
+	bool freezed = false;
+
+	KVM_BUG_ON(iter->yielded, kvm);
 
 	/*
 	 * The caller is responsible for ensuring the old SPTE is not a REMOVED
@@ -541,24 +897,68 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
 
-	/*
-	 * Note, fast_pf_fix_direct_spte() can also modify TDP MMU SPTEs and
-	 * does not hold the mmu_lock.  On failure, i.e. if a different logical
-	 * CPU modified the SPTE, try_cmpxchg64() updates iter->old_spte with
-	 * the current value, so the caller operates on fresh data, e.g. if it
-	 * retries tdp_mmu_set_spte_atomic()
-	 */
-	if (!try_cmpxchg64(sptep, &iter->old_spte, new_spte))
-		return -EBUSY;
+	if (is_private_sptep(iter->sptep) && !is_removed_spte(new_spte)) {
+		int ret;
+
+		if (is_shadow_present_pte(new_spte)) {
+			/*
+			 * Populating case. handle_changed_spte() can
+			 * process without freezing because it only updates
+			 * stats.
+			 */
+			ret = set_private_spte_present(kvm, iter->sptep, iter->gfn,
+						       iter->old_spte, new_spte, iter->level);
+			if (ret)
+				return ret;
+		} else {
+			/*
+			 * Zapping case. handle_changed_spte() calls Secure-EPT
+			 * blocking or removal.  Freeze the entry.
+			 */
+			if (!try_cmpxchg64(sptep, &iter->old_spte, REMOVED_SPTE))
+				return -EBUSY;
+			freezed = true;
+		}
+	} else {
+		/*
+		 * Note, fast_pf_fix_direct_spte() can also modify TDP MMU SPTEs
+		 * and does not hold the mmu_lock.  On failure, i.e. if a
+		 * different logical CPU modified the SPTE, try_cmpxchg64()
+		 * updates iter->old_spte with the current value, so the caller
+		 * operates on fresh data, e.g. if it retries
+		 * tdp_mmu_set_spte_atomic()
+		 */
+		if (!try_cmpxchg64(sptep, &iter->old_spte, new_spte))
+			return -EBUSY;
+	}
 
 	handle_changed_spte(kvm, iter->as_id, iter->gfn, iter->old_spte,
-			    new_spte, iter->level, true);
-
+			    new_spte, sptep_to_sp(sptep)->role, true);
+	if (freezed)
+		__kvm_tdp_mmu_write_spte(sptep, new_spte);
 	return 0;
 }
 
-static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
-					  struct tdp_iter *iter)
+static u64 __private_zapped_spte(u64 old_spte)
+{
+	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
+		(spte_to_pfn(old_spte) << PAGE_SHIFT) |
+		(is_large_pte(old_spte) ? PT_PAGE_SIZE_MASK : 0);
+}
+
+static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
+{
+	if (!kvm_gfn_shared_mask(kvm))
+		return SHADOW_NONPRESENT_VALUE;
+
+	if (!is_private_sptep(iter->sptep))
+		return SHADOW_NONPRESENT_VALUE;
+
+	return __private_zapped_spte(iter->old_spte);
+}
+
+static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
+						       struct tdp_iter *iter)
 {
 	int ret;
 
@@ -581,7 +981,7 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * here since the SPTE is going from non-present to non-present.  Use
 	 * the raw write helper to avoid an unnecessary check on volatile bits.
 	 */
-	__kvm_tdp_mmu_write_spte(iter->sptep, 0);
+	__kvm_tdp_mmu_write_spte(iter->sptep, private_zapped_spte(kvm, iter));
 
 	return 0;
 }
@@ -603,6 +1003,9 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 			    u64 old_spte, u64 new_spte, gfn_t gfn, int level)
 {
+	union kvm_mmu_page_role role;
+
+	KVM_BUG_ON(is_private_sptep(sptep) != kvm_is_private_gpa(kvm, gfn_to_gpa(gfn)), kvm);
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	/*
@@ -615,8 +1018,17 @@ static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 	WARN_ON_ONCE(is_removed_spte(old_spte) || is_removed_spte(new_spte));
 
 	old_spte = kvm_tdp_mmu_write_spte(sptep, old_spte, new_spte, level);
+	if (is_private_sptep(sptep) && !is_removed_spte(new_spte) &&
+	    is_shadow_present_pte(new_spte)) {
+		lockdep_assert_held_write(&kvm->mmu_lock);
+		/* Because write spin lock is held, no race.  It should success. */
+		KVM_BUG_ON(__set_private_spte_present(kvm, sptep, gfn, old_spte,
+						      new_spte, level), kvm);
+	}
 
-	handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level, false);
+	role = sptep_to_sp(sptep)->role;
+	role.level = level;
+	handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, role, false);
 	return old_spte;
 }
 
@@ -632,15 +1044,24 @@ static inline void tdp_mmu_iter_set_spte(struct kvm *kvm, struct tdp_iter *iter,
 #define tdp_root_for_each_pte(_iter, _root, _start, _end) \
 	for_each_tdp_pte(_iter, _root, _start, _end)
 
-#define tdp_root_for_each_leaf_pte(_iter, _root, _start, _end)	\
+/*
+ * Note temporarily blocked private SPTE is considered as valid leaf, although
+ * !is_shadow_present_pte() returns true for it, since the target page (which
+ * the mapping maps to ) is still there.
+ */
+#define tdp_root_for_each_leaf_pte(_iter, _root, _start, _end)		\
 	tdp_root_for_each_pte(_iter, _root, _start, _end)		\
-		if (!is_shadow_present_pte(_iter.old_spte) ||		\
-		    !is_last_spte(_iter.old_spte, _iter.level))		\
+		if ((!is_shadow_present_pte(_iter.old_spte) &&		\
+		     !is_private_zapped_spte(_iter.old_spte)) ||	\
+		     !is_last_spte(_iter.old_spte, _iter.level)) {	\
 			continue;					\
-		else
+		} else
 
-#define tdp_mmu_for_each_pte(_iter, _mmu, _start, _end)		\
-	for_each_tdp_pte(_iter, root_to_sp(_mmu->root.hpa), _start, _end)
+#define tdp_mmu_for_each_pte(_iter, _mmu, _private, _start, _end)	\
+	for_each_tdp_pte(_iter,						\
+		 root_to_sp((_private) ? _mmu->private_root_hpa :	\
+				_mmu->root.hpa),			\
+		_start, _end)
 
 /*
  * Yield if the MMU lock is contended or this thread needs to return control
@@ -718,8 +1139,8 @@ retry:
 			continue;
 
 		if (!shared)
-			tdp_mmu_iter_set_spte(kvm, &iter, 0);
-		else if (tdp_mmu_set_spte_atomic(kvm, &iter, 0))
+			tdp_mmu_iter_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
+		else if (tdp_mmu_set_spte_atomic(kvm, &iter, SHADOW_NONPRESENT_VALUE))
 			goto retry;
 	}
 }
@@ -760,9 +1181,83 @@ static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 	rcu_read_unlock();
 }
 
+static int tdp_mmu_restore_private_page(struct kvm *kvm, gfn_t gfn,
+					u64 *sptep, u64 old_spte,
+					u64 new_spte, int level)
+{
+	int ret;
+
+	kvm_tdp_mmu_write_spte(sptep, old_spte, new_spte, level);
+	ret = static_call(kvm_x86_restore_private_page)(kvm, gfn);
+	if (ret == -EPERM && is_shadow_present_pte(old_spte) &&
+	    !is_writable_pte(old_spte)) {
+		kvm_write_unblock_private_page(kvm, gfn, level);
+		ret = 0;
+	}
+
+	return 0;
+}
+
+static int tdp_mmu_restore_private_pages(struct kvm *kvm,
+					 struct kvm_mmu_page *root)
+{
+	struct tdp_iter iter;
+	u64 old_spte, new_spte, *sptep;
+	gfn_t end = tdp_mmu_max_gfn_exclusive();
+	gfn_t start = 0;
+	gfn_t gfn;
+	int ret = 0;
+
+	for_each_tdp_pte_min_level(iter, root, PG_LEVEL_4K, start, end) {
+		if (tdp_mmu_iter_cond_resched(kvm, &iter, false, false))
+			continue;
+
+		if (iter.level > PG_LEVEL_4K)
+			continue;
+
+		old_spte = iter.old_spte;
+		sptep = iter.sptep;
+		gfn = iter.gfn;
+
+		/* Restored sptes should always be writable */
+		new_spte = old_spte | PT_WRITABLE_MASK;
+		ret = tdp_mmu_restore_private_page(kvm, gfn, sptep,
+						   old_spte, new_spte,
+						   iter.level);
+		if (ret)
+			break;
+	}
+
+	return ret;
+}
+
+int kvm_tdp_mmu_restore_private_pages(struct kvm *kvm)
+{
+	struct kvm_mmu_page *root;
+	int i, ret;
+
+	write_lock(&kvm->mmu_lock);
+
+	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
+		for_each_tdp_mmu_root_yield_safe(kvm, root, i) {
+			if (!is_private_sp(root))
+				continue;
+			ret = tdp_mmu_restore_private_pages(kvm, root);
+			if (ret)
+				break;
+		}
+	}
+	kvm_flush_remote_tlbs(kvm);
+
+	write_unlock(&kvm->mmu_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_restore_private_pages);
+
 bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	u64 old_spte;
+	u64 new_spte;
 
 	/*
 	 * This helper intentionally doesn't allow zapping a root shadow page,
@@ -775,11 +1270,24 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 	if (WARN_ON_ONCE(!is_shadow_present_pte(old_spte)))
 		return false;
 
-	tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte, 0,
-			 sp->gfn, sp->role.level + 1);
+	if (kvm_gfn_shared_mask(kvm) && is_private_sp(sp))
+		new_spte = __private_zapped_spte(old_spte);
+	else
+		new_spte = SHADOW_NONPRESENT_VALUE;
+
+	tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte,
+			 new_spte, sp->gfn, sp->role.level + 1);
 
 	return true;
 }
+
+
+static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
+						       struct tdp_iter *iter,
+						       bool shared, bool can_yield);
+
+static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
+				   struct kvm_mmu_page *sp, bool shared);
 
 /*
  * If can_yield is true, will release the MMU lock and reschedule if the
@@ -789,13 +1297,29 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
  * operation can cause a soft lockup.
  */
 static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
-			      gfn_t start, gfn_t end, bool can_yield, bool flush)
+			      gfn_t start, gfn_t end, bool can_yield, bool flush,
+			      enum tdp_zap_private zap_private)
 {
+	bool is_private = is_private_sp(root);
+	struct kvm_mmu_page *split_sp = NULL;
 	struct tdp_iter iter;
+	u64 new_spte;
 
 	end = min(end, tdp_mmu_max_gfn_exclusive());
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
+	WARN_ON_ONCE(zap_private != ZAP_PRIVATE_SKIP && !is_private);
+
+	if (zap_private == ZAP_PRIVATE_SKIP && is_private)
+		return flush;
+
+	/*
+	 * start and end doesn't have GFN shared bit.  This function zaps
+	 * a region including alias.  Adjust shared bit of [start, end) if the
+	 * root is shared.
+	 */
+	start = kvm_gfn_for_root(kvm, root, start);
+	end = kvm_gfn_for_root(kvm, root, end);
 
 	rcu_read_lock();
 
@@ -806,15 +1330,86 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			continue;
 		}
 
-		if (!is_shadow_present_pte(iter.old_spte) ||
-		    !is_last_spte(iter.old_spte, iter.level))
+		if (!is_last_spte(iter.old_spte, iter.level))
 			continue;
 
-		tdp_mmu_iter_set_spte(kvm, &iter, 0);
+		/*
+		 * Skip non-present SPTE, with exception of temporarily
+		 * blocked private SPTE, which also needs to be zapped.
+		 */
+		if (!is_shadow_present_pte(iter.old_spte) &&
+		    !is_private_zapped_spte(iter.old_spte))
+			continue;
+
+		if (is_private && kvm_gfn_shared_mask(kvm) &&
+		    is_large_pte(iter.old_spte)) {
+			gfn_t gfn = iter.gfn & ~kvm_gfn_shared_mask(kvm);
+			gfn_t mask = KVM_PAGES_PER_HPAGE(iter.level) - 1;
+			struct kvm_memory_slot *slot;
+			struct kvm_mmu_page *sp;
+
+			slot = gfn_to_memslot(kvm, gfn);
+			if (kvm_hugepage_test_mixed(slot, gfn, iter.level) ||
+			    (gfn & mask) < start ||
+			    end < (gfn & mask) + KVM_PAGES_PER_HPAGE(iter.level)) {
+				WARN_ON_ONCE(!can_yield);
+				if (split_sp) {
+					sp = split_sp;
+					split_sp = NULL;
+					sp->role = tdp_iter_child_role(&iter);
+				} else {
+					WARN_ON(iter.yielded);
+					if (flush && can_yield) {
+						kvm_flush_remote_tlbs(kvm);
+						flush = false;
+					}
+					sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, false,
+									can_yield);
+					if (iter.yielded) {
+						split_sp = sp;
+						continue;
+					}
+				}
+				KVM_BUG_ON(!sp, kvm);
+
+				tdp_mmu_init_sp(sp, iter.sptep, iter.gfn);
+				if (tdp_mmu_split_huge_page(kvm, &iter, sp, false)) {
+					kvm_flush_remote_tlbs(kvm);
+					flush = false;
+					/* force retry on this gfn. */
+					iter.yielded = true;
+				} else
+					flush = true;
+				continue;
+			}
+		}
+
+		if ((zap_private == ZAP_PRIVATE_SKIP ||
+		     zap_private == ZAP_PRIVATE_BLOCK) &&
+		    is_private_zapped_spte(iter.old_spte))
+			continue;
+
+		if (zap_private == ZAP_PRIVATE_REMOVE)
+			new_spte = SHADOW_NONPRESENT_VALUE;
+		else
+			new_spte = private_zapped_spte(kvm, &iter);
+		tdp_mmu_iter_set_spte(kvm, &iter, new_spte);
 		flush = true;
 	}
 
 	rcu_read_unlock();
+
+	if (split_sp) {
+		WARN_ON(!can_yield);
+		if (flush) {
+			kvm_flush_remote_tlbs(kvm);
+			flush = false;
+		}
+
+		write_unlock(&kvm->mmu_lock);
+		tdp_mmu_free_sp(split_sp);
+		write_lock(&kvm->mmu_lock);
+	}
 
 	/*
 	 * Because this flow zaps _only_ leaf SPTEs, the caller doesn't need
@@ -828,12 +1423,12 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
  * true if a TLB flush is needed before releasing the MMU lock, i.e. if one or
  * more SPTEs were zapped since the MMU lock was last acquired.
  */
-bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, gfn_t start, gfn_t end, bool flush)
+bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, gfn_t start, gfn_t end, bool flush, enum tdp_zap_private zap_private)
 {
 	struct kvm_mmu_page *root;
 
 	for_each_tdp_mmu_root_yield_safe(kvm, root, false)
-		flush = tdp_mmu_zap_leafs(kvm, root, start, end, true, flush);
+		flush = tdp_mmu_zap_leafs(kvm, root, start, end, true, flush, is_private_sp(root) ? zap_private : ZAP_PRIVATE_SKIP);
 
 	return flush;
 }
@@ -907,7 +1502,7 @@ void kvm_tdp_mmu_zap_invalidated_roots(struct kvm *kvm)
  * Note, kvm_tdp_mmu_zap_invalidated_roots() is gifted the TDP MMU's reference.
  * See kvm_tdp_mmu_get_vcpu_root_hpa().
  */
-void kvm_tdp_mmu_invalidate_all_roots(struct kvm *kvm)
+void kvm_tdp_mmu_invalidate_all_roots(struct kvm *kvm, bool skip_private)
 {
 	struct kvm_mmu_page *root;
 
@@ -938,11 +1533,188 @@ void kvm_tdp_mmu_invalidate_all_roots(struct kvm *kvm)
 		 * but a different task can acquire a reference and keep the
 		 * root alive after its been zapped.
 		 */
+		/*
+		 * Skip private root since private page table
+		 * is only torn down when VM is destroyed.
+		 */
+		if (skip_private && is_private_sp(root))
+			continue;
 		if (!root->role.invalid) {
 			root->tdp_mmu_scheduled_root_to_zap = true;
 			root->role.invalid = true;
 		}
 	}
+}
+
+static int tdp_mmu_iter_step_side(int i, struct tdp_iter *iter)
+{
+	i++;
+
+	/*
+	 * if i = SPTE_ENT_PER_PAGE, tdp_iter_step_side() results
+	 * in reading the entry beyond the last entry.
+	 */
+	if (i < SPTE_ENT_PER_PAGE)
+		tdp_iter_step_side(iter);
+
+	return i;
+}
+
+static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
+				     struct kvm_page_fault *fault,
+				     struct tdp_iter *iter, u64 new_spte)
+{
+	u64 *sptep = rcu_dereference(iter->sptep);
+	u64 old_spte = iter->old_spte;
+	struct kvm_mmu_page *child_sp;
+	struct kvm *kvm = vcpu->kvm;
+	struct tdp_iter child_iter;
+	int level = iter->level;
+	gfn_t gfn = iter->gfn;
+	tdp_ptep_t child_pt;
+	u64 child_spte;
+	int ret = 0;
+	int i;
+
+	/*
+	 * TDX KVM supports only 2MB large page.  It's not supported to merge
+	 * 2MB pages into 1GB page at the moment.
+	 */
+	WARN_ON_ONCE(fault->goal_level != PG_LEVEL_2M);
+	WARN_ON_ONCE(iter->level != PG_LEVEL_2M);
+	WARN_ON_ONCE(!is_large_pte(new_spte));
+
+	/* Freeze the spte to prevent other threads from working spte. */
+	if (!try_cmpxchg64(sptep, &iter->old_spte, REMOVED_SPTE))
+		return -EBUSY;
+
+	/*
+	 * Step down to the child spte.  Because tdp_iter_next() assumes the
+	 * parent spte isn't freezed, do it manually.
+	 */
+	child_pt = spte_to_child_pt(iter->old_spte, iter->level);
+	child_sp = sptep_to_sp(child_pt);
+	WARN_ON_ONCE(child_sp->role.level != PG_LEVEL_4K);
+	WARN_ON_ONCE(!kvm_mmu_page_role_is_private(child_sp->role));
+
+	/* Don't modify iter as the caller will use iter after this function. */
+	child_iter = *iter;
+	/* Adjust the target gfn to the head gfn of the large page. */
+	child_iter.next_last_level_gfn &= -KVM_PAGES_PER_HPAGE(level);
+	tdp_iter_step_down(&child_iter, child_pt);
+
+	/*
+	 * All child pages are required to be populated for merging them into a
+	 * large page.  Populate all child spte.
+	 */
+	for (i = 0; i < SPTE_ENT_PER_PAGE; i = tdp_mmu_iter_step_side(i, &child_iter)) {
+		int tmp;
+
+		WARN_ON_ONCE(child_iter.level != PG_LEVEL_4K);
+
+		if (is_shadow_present_pte(child_iter.old_spte)) {
+			/* TODO: relocate page for huge page. */
+			if (WARN_ON_ONCE(spte_to_pfn(child_iter.old_spte) !=
+					 spte_to_pfn(new_spte) + i)) {
+				if (!ret)
+					ret = -EAGAIN;
+				continue;
+			}
+			/*
+			 * When SEPT_VE_DISABLE=true and the page state is
+			 * pending, this case can happen.  Just resume the vcpu
+			 * again with the expectation for other vcpu to accept
+			 * this page.
+			 */
+			if (child_iter.gfn == fault->gfn) {
+				if (!ret)
+					ret = -EAGAIN;
+			}
+			continue;
+		}
+
+		/* The blocked spte should have same PFN. */
+		WARN_ON_ONCE(is_private_zapped_spte(old_spte) &&
+			     spte_to_pfn(child_iter.old_spte) != spte_to_pfn(new_spte) + i);
+		child_spte = make_huge_page_split_spte(kvm, new_spte, child_sp->role, i);
+		/*
+		 * Because other thread may have started to operate on this spte
+		 * before freezing the parent spte,  Use atomic version to
+		 * prevent race.
+		 */
+		tmp = tdp_mmu_set_spte_atomic(vcpu->kvm, &child_iter, child_spte);
+		if (tmp == -EBUSY || tmp == -EAGAIN) {
+			/*
+			 * There was a race condition.  Populate remaining 4K
+			 * spte to resolve fault->gfn to guarantee the forward
+			 * progress.
+			 */
+			if (!ret)
+				ret = tmp;
+		} else if (tmp) {
+			ret = tmp;
+			goto out;
+		}
+	}
+	if (ret)
+		goto out;
+
+	/* Prevent the Secure-EPT entry from being used. */
+	ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
+	if (ret)
+		goto out;
+	kvm_flush_remote_tlbs_range(kvm, gfn & KVM_HPAGE_GFN_MASK(level),
+				    KVM_PAGES_PER_HPAGE(level));
+
+	/* Merge pages into a large page. */
+	ret = static_call(kvm_x86_merge_private_spt)(kvm, gfn, level,
+						     kvm_mmu_private_spt(child_sp));
+	/*
+	 * Failed to merge pages because some pages are accepted and some are
+	 * pending.  Since the child page was mapped above, let vcpu run.
+	 */
+	if (ret) {
+		if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
+			old_spte = __private_zapped_spte(old_spte);
+		goto out;
+	}
+
+	/* Unfreeze spte. */
+	iter->old_spte = new_spte;
+	__kvm_tdp_mmu_write_spte(sptep, new_spte);
+
+	/*
+	 * Free unused child sp.  Secure-EPT page was already freed at TDX level
+	 * by kvm_x86_merge_private_spt().
+	 */
+	tdp_unaccount_mmu_page(kvm, child_sp);
+	tdp_mmu_free_sp(child_sp);
+	return -EAGAIN;
+
+out:
+	iter->old_spte = old_spte;
+	__kvm_tdp_mmu_write_spte(sptep, old_spte);
+	return ret;
+}
+
+static int __tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
+					     struct kvm_page_fault *fault,
+					     struct tdp_iter *iter, u64 new_spte)
+{
+	/*
+	 * The private page has smaller-size pages.  For example, the child
+	 * pages was converted from shared to page, and now it can be mapped as
+	 * a large page.  Try to merge small pages into a large page.
+	 */
+	if (fault->slot &&
+	    kvm_gfn_shared_mask(vcpu->kvm) &&
+	    iter->level > PG_LEVEL_4K &&
+	    kvm_is_private_gpa(vcpu->kvm, fault->addr) &&
+	    is_shadow_present_pte(iter->old_spte) &&
+	    !is_large_pte(iter->old_spte))
+		return tdp_mmu_merge_private_spt(vcpu, fault, iter, new_spte);
+
+	return tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte);
 }
 
 /*
@@ -963,14 +1735,30 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 
 	if (unlikely(!fault->slot))
 		new_spte = make_mmio_spte(vcpu, iter->gfn, ACC_ALL);
-	else
-		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
-					 fault->pfn, iter->old_spte, fault->prefetch, true,
-					 fault->map_writable, &new_spte);
+	else {
+		unsigned long pte_access = ACC_ALL;
+		gfn_t gfn = iter->gfn;
+
+		if (kvm_gfn_shared_mask(vcpu->kvm)) {
+			if (fault->is_private)
+				gfn |= kvm_gfn_shared_mask(vcpu->kvm);
+			else
+				/*
+				 * TDX shared GPAs are no executable, enforce
+				 * this for the SDV.
+				 */
+				pte_access &= ~ACC_EXEC_MASK;
+		}
+
+		wrprot = make_spte(vcpu, sp, fault->slot, pte_access, gfn,
+				   fault->pfn, iter->old_spte,
+				   fault->prefetch, true, fault->map_writable,
+				   &new_spte);
+	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
-	else if (tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+	else if (__tdp_mmu_map_handle_target_level(vcpu, fault, iter, new_spte))
 		return RET_PF_RETRY;
 	else if (is_shadow_present_pte(iter->old_spte) &&
 		 !is_last_spte(iter->old_spte, iter->level))
@@ -987,7 +1775,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	}
 
 	/* If a MMIO SPTE is installed, the MMIO will need to be emulated. */
-	if (unlikely(is_mmio_spte(new_spte))) {
+	if (unlikely(is_mmio_spte(vcpu->kvm, new_spte))) {
 		vcpu->stat.pf_mmio_spte_created++;
 		trace_mark_mmio_spte(rcu_dereference(iter->sptep), iter->gfn,
 				     new_spte);
@@ -1015,7 +1803,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
 			   struct kvm_mmu_page *sp, bool shared)
 {
-	u64 spte = make_nonleaf_spte(sp->spt, !kvm_ad_enabled());
+	u64 spte = make_nonleaf_spte(sp->spt, !kvm_ad_enabled(), sp_mmu_present_mask(sp));
 	int ret = 0;
 
 	if (shared) {
@@ -1035,6 +1823,38 @@ static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
 				   struct kvm_mmu_page *sp, bool shared);
 
 /*
+ * unzap large page spte: shortened version of tdp_mmu_map_handle_target_level()
+ */
+static int tdp_mmu_unzap_large_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
+				    struct tdp_iter *iter)
+{
+	struct kvm_mmu_page *sp = sptep_to_sp(rcu_dereference(iter->sptep));
+	kvm_pfn_t mask = KVM_HPAGE_GFN_MASK(iter->level);
+	u64 new_spte;
+
+	KVM_BUG_ON((fault->pfn & mask) != spte_to_pfn(iter->old_spte), vcpu->kvm);
+	make_spte(vcpu, sp, fault->slot, ACC_ALL, gpa_to_gfn(fault->addr) & mask,
+		  fault->pfn & mask, iter->old_spte, false, true,
+		  fault->map_writable, &new_spte);
+
+	if (new_spte == iter->old_spte)
+		return RET_PF_SPURIOUS;
+
+	if (tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+		return RET_PF_RETRY;
+	trace_kvm_mmu_set_spte(iter->level, iter->gfn,
+			       rcu_dereference(iter->sptep));
+	iter->old_spte = new_spte;
+	return RET_PF_CONTINUE;
+}
+
+static void link_shared_spte(struct kvm *kvm, gfn_t gfn, int level, u64 spte)
+{
+	if (kvm_x86_ops.link_shared_spte)
+		static_call(kvm_x86_link_shared_spte)(kvm, gfn, level, spte);
+}
+
+/*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
  */
@@ -1044,6 +1864,8 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	struct kvm *kvm = vcpu->kvm;
 	struct tdp_iter iter;
 	struct kvm_mmu_page *sp;
+	gfn_t raw_gfn;
+	bool is_private = fault->is_private && kvm_gfn_shared_mask(kvm);
 	int ret = RET_PF_RETRY;
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
@@ -1052,10 +1874,23 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	rcu_read_lock();
 
-	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
+	raw_gfn = gpa_to_gfn(fault->addr);
+
+	if (!fault->nonleaf &&
+	    (is_error_noslot_pfn(fault->pfn) ||
+	    !kvm_pfn_to_refcounted_page(fault->pfn))) {
+		if (is_private && !kvm_is_mmio_pfn(fault->pfn)) {
+			rcu_read_unlock();
+			return -EFAULT;
+		}
+	}
+
+	tdp_mmu_for_each_pte(iter, mmu, is_private, raw_gfn, raw_gfn + 1) {
 		int r;
 
-		if (fault->nx_huge_page_workaround_enabled)
+		KVM_BUG_ON(is_private_sptep(iter.sptep) != is_private, vcpu->kvm);
+		if (fault->nx_huge_page_workaround_enabled ||
+		    kvm_gfn_shared_mask(vcpu->kvm))
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 
 		/*
@@ -1073,12 +1908,19 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		    !is_large_pte(iter.old_spte))
 			continue;
 
+		if (is_private_zapped_spte(iter.old_spte) &&
+		    is_large_pte(iter.old_spte)) {
+			if (tdp_mmu_unzap_large_spte(vcpu, fault, &iter) !=
+			    RET_PF_CONTINUE)
+				break;
+		}
+
 		/*
 		 * The SPTE is either non-present or points to a huge page that
 		 * needs to be split.
 		 */
-		sp = tdp_mmu_alloc_sp(vcpu);
-		tdp_mmu_init_child_sp(sp, &iter);
+		sp = tdp_mmu_alloc_sp(vcpu, tdp_iter_child_role(&iter));
+		tdp_mmu_init_sp(sp, iter.sptep, iter.gfn);
 
 		sp->nx_huge_page_disallowed = fault->huge_page_disallowed;
 
@@ -1103,6 +1945,11 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 				track_possible_nx_huge_page(kvm, sp);
 			spin_unlock(&kvm->arch.tdp_mmu_pages_lock);
 		}
+
+		if (!is_private && iter.level == vcpu->arch.mmu->root_role.level &&
+		    kvm_gfn_shared_mask(vcpu->kvm))
+			link_shared_spte(vcpu->kvm, iter.gfn, iter.level,
+					 kvm_tdp_mmu_read_spte(iter.sptep));
 	}
 
 	/*
@@ -1113,21 +1960,47 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	goto retry;
 
 map_target_level:
-	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
-
+	if (!fault->nonleaf)
+		ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
+	else
+		ret = RET_PF_FIXED;
 retry:
 	rcu_read_unlock();
 	return ret;
 }
 
+/* Used by mmu notifier via kvm_unmap_gfn_range() */
 bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 				 bool flush)
 {
 	struct kvm_mmu_page *root;
+	enum tdp_zap_private zap_private = ZAP_PRIVATE_SKIP;
+
+	if (kvm_gfn_shared_mask(kvm)) {
+		if (!range->only_private && !range->only_shared) {
+			/* memory attributes change */
+			if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+				zap_private = ZAP_PRIVATE_SKIP;
+			else
+				zap_private = ZAP_PRIVATE_BLOCK;
+		} else if (range->only_private && !range->only_shared) {
+			/* gmem invalidation */
+			zap_private = ZAP_PRIVATE_REMOVE;
+		} else if (range->only_private && range->only_shared) {
+			/* memory slot deletion or movement */
+			zap_private = ZAP_PRIVATE_REMOVE;
+		} else {
+			/*
+			 * !range->only_private && range->only_shared
+			 * mmu notifier
+			 */
+			zap_private = ZAP_PRIVATE_SKIP;
+		}
+	}
 
 	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, false, false)
 		flush = tdp_mmu_zap_leafs(kvm, root, range->start, range->end,
-					  range->may_block, flush);
+					  range->may_block, flush, is_private_sp(root) ? zap_private : ZAP_PRIVATE_SKIP);
 
 	return flush;
 }
@@ -1148,9 +2021,27 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 	 * into this helper allow blocking; it'd be dead, wasteful code.
 	 */
 	for_each_tdp_mmu_root(kvm, root, range->slot->as_id) {
+		gfn_t start;
+		gfn_t end;
+
+		/*
+		 * For now, operation on private GPA, e.g. dirty page logging,
+		 * isn't supported yet.
+		 */
+		if (is_private_sp(root))
+			continue;
+
 		rcu_read_lock();
 
-		tdp_root_for_each_leaf_pte(iter, root, range->start, range->end)
+		/*
+		 * For TDX shared mapping, set GFN shared bit to the range,
+		 * so the handler() doesn't need to set it, to avoid duplicated
+		 * code in multiple handler()s.
+		 */
+		start = kvm_gfn_to_shared(kvm, range->start);
+		end = kvm_gfn_to_shared(kvm, range->end);
+
+		tdp_root_for_each_leaf_pte(iter, root, start, end)
 			ret |= handler(kvm, &iter, range);
 
 		rcu_read_unlock();
@@ -1235,7 +2126,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See handle_changed_spte().
 	 */
-	tdp_mmu_iter_set_spte(kvm, iter, 0);
+	tdp_mmu_iter_set_spte(kvm, iter, private_zapped_spte(kvm, iter));
 
 	if (!pte_write(range->arg.pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,
@@ -1314,6 +2205,14 @@ bool kvm_tdp_mmu_wrprot_slot(struct kvm *kvm,
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
 
+	/*
+	 * Because first TDX generation doesn't support write protecting private
+	 * mappings and kvm_arch_dirty_log_supported(kvm) = false, it's a bug
+	 * to reach here for guest TD.
+	 */
+	if (WARN_ON_ONCE(!kvm_arch_dirty_log_supported(kvm)))
+		return false;
+
 	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id, true)
 		spte_set |= wrprot_gfn_range(kvm, root, slot->base_gfn,
 			     slot->base_gfn + slot->npages, min_level);
@@ -1321,7 +2220,9 @@ bool kvm_tdp_mmu_wrprot_slot(struct kvm *kvm,
 	return spte_set;
 }
 
-static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(gfp_t gfp)
+static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(struct kvm *kvm, gfp_t gfp,
+							 union kvm_mmu_page_role role,
+							 bool can_yield)
 {
 	struct kvm_mmu_page *sp;
 
@@ -1331,7 +2232,14 @@ static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(gfp_t gfp)
 	if (!sp)
 		return NULL;
 
+	sp->role = role;
 	sp->spt = (void *)__get_free_page(gfp);
+	if (kvm_mmu_page_role_is_private(role)) {
+		if (kvm_alloc_private_spt_for_split(kvm, sp, gfp, can_yield)) {
+			free_page((unsigned long)sp->spt);
+			sp->spt = NULL;
+		}
+	}
 	if (!sp->spt) {
 		kmem_cache_free(mmu_page_header_cache, sp);
 		return NULL;
@@ -1342,9 +2250,14 @@ static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(gfp_t gfp)
 
 static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 						       struct tdp_iter *iter,
-						       bool shared)
+						       bool shared,
+						       bool can_yield)
 {
+	union kvm_mmu_page_role role = tdp_iter_child_role(iter);
 	struct kvm_mmu_page *sp;
+
+	KVM_BUG_ON(kvm_mmu_page_role_is_private(role) !=
+		   is_private_sptep(iter->sptep), kvm);
 
 	/*
 	 * Since we are allocating while under the MMU lock we have to be
@@ -1355,8 +2268,8 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 	 * If this allocation fails we drop the lock and retry with reclaim
 	 * allowed.
 	 */
-	sp = __tdp_mmu_alloc_sp_for_split(GFP_NOWAIT | __GFP_ACCOUNT);
-	if (sp)
+	sp = __tdp_mmu_alloc_sp_for_split(kvm, GFP_NOWAIT | __GFP_ACCOUNT, role, can_yield);
+	if (sp || !can_yield)
 		return sp;
 
 	rcu_read_unlock();
@@ -1367,7 +2280,7 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 
 	iter->yielded = true;
-	sp = __tdp_mmu_alloc_sp_for_split(GFP_KERNEL_ACCOUNT);
+	sp = __tdp_mmu_alloc_sp_for_split(kvm, GFP_KERNEL_ACCOUNT, role, can_yield);
 
 	if (shared)
 		read_lock(&kvm->mmu_lock);
@@ -1449,7 +2362,7 @@ retry:
 			continue;
 
 		if (!sp) {
-			sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, shared);
+			sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, shared, true);
 			if (!sp) {
 				ret = -ENOMEM;
 				trace_kvm_mmu_split_huge_page(iter.gfn,
@@ -1462,7 +2375,7 @@ retry:
 				continue;
 		}
 
-		tdp_mmu_init_child_sp(sp, &iter);
+		tdp_mmu_init_sp(sp, iter.sptep, iter.gfn);
 
 		if (tdp_mmu_split_huge_page(kvm, &iter, sp, shared))
 			goto retry;
@@ -1561,6 +2474,14 @@ bool kvm_tdp_mmu_clear_dirty_slot(struct kvm *kvm,
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
 
+	/*
+	 * First TDX generation doesn't support clearing dirty bit,
+	 * since there's no secure EPT API to support it.  It is a
+	 * bug to reach here for TDX guest.
+	 */
+	if (WARN_ON_ONCE(!kvm_arch_dirty_log_supported(kvm)))
+		return false;
+
 	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id, true)
 		spte_set |= clear_dirty_gfn_range(kvm, root, slot->base_gfn,
 				slot->base_gfn + slot->npages);
@@ -1603,6 +2524,10 @@ static void clear_dirty_pt_masked(struct kvm *kvm, struct kvm_mmu_page *root,
 		if (!(iter.old_spte & dbit))
 			continue;
 
+		if (is_private_sptep(iter.sptep))
+			static_call(kvm_x86_write_block_private_pages)(kvm,
+							(gfn_t *)&iter.gfn, 1);
+
 		iter.old_spte = tdp_mmu_clear_spte_bits(iter.sptep,
 							iter.old_spte, dbit,
 							iter.level);
@@ -1629,6 +2554,14 @@ void kvm_tdp_mmu_clear_dirty_pt_masked(struct kvm *kvm,
 				       bool wrprot)
 {
 	struct kvm_mmu_page *root;
+
+	/*
+	 * First TDX generation doesn't support clearing dirty bit,
+	 * since there's no secure EPT API to support it.  For now silently
+	 * ignore KVM_CLEAR_DIRTY_LOG.
+	 */
+	if (!kvm_arch_dirty_log_supported(kvm))
+		return;
 
 	for_each_tdp_mmu_root(kvm, root, slot->as_id)
 		clear_dirty_pt_masked(kvm, root, gfn, mask, wrprot);
@@ -1673,7 +2606,7 @@ retry:
 			continue;
 
 		max_mapping_level = kvm_mmu_max_mapping_level(kvm, slot,
-							      iter.gfn, PG_LEVEL_NUM);
+							      iter.gfn, PG_LEVEL_NUM, false);
 		if (max_mapping_level < iter.level)
 			continue;
 
@@ -1749,6 +2682,15 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 	bool spte_set = false;
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	/*
+	 * First TDX generation doesn't support write protecting private
+	 * mappings, silently ignore the request.  KVM_GET_DIRTY_LOG etc
+	 * can reach here, no warning.
+	 */
+	if (!kvm_arch_dirty_log_supported(kvm))
+		return false;
+
 	for_each_tdp_mmu_root(kvm, root, slot->as_id)
 		spte_set |= write_protect_gfn(kvm, root, gfn, min_level);
 
@@ -1771,7 +2713,14 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
 
 	*root_level = vcpu->arch.mmu->root_role.level;
 
-	tdp_mmu_for_each_pte(iter, mmu, gfn, gfn + 1) {
+	/*
+	 * mmio page fault isn't supported for protected guest because
+	 * instructions in protected guest memory can't be parsed by VMM.
+	 */
+	if (WARN_ON_ONCE(kvm_gfn_shared_mask(vcpu->kvm)))
+		return leaf;
+
+	tdp_mmu_for_each_pte(iter, mmu, false, gfn, gfn + 1) {
 		leaf = iter.level;
 		sptes[leaf] = iter.old_spte;
 	}
@@ -1790,15 +2739,16 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
  *
  * WARNING: This function is only intended to be called during fast_page_fault.
  */
-u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
-					u64 *spte)
+
+static u64 *kvm_tdp_mmu_fast_get_last_sptep(struct kvm_vcpu *vcpu,
+					    bool is_private, gfn_t gfn,
+					    u64 *spte)
 {
 	struct tdp_iter iter;
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
-	gfn_t gfn = addr >> PAGE_SHIFT;
 	tdp_ptep_t sptep = NULL;
 
-	tdp_mmu_for_each_pte(iter, mmu, gfn, gfn + 1) {
+	tdp_mmu_for_each_pte(iter, mmu, is_private, gfn, gfn + 1) {
 		*spte = iter.old_spte;
 		sptep = iter.sptep;
 	}
@@ -1815,3 +2765,112 @@ u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
 	 */
 	return rcu_dereference(sptep);
 }
+
+u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
+					u64 *spte)
+{
+	bool is_private = kvm_is_private_gpa(vcpu->kvm, addr);
+	gfn_t gfn = gpa_to_gfn(addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
+
+	return kvm_tdp_mmu_fast_get_last_sptep(vcpu, is_private, gfn, spte);
+}
+
+int kvm_tdp_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				     gfn_t *gfns,
+				     uint64_t *sptes,
+				     uint64_t npages,
+				     void *first_time_import_bitmap,
+				     void *opaque)
+{
+	uint64_t i, old_spte, new_spte;
+	uint64_t *sptep = NULL;
+	gfn_t gfn;
+	int ret;
+
+	bitmap_zero(first_time_import_bitmap, npages);
+
+	kvm_tdp_mmu_walk_lockless_begin();
+	/*
+	 * Check if all the sptes are ready to be updated.If yes, frozen the
+	 * spteps till import is done.
+	 */
+	for (i = 0; i < npages; i++) {
+		if (gfns[i] == INVALID_GFN)
+			continue;
+
+		gfn = gfns[i];
+		sptep = kvm_tdp_mmu_fast_get_last_sptep(vcpu, true, gfn, &old_spte);
+		if (sptes[i])
+			new_spte = sptes[i] | sp_mmu_present_mask(sptep_to_sp(sptep));
+		else
+			new_spte = 0;
+
+		/* The spte has been freezon */
+		if (is_removed_spte(old_spte)) {
+			ret = -EBUSY;
+			pr_err("%s: gfn=%llx is frozen\n", __func__, gfn);
+			goto out;
+		}
+
+		if (!try_cmpxchg64(sptep, &old_spte, new_spte)) {
+			ret = -EBUSY;
+			pr_err("%s: septp of gfn=%llx is changed\n", __func__, gfn);
+			goto out;
+		}
+
+		if (first_time_import_bitmap &&
+		    !is_shadow_present_pte(old_spte))
+			set_bit_le(i, first_time_import_bitmap);
+	}
+
+	ret = static_call(kvm_x86_import_private_pages)(vcpu->kvm,
+							sptes, npages, opaque);
+out:
+	kvm_tdp_mmu_walk_lockless_end();
+	return ret;
+}
+
+#ifdef CONFIG_INTEL_TDX_HOST
+int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+				gfn_t gfn, bool *is_private)
+{
+	int ret = -EINVAL;
+	struct tdp_iter iter;
+	struct kvm_mmu_page *root;
+
+	rcu_read_lock();
+
+	for_each_tdp_mmu_root(kvm, root, memslot->as_id) {
+		if (root->role.invalid)
+			continue;
+
+		if (!refcount_read(&root->tdp_mmu_root_count))
+			continue;
+
+		if (root->role.guest_mode)
+			continue;
+
+		if (is_private_sp(root))
+			gfn = kvm_gfn_to_private(kvm, gfn);
+		else
+			gfn = kvm_gfn_to_shared(kvm, gfn);
+
+		tdp_root_for_each_pte(iter, root, gfn, gfn + 1) {
+			if (!is_shadow_present_pte(iter.old_spte))
+				continue;
+
+			if (!is_last_spte(iter.old_spte, iter.level))
+				continue;
+
+			*is_private = is_private_sp(root);
+			ret = 0;
+			goto exit;
+		}
+	}
+ exit:
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_is_page_private);
+#endif

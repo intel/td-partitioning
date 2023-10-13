@@ -13,17 +13,6 @@
 
 #define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
 
-struct vmcs_hdr {
-	u32 revision_id:31;
-	u32 shadow_vmcs:1;
-};
-
-struct vmcs {
-	struct vmcs_hdr hdr;
-	u32 abort;
-	char data[];
-};
-
 DECLARE_PER_CPU(struct vmcs *, current_vmcs);
 
 /*
@@ -138,6 +127,11 @@ static inline bool is_machine_check(u32 intr_info)
 static inline bool is_nm_fault(u32 intr_info)
 {
 	return is_exception_n(intr_info, NM_VECTOR);
+}
+
+static inline bool is_ve_fault(u32 intr_info)
+{
+	return is_exception_n(intr_info, VE_VECTOR);
 }
 
 /* Undocumented: icebp/int1 */

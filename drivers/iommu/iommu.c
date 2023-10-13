@@ -3538,3 +3538,60 @@ void iommu_free_pgtbl_pages(struct iommu_domain *domain,
 		call_rcu(&page->rcu_head, pgtble_page_free_rcu);
 	}
 }
+
+int iommu_domain_set_trusted(struct iommu_domain *domain)
+{
+	return domain->ops->set_trusted(domain);
+}
+EXPORT_SYMBOL_GPL(iommu_domain_set_trusted);
+
+/**
+ * iommu_get_hw_info - get hardware information of the IOMMU for a device
+ * @dev: the device for which iommu information is queried
+ * @type: the type of IOMMU hardware
+ * @info: data buffer for the returned information
+ * @length: the length of the data buffer
+ *
+ * Return 0 on success with the IOMMU hardware information stored in the data
+ * buffer. Otherwise, an error number.
+ */
+int iommu_get_hw_info(struct device *dev, enum iommu_hw_info_type type,
+		      void *info, size_t length)
+{
+	const struct iommu_ops *ops = dev_iommu_ops(dev);
+	u32 data_len, data_type;
+	void *data;
+	int ret = 0;
+
+	if (!ops->hw_info || !info)
+		return -EINVAL;
+
+	data = ops->hw_info(dev, &data_len, &data_type);
+	if (IS_ERR(data))
+		return PTR_ERR(data);
+
+	/*
+	 * drivers that have hw_info callback should have a unique
+	 * iommu_hw_info_type.
+	 */
+	if (WARN_ON_ONCE(data_type == IOMMU_HW_INFO_TYPE_NONE)) {
+		ret = -ENODEV;
+		goto out_free;
+	}
+
+	/*
+	 * unlike userspace, kernel user should know the exact data
+	 * type && length
+	 */
+	if (type != data_type || length != (size_t)data_len) {
+		ret = -EINVAL;
+		goto out_free;
+	}
+
+	memcpy(info, data, length);
+
+out_free:
+	kfree(data);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(iommu_get_hw_info);

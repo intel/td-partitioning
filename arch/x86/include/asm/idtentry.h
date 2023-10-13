@@ -630,6 +630,7 @@ DECLARE_IDTENTRY_RAW(X86_TRAP_OTHER,	exc_xen_unknown_trap);
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 DECLARE_IDTENTRY(X86_TRAP_VE,		exc_virtualization_exception);
+DECLARE_IDTENTRY_SYSVEC(TDCM_EVENT_VECTOR,		sysvec_tdcm_event_callback);
 #endif
 
 /* Device interrupts common/spurious */
@@ -675,6 +676,9 @@ DECLARE_IDTENTRY_SYSVEC(IRQ_WORK_VECTOR,		sysvec_irq_work);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_VECTOR,		sysvec_kvm_posted_intr_ipi);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_WAKEUP_VECTOR,	sysvec_kvm_posted_intr_wakeup_ipi);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_NESTED_VECTOR,	sysvec_kvm_posted_intr_nested_ipi);
+#ifdef CONFIG_INTEL_TDX_HOST
+DECLARE_IDTENTRY_SYSVEC(TDX_GUEST_PMI_VECTOR,		sysvec_kvm_tdx_guest_pmi);
+#endif
 #endif
 
 #if IS_ENABLED(CONFIG_HYPERV)
