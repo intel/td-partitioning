@@ -126,6 +126,9 @@
 	acpi_no_memhotplug [ACPI] Disable memory hotplug.  Useful for kdump
 			   kernels.
 
+	acpi_prmt_off [ACPI] Disable parsing PRMT. System defaults to
+			platform handling via SMI when disabled.
+
 	acpi_no_static_ssdt	[HW,ACPI]
 			Disable installation of static SSDTs at early boot time
 			By default, SSDTs contained in the RSDT/XSDT will be

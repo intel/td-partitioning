@@ -319,8 +319,10 @@ static void acpi_bus_osc_negotiate_platform_control(void)
 
 	capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_HOTPLUG_OST_SUPPORT;
 	capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_PCLPI_SUPPORT;
-	if (IS_ENABLED(CONFIG_ACPI_PRMT))
+#ifdef CONFIG_ACPI_PRMT
+	if (!acpi_prmt_off)
 		capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_PRM_SUPPORT;
+#endif
 	if (IS_ENABLED(CONFIG_ACPI_FFH))
 		capbuf[OSC_SUPPORT_DWORD] |= OSC_SB_FFH_OPR_SUPPORT;
 
