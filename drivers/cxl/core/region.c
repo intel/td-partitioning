@@ -569,22 +569,134 @@ static int alloc_hpa(struct cxl_region *cxlr, resource_size_t size)
 	return 0;
 }
 
+static int add_soft_reserved(struct resource *parent, resource_size_t start,
+			     resource_size_t len, unsigned long flags)
+{
+	struct resource *res __free(kfree) = kmalloc(sizeof(*res), GFP_KERNEL);
+	int rc;
+
+	if (!res)
+		return -ENOMEM;
+
+	*res = DEFINE_RES_MEM_NAMED(start, len, "Soft Reserved");
+
+	res->desc = IORES_DESC_SOFT_RESERVED;
+	res->flags = res->flags | flags;
+	rc = insert_resource(parent, res);
+	if (rc)
+		return rc;
+
+	no_free_ptr(res);
+	return 0;
+}
+
+static void remove_soft_reserved(struct cxl_region *cxlr, struct resource *soft,
+				 resource_size_t start, resource_size_t end)
+{
+	struct cxl_root_decoder *cxlrd = to_cxl_root_decoder(cxlr->dev.parent);
+	resource_size_t new_start, new_end;
+	struct resource *parent;
+	unsigned long flags;
+	int rc;
+
+	/* Prevent new usage while removing or adjusting the resource */
+	guard(mutex)(&cxlrd->range_lock);
+
+	/* Aligns at both resource start and end */
+	if (soft->start == start && soft->end == end) {
+		rc = remove_resource(soft);
+		if (rc)
+			dev_dbg(&cxlr->dev,
+				"cannot remove soft reserved resource %pr\n",
+				soft);
+		else
+			kfree(soft);
+
+		return;
+	}
+
+	/* Aligns at either resource start or end */
+	if (soft->start == start || soft->end == end) {
+		if (soft->start == start) {
+			new_start = end + 1;
+			new_end = soft->end;
+		} else {
+			new_start = soft->start;
+			new_end = start + 1;
+		}
+		rc =  adjust_resource(soft, new_start, new_end - new_start + 1);
+		if (rc)
+			dev_dbg(&cxlr->dev,
+				"cannot adjust soft reserved resource %pr\n",
+				soft);
+		return;
+	}
+
+	/*
+	 * No alignment. Attempt a 3-way split that removes the part of
+	 * the resource the region occupied, and then creates new soft
+	 * reserved resources for the leading and trailing addr space.
+	 * adjust_resource() will stop the attempt if there are any
+	 * child resources.
+	 */
+
+	/* Save the original soft reserved resource params before adjusting */
+	new_start = soft->start;
+	new_end = soft->end;
+	parent = soft->parent;
+	flags = soft->flags;
+
+	rc = adjust_resource(soft, start, end - start);
+	if (rc) {
+		dev_dbg(&cxlr->dev,
+			"cannot adjust soft reserved resource %pr\n", soft);
+		return;
+	}
+	rc = remove_resource(soft);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot remove soft reserved resource %pr\n", soft);
+
+	rc = add_soft_reserved(parent, new_start, start - new_start, flags);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot add new soft reserved resource at %pa\n",
+			 &new_start);
+
+	rc = add_soft_reserved(parent, end + 1, new_end - end, flags);
+	if (rc)
+		dev_warn(&cxlr->dev,
+			 "cannot add new soft reserved resource at %pa + 1\n",
+			 &end);
+}
+
 static void cxl_region_iomem_release(struct cxl_region *cxlr)
 {
 	struct cxl_region_params *p = &cxlr->params;
+	struct resource *parent, *res = p->res;
+	resource_size_t start, end;
 
 	if (device_is_registered(&cxlr->dev))
 		lockdep_assert_held_write(&cxl_region_rwsem);
-	if (p->res) {
-		/*
-		 * Autodiscovered regions may not have been able to insert their
-		 * resource.
-		 */
-		if (p->res->parent)
-			remove_resource(p->res);
-		kfree(p->res);
-		p->res = NULL;
+	if (!res)
+		return;
+	/*
+	 * Autodiscovered regions may not have been able to insert their
+	 * resource. If a Soft Reserved parent resource exists, try to
+	 * remove that also.
+	 */
+	if (p->res->parent) {
+		parent = p->res->parent;
+		start = p->res->start;
+		end = p->res->end;
+		remove_resource(p->res);
+		if (test_bit(CXL_REGION_F_AUTO, &cxlr->flags) &&
+		    parent->desc == IORES_DESC_SOFT_RESERVED)
+			remove_soft_reserved(cxlr, parent, start, end);
 	}
+
+	kfree(p->res);
+	p->res = NULL;
 }
 
 static int free_hpa(struct cxl_region *cxlr)
@@ -1480,6 +1592,14 @@ static int cxl_region_attach_auto(struct cxl_region *cxlr,
 	return 0;
 }
 
+static int cmp_interleave_pos(const void *a, const void *b)
+{
+	struct cxl_endpoint_decoder *cxled_a = *(typeof(cxled_a) *)a;
+	struct cxl_endpoint_decoder *cxled_b = *(typeof(cxled_b) *)b;
+
+	return cxled_a->pos - cxled_b->pos;
+}
+
 static struct cxl_port *next_port(struct cxl_port *port)
 {
 	if (!port->parent_dport)
@@ -1487,119 +1607,104 @@ static struct cxl_port *next_port(struct cxl_port *port)
 	return port->parent_dport->port;
 }
 
-static int decoder_match_range(struct device *dev, void *data)
+static int match_switch_decoder_by_range(struct device *dev, void *data)
 {
-	struct cxl_endpoint_decoder *cxled = data;
+	struct range *r1, *r2 = data;
 	struct cxl_switch_decoder *cxlsd;
 
 	if (!is_switch_decoder(dev))
 		return 0;
 
 	cxlsd = to_cxl_switch_decoder(dev);
-	return range_contains(&cxlsd->cxld.hpa_range, &cxled->cxld.hpa_range);
+	r1 = &cxlsd->cxld.hpa_range;
+	return range_contains(r1, r2);
 }
 
-static void find_positions(const struct cxl_switch_decoder *cxlsd,
-			   const struct cxl_port *iter_a,
-			   const struct cxl_port *iter_b, int *a_pos,
-			   int *b_pos)
+/* Find the position of a port in it's parent and the parents ways */
+static int find_pos_and_ways(struct cxl_port *port, struct range *range,
+			     int *pos, int *ways)
 {
-	int i;
-
-	for (i = 0, *a_pos = -1, *b_pos = -1; i < cxlsd->nr_targets; i++) {
-		if (cxlsd->target[i] == iter_a->parent_dport)
-			*a_pos = i;
-		else if (cxlsd->target[i] == iter_b->parent_dport)
-			*b_pos = i;
-		if (*a_pos >= 0 && *b_pos >= 0)
-			break;
-	}
-}
-
-static int cmp_decode_pos(const void *a, const void *b)
-{
-	struct cxl_endpoint_decoder *cxled_a = *(typeof(cxled_a) *)a;
-	struct cxl_endpoint_decoder *cxled_b = *(typeof(cxled_b) *)b;
-	struct cxl_memdev *cxlmd_a = cxled_to_memdev(cxled_a);
-	struct cxl_memdev *cxlmd_b = cxled_to_memdev(cxled_b);
-	struct cxl_port *port_a = cxled_to_port(cxled_a);
-	struct cxl_port *port_b = cxled_to_port(cxled_b);
-	struct cxl_port *iter_a, *iter_b, *port = NULL;
 	struct cxl_switch_decoder *cxlsd;
+	struct cxl_port *parent;
+	int child_ways = *ways;
+	int child_pos = *pos;
 	struct device *dev;
-	int a_pos, b_pos;
-	unsigned int seq;
+	int index = 0;
+	int rc = -1;
 
-	/* Exit early if any prior sorting failed */
-	if (cxled_a->pos < 0 || cxled_b->pos < 0)
-		return 0;
+	parent = next_port(port);
+	if (!parent)
+		return rc;
 
-	/*
-	 * Walk up the hierarchy to find a shared port, find the decoder that
-	 * maps the range, compare the relative position of those dport
-	 * mappings.
-	 */
-	for (iter_a = port_a; iter_a; iter_a = next_port(iter_a)) {
-		struct cxl_port *next_a, *next_b;
+	dev = device_find_child(&parent->dev, range,
+				match_switch_decoder_by_range);
+	if (!dev) {
+		dev_err(port->uport_dev,
+			"failed to find decoder mapping %#llx-%#llx\n",
+			range->start, range->end);
+		return rc;
+	}
+	cxlsd = to_cxl_switch_decoder(dev);
+	*ways = cxlsd->cxld.interleave_ways;
 
-		next_a = next_port(iter_a);
-		if (!next_a)
-			break;
+	/* Use the child ways/pos as index to target list */
+	if (cxlsd->nr_targets > child_ways)
+		index = child_pos * child_ways;
 
-		for (iter_b = port_b; iter_b; iter_b = next_port(iter_b)) {
-			next_b = next_port(iter_b);
-			if (next_a != next_b)
-				continue;
-			port = next_a;
+	for (int i = index; i < *ways; i++) {
+		if (cxlsd->target[i] == port->parent_dport) {
+			*pos = i;
+			rc = 0;
 			break;
 		}
-
-		if (port)
-			break;
 	}
-
-	if (!port) {
-		dev_err(cxlmd_a->dev.parent,
-			"failed to find shared port with %s\n",
-			dev_name(cxlmd_b->dev.parent));
-		goto err;
-	}
-
-	dev = device_find_child(&port->dev, cxled_a, decoder_match_range);
-	if (!dev) {
-		struct range *range = &cxled_a->cxld.hpa_range;
-
-		dev_err(port->uport_dev,
-			"failed to find decoder that maps %#llx-%#llx\n",
-			range->start, range->end);
-		goto err;
-	}
-
-	cxlsd = to_cxl_switch_decoder(dev);
-	do {
-		seq = read_seqbegin(&cxlsd->target_lock);
-		find_positions(cxlsd, iter_a, iter_b, &a_pos, &b_pos);
-	} while (read_seqretry(&cxlsd->target_lock, seq));
-
 	put_device(dev);
 
-	if (a_pos < 0 || b_pos < 0) {
-		dev_err(port->uport_dev,
-			"failed to find shared decoder for %s and %s\n",
-			dev_name(cxlmd_a->dev.parent),
-			dev_name(cxlmd_b->dev.parent));
-		goto err;
+	return rc;
+}
+
+static int calc_interleave_pos(struct cxl_endpoint_decoder *cxled,
+			       int region_ways)
+{
+	struct cxl_port *iter, *port = cxled_to_port(cxled);
+	struct cxl_memdev *cxlmd = cxled_to_memdev(cxled);
+	struct range *range = &cxled->cxld.hpa_range;
+	int parent_ways = 0;
+	int parent_pos = 0;
+	int rc, pos;
+
+	/* Initialize pos to its local position */
+	rc = find_pos_and_ways(port, range, &parent_pos, &parent_ways);
+	if (rc)
+		return -ENXIO;
+
+	pos = parent_pos;
+
+	if (parent_ways == region_ways)
+		goto out;
+
+	/* Iterate up the ancestral tree refining the position */
+	for (iter = next_port(port); iter; iter = next_port(iter)) {
+		if (is_cxl_root(iter))
+			break;
+
+		rc = find_pos_and_ways(iter, range, &parent_pos, &parent_ways);
+		if (rc)
+			return -ENXIO;
+
+		if (parent_ways == region_ways) {
+			pos = parent_pos;
+			break;
+		}
+		pos = pos * parent_ways + parent_pos;
 	}
+out:
+	dev_dbg(&cxlmd->dev,
+		"decoder:%s parent:%s port:%s range:%#llx-%#llx pos:%d\n",
+		dev_name(&cxled->cxld.dev), dev_name(cxlmd->dev.parent),
+		dev_name(&port->dev), range->start, range->end, pos);
 
-	dev_dbg(port->uport_dev, "%s comes %s %s\n",
-		dev_name(cxlmd_a->dev.parent),
-		a_pos - b_pos < 0 ? "before" : "after",
-		dev_name(cxlmd_b->dev.parent));
-
-	return a_pos - b_pos;
-err:
-	cxled_a->pos = -1;
-	return 0;
+	return pos;
 }
 
 static int cxl_region_sort_targets(struct cxl_region *cxlr)
@@ -1607,22 +1712,21 @@ static int cxl_region_sort_targets(struct cxl_region *cxlr)
 	struct cxl_region_params *p = &cxlr->params;
 	int i, rc = 0;
 
-	sort(p->targets, p->nr_targets, sizeof(p->targets[0]), cmp_decode_pos,
-	     NULL);
-
 	for (i = 0; i < p->nr_targets; i++) {
 		struct cxl_endpoint_decoder *cxled = p->targets[i];
 
+		cxled->pos = calc_interleave_pos(cxled, p->interleave_ways);
 		/*
-		 * Record that sorting failed, but still continue to restore
-		 * cxled->pos with its ->targets[] position so that follow-on
-		 * code paths can reliably do p->targets[cxled->pos] to
-		 * self-reference their entry.
+		 * Record that sorting failed, but still continue to calc
+		 * cxled->pos so that follow-on code paths can reliably
+		 * do p->targets[cxled->pos] to self-reference their entry.
 		 */
 		if (cxled->pos < 0)
 			rc = -ENXIO;
-		cxled->pos = i;
 	}
+	/* Keep the cxlr target list in interleave position order */
+	sort(p->targets, p->nr_targets, sizeof(p->targets[0]),
+	     cmp_interleave_pos, NULL);
 
 	dev_dbg(&cxlr->dev, "region sort %s\n", rc ? "failed" : "successful");
 	return rc;
@@ -1760,6 +1864,21 @@ static int cxl_region_attach(struct cxl_region *cxlr,
 		.start = p->res->start,
 		.end = p->res->end,
 	};
+
+	if (p->nr_targets != p->interleave_ways)
+		return 0;
+
+	/* Exercise position calculator on user-defined regions */
+	for (int i = 0; i < p->nr_targets; i++) {
+		struct cxl_endpoint_decoder *cxled = p->targets[i];
+		int test_pos;
+
+		test_pos = calc_interleave_pos(cxled, p->interleave_ways);
+		dev_dbg(&cxled->cxld.dev,
+			"Interleave calc match %s test_pos:%d cxled->pos:%d\n",
+			(test_pos == cxled->pos) ? "Success" : "Fail",
+			test_pos, cxled->pos);
+	}
 
 	return 0;
 
@@ -2696,7 +2815,7 @@ err:
 	return rc;
 }
 
-static int match_decoder_by_range(struct device *dev, void *data)
+static int match_root_decoder_by_range(struct device *dev, void *data)
 {
 	struct range *r1, *r2 = data;
 	struct cxl_root_decoder *cxlrd;
@@ -2728,6 +2847,31 @@ static int match_region_by_range(struct device *dev, void *data)
 	up_read(&cxl_region_rwsem);
 
 	return rc;
+}
+
+static int insert_resource_soft_reserved(struct resource *soft_res, void *arg)
+{
+	struct resource *parent, *new, *res = arg;
+	bool found = false;
+	int rc = 0;
+
+	parent = soft_res->parent;
+	if (!parent)
+		return 0;
+
+	/* Caller provides a copy of soft_res. Find the actual resource. */
+	for (new = parent->child; new; new = new->sibling) {
+		if (resource_contains(new, soft_res)) {
+			rc = insert_resource(new, res);
+			found = true;
+			break;
+		}
+	}
+	/* Caller handles failure to find or insert resource */
+	if (!found || rc)
+		return rc;
+
+	return 1;
 }
 
 /* Establish an empty region covering the given HPA range */
@@ -2776,16 +2920,28 @@ static struct cxl_region *construct_region(struct cxl_root_decoder *cxlrd,
 
 	*res = DEFINE_RES_MEM_NAMED(hpa->start, range_len(hpa),
 				    dev_name(&cxlr->dev));
-	rc = insert_resource(cxlrd->res, res);
-	if (rc) {
-		/*
-		 * Platform-firmware may not have split resources like "System
-		 * RAM" on CXL window boundaries see cxl_region_iomem_release()
-		 */
-		dev_warn(cxlmd->dev.parent,
-			 "%s:%s: %s %s cannot insert resource\n",
-			 dev_name(&cxlmd->dev), dev_name(&cxled->cxld.dev),
-			 __func__, dev_name(&cxlr->dev));
+
+	/* Try inserting to a Soft Reserved parent. Fallback to root decoder */
+	rc = walk_iomem_res_desc(IORES_DESC_SOFT_RESERVED, 0, res->start,
+				 res->end, res, insert_resource_soft_reserved);
+	if (!rc || rc == -EBUSY)
+		dev_dbg(&cxlmd->dev,
+			"insert %pr to soft reserved parent failed rc:%d\n",
+			res, rc);
+	if (rc != 1) {
+		rc = insert_resource(cxlrd->res, res);
+		if (rc) {
+			/*
+			 * Platform-firmware may not have split resources
+			 * like "System RAM" on CXL window boundaries see
+			 * cxl_region_iomem_release()
+			 */
+			dev_warn(cxlmd->dev.parent,
+				 "%s:%s: %s %s cannot insert resource\n",
+				 dev_name(&cxlmd->dev),
+				 dev_name(&cxled->cxld.dev), __func__,
+				 dev_name(&cxlr->dev));
+		}
 	}
 
 	p->res = res;
@@ -2827,7 +2983,7 @@ int cxl_add_to_region(struct cxl_port *root, struct cxl_endpoint_decoder *cxled)
 	int rc;
 
 	cxlrd_dev = device_find_child(&root->dev, &cxld->hpa_range,
-				      match_decoder_by_range);
+				      match_root_decoder_by_range);
 	if (!cxlrd_dev) {
 		dev_err(cxlmd->dev.parent,
 			"%s:%s no CXL window for range %#llx:%#llx\n",

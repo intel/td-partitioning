@@ -752,6 +752,7 @@ static int cxl_event_config(struct pci_host_bridge *host_bridge,
 			    struct cxl_memdev_state *mds)
 {
 	struct cxl_event_interrupt_policy policy;
+	struct device *dev = mds->cxlds.dev;
 	int rc;
 
 	/*
@@ -761,22 +762,22 @@ static int cxl_event_config(struct pci_host_bridge *host_bridge,
 	if (!host_bridge->native_cxl_error)
 		return 0;
 
-	rc = cxl_mem_alloc_event_buf(mds);
-	if (rc)
-		return rc;
-
 	rc = cxl_event_get_int_policy(mds, &policy);
 	if (rc)
 		return rc;
 
-	if (cxl_event_int_is_fw(policy.info_settings) ||
-	    cxl_event_int_is_fw(policy.warn_settings) ||
-	    cxl_event_int_is_fw(policy.failure_settings) ||
-	    cxl_event_int_is_fw(policy.fatal_settings)) {
-		dev_err(mds->cxlds.dev,
-			"FW still in control of Event Logs despite _OSC settings\n");
-		return -EBUSY;
-	}
+	if (WARN_TAINT_ONCE(cxl_event_int_is_fw(policy.info_settings) ||
+			    cxl_event_int_is_fw(policy.warn_settings) ||
+			    cxl_event_int_is_fw(policy.failure_settings) ||
+			    cxl_event_int_is_fw(policy.fatal_settings),
+			    TAINT_FIRMWARE_WORKAROUND,
+			    "%s %s: FW still in control of Event Logs despite _OSC settings\n",
+			    dev_driver_string(dev), dev_name(dev)))
+		return 0;
+
+	rc = cxl_mem_alloc_event_buf(mds);
+	if (rc)
+		return rc;
 
 	rc = cxl_event_irqsetup(mds);
 	if (rc)
