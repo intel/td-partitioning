@@ -473,9 +473,16 @@ void __init efi_dump_pagetable(void)
  * while the EFI-mm is borrowed. mmgrab()/mmdrop() is not used because the mm
  * can not change under us.
  * It should be ensured that there are no concurrent calls to this function.
+ *
+ * Disable LASS enforcement temporarily when switching to EFI MM since it could
+ * be mapped into the low 64-bit virtual address space with address bit 63 set
+ * to 0. STAC/CLAC are not sufficient, as this code will call into EFI mapping
+ * and such instruction fetch is still a LASS violation.
  */
 static void efi_enter_mm(void)
 {
+	if (cpu_feature_enabled(X86_FEATURE_LASS))
+		cr4_clear_bits(X86_CR4_LASS);
 	efi_prev_mm = current->active_mm;
 	current->active_mm = &efi_mm;
 	switch_mm(efi_prev_mm, &efi_mm, NULL);
@@ -485,6 +492,8 @@ static void efi_leave_mm(void)
 {
 	current->active_mm = efi_prev_mm;
 	switch_mm(&efi_mm, efi_prev_mm, NULL);
+	if (cpu_feature_enabled(X86_FEATURE_LASS))
+		cr4_set_bits(X86_CR4_LASS);
 }
 
 void arch_efi_call_virt_setup(void)

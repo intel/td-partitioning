@@ -151,6 +151,16 @@ extern void *memcpy(void *, const void *, size_t);
 
 #endif /* !CONFIG_FORTIFY_SOURCE */
 
+static __always_inline void *__inline_memcpy(void *to, const void *from, size_t len)
+{
+	void *ret = to;
+
+	asm volatile("rep movsb"
+		     : "+D" (to), "+S" (from), "+c" (len)
+		     : : "memory");
+	return ret;
+}
+
 #define __HAVE_ARCH_MEMMOVE
 void *memmove(void *dest, const void *src, size_t n);
 
@@ -194,6 +204,17 @@ extern void *memset(void *, int, size_t);
 #ifndef CONFIG_FORTIFY_SOURCE
 #define memset(s, c, count) __builtin_memset(s, c, count)
 #endif /* !CONFIG_FORTIFY_SOURCE */
+
+static __always_inline void *__inline_memset(void *s, int v, size_t n)
+{
+	void *ret = s;
+
+	asm volatile("rep stosb"
+		     : "+D" (s), "+c" (n)
+		     : "a" ((uint8_t)v)
+		     : "memory");
+	return ret;
+}
 
 #define __HAVE_ARCH_MEMSET16
 static inline void *memset16(uint16_t *s, uint16_t v, size_t n)
