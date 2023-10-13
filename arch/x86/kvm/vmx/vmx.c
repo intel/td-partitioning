@@ -6847,7 +6847,6 @@ void vmx_handle_external_interrupt_irqoff(struct kvm_vcpu *vcpu,
 							u32 intr_info)
 {
 	unsigned int vector = intr_info & INTR_INFO_VECTOR_MASK;
-	gate_desc *desc = (gate_desc *)vmx_host_idt_base + vector;
 
 	if (KVM_BUG(!is_external_intr(intr_info), vcpu->kvm,
 	    "unexpected VM-Exit interrupt info: 0x%x", intr_info))
