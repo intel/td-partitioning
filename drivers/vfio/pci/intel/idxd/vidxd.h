@@ -43,11 +43,61 @@ enum {
 	IDXD_VDCM_WRITE,
 };
 
+union hw_desc {
+	struct dsa_hw_desc hw;
+	struct iax_hw_desc iax_hw;
+};
+
+#define IDXD_DESC_SIZE sizeof(union hw_desc)
+
+#define VIDXD_MAX_PORTALS 64
+
+struct idxd_wq_desc_elem {
+	enum idxd_portal_prot portal_prot;
+	u8 portal_id;
+	u8 work_desc[IDXD_DESC_SIZE];
+	struct list_head link;
+};
+
+struct idxd_wq_portal {
+	u8 data[IDXD_DESC_SIZE];
+	unsigned int count;
+};
+
+struct idxd_virtual_wq {
+	unsigned int ndescs;
+	struct list_head head;
+	struct idxd_wq_portal portals[VIDXD_MAX_PORTALS];
+};
+
+struct vidxd_data {
+	u64 bar_val[VIDXD_MAX_BARS];
+	u64 bar_size[VIDXD_MAX_BARS];
+	u8 cfg[VIDXD_MAX_CFG_SPACE_SZ];
+	u8 bar0[VIDXD_MAX_MMIO_SPACE_SZ];
+
+	u8 ims_idx[VIDXD_MAX_MSIX_VECS];
+
+	unsigned int ndescs[VIDXD_MAX_WQS];
+	struct idxd_wq_desc_elem el[VIDXD_MAX_WQS][VIDXD_MAX_PORTALS];
+};
+
+struct vidxd_migration_file {
+	struct file *filp;
+	struct mutex lock;
+	bool disabled;
+
+	struct vidxd_data vidxd_data;
+	size_t total_length;
+};
+
 struct vdcm_idxd {
 	struct vfio_device vdev;
 	struct idxd_device *idxd;
 	struct idxd_wq *wq;
+	struct idxd_virtual_wq vwq[VIDXD_MAX_WQS];
 	struct iommufd_device *idev;
+	int num_wqs;
 
 	u64 bar_val[VIDXD_MAX_BARS];
 	u64 bar_size[VIDXD_MAX_BARS];
@@ -57,11 +107,18 @@ struct vdcm_idxd {
 	struct idxd_dev *parent;
 
 	struct mutex dev_lock; /* lock for vidxd resources */
+	struct mutex mig_submit_lock;
 
 	ioasid_t pasid;
 	struct xarray pasid_xa;
 
 	struct eventfd_ctx *req_trigger;
+
+	bool paused;
+	struct mutex state_mutex;
+	enum vfio_device_mig_state mig_state;
+	struct vidxd_migration_file *resuming_migf;
+	struct vidxd_migration_file *saving_migf;
 };
 
 struct vdcm_hwpt {
@@ -116,6 +173,12 @@ int vidxd_cfg_write(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsign
 int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
 int vidxd_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
 int vidxd_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int size);
+int vidxd_portal_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf,
+			   unsigned int size);
+int vidxd_portal_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf,
+			    unsigned int size);
+void vidxd_notify_revoked_handles (struct vdcm_idxd *vidxd);
+int vidxd_get_host_pasid(struct device *dev, u32 gpasid, u32 *pasid);
 
 static inline void vidxd_send_interrupt(struct vdcm_idxd *vidxd, int vector)
 {

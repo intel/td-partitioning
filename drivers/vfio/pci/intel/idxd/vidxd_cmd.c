@@ -77,11 +77,15 @@ static void vidxd_disable(struct vdcm_idxd *vidxd)
 	vwqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET);
 	wq = vidxd->wq;
 
-	rc = idxd_wq_disable(wq, false);
-	if (rc) {
-		dev_warn(dev, "vidxd disable (wq disable) failed: %#x\n", rc);
-		idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_DIS_DEV_EN);
-		return;
+	if (wq_dedicated(wq)) {
+		rc = idxd_wq_disable(wq, false);
+		if (rc) {
+			dev_warn(dev, "vidxd disable (wq disable) failed: %#x\n", rc);
+			idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_DIS_DEV_EN);
+			return;
+		}
+	} else {
+		idxd_wq_drain(wq);
 	}
 
 	vwqcfg->wq_state = IDXD_WQ_DISABLED;
@@ -145,6 +149,19 @@ static void vidxd_wq_abort(struct vdcm_idxd *vidxd, int val)
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }
 
+static inline void vidxd_vwq_init(struct vdcm_idxd *vidxd)
+{
+	int i;
+
+	for (i = 0; i < VIDXD_MAX_WQS; i++) {
+		INIT_LIST_HEAD(&vidxd->vwq[i].head);
+		vidxd->vwq[i].ndescs = 0;
+
+		memset(vidxd->vwq[i].portals, 0,
+		       VIDXD_MAX_PORTALS * sizeof(struct idxd_wq_portal));
+	}
+}
+
 void vidxd_reset(struct vdcm_idxd *vidxd)
 {
 	u8 *bar0 = vidxd->bar0;
@@ -156,7 +173,9 @@ void vidxd_reset(struct vdcm_idxd *vidxd)
 	gensts->state = IDXD_DEVICE_STATE_DRAIN;
 	wq = vidxd->wq;
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	vidxd_vwq_init(vidxd);
+
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		rc = idxd_wq_abort(wq);
 		if (rc < 0) {
 			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
@@ -189,16 +208,19 @@ static void vidxd_wq_reset(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
-	rc = idxd_wq_abort(wq);
-	if (rc < 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
-		return;
-	}
-
-	rc = idxd_wq_disable(wq, false);
-	if (rc < 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
-		return;
+	if (wq_dedicated(wq)) {
+		rc = idxd_wq_abort(wq);
+		if (rc < 0) {
+			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
+			return;
+		}
+		rc = idxd_wq_disable(wq, false);
+		if (rc < 0) {
+			idxd_complete_command(vidxd, IDXD_CMDSTS_HW_ERR);
+			return;
+		}
+	} else {
+		idxd_wq_drain(wq);
 	}
 
 	vwqcfg->wq_state = IDXD_WQ_DEV_DISABLED;
@@ -335,12 +357,22 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 		return;
 	}
 
-	if (wqcap->dedicated_mode == 0) {
-		idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_WQ_MODE);
-		return;
-	}
+
+        if ((!wq_dedicated(wq) && wqcap->shared_mode == 0) ||
+            (wq_dedicated(wq) && wqcap->dedicated_mode == 0)) {
+                idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_WQ_MODE);
+                return;
+        }
+
+        if ((!wq_dedicated(wq) && vwqcfg->pasid_en == 0)) {
+                idxd_complete_command(vidxd, IDXD_CMDSTS_ERR_PASID_EN);
+                return;
+        }
 
 	wq_pasid_enable = vwqcfg->pasid_en;
+
+	if (!wq_dedicated(wq))
+		goto out;
 
 	if (wq_pasid_enable) {
 		u32 gpasid;
@@ -396,6 +428,7 @@ static void vidxd_wq_enable(struct vdcm_idxd *vidxd, int wq_id)
 		return;
 	}
 
+out:
 	vwqcfg->wq_state = IDXD_WQ_DEV_ENABLED;
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }
@@ -407,7 +440,6 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 	u8 *bar0 = vidxd->bar0;
 	struct device *dev = vidxd_dev(vidxd);
 	int rc;
-	struct mm_struct *mm;
 
 	wq = vidxd->wq;
 
@@ -420,6 +452,11 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
+	if (!wq_dedicated(wq)) {
+		idxd_wq_drain(wq);
+		goto out;
+	}
+
 	rc = idxd_wq_disable(wq, false);
 	if (rc < 0) {
 		dev_warn(dev, "vidxd disable wq failed: %#x\n", rc);
@@ -427,6 +464,7 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 		return;
 	}
 
+#if 0
 	if (vwqcfg->pasid_en) {
 		mm = get_task_mm(current);
 		if (!mm) {
@@ -434,7 +472,9 @@ static void vidxd_wq_disable(struct vdcm_idxd *vidxd, int wq_id_mask)
 			return;
 		}
 	}
+#endif
 
+out:
 	vwqcfg->wq_state = IDXD_WQ_DEV_DISABLED;
 	idxd_complete_command(vidxd, IDXD_CMDSTS_SUCCESS);
 }

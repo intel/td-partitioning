@@ -93,11 +93,16 @@ static void vidxd_mmio_init_wqcap(struct vdcm_idxd *vidxd)
 	wq_cap->total_wq_size = wq->size;
 	wq_cap->num_wqs = VIDXD_MAX_WQS;
 	wq_cap->wq_ats_support = 0;
-	wq_cap->dedicated_mode = 1;
+//	wq_cap->dedicated_mode = 1;
+	if (wq_dedicated(wq))
+		wq_cap->dedicated_mode = 1;
+	else
+		wq_cap->shared_mode = 1;
 }
 
 static void vidxd_mmio_init_wqcfg(struct vdcm_idxd *vidxd)
 {
+	struct idxd_device *idxd = vidxd->idxd;
 	struct idxd_wq *wq = vidxd->wq;
 	u8 *bar0 = vidxd->bar0;
 	union wqcfg *wqcfg = (union wqcfg *)(bar0 + VIDXD_WQCFG_OFFSET);
@@ -105,7 +110,10 @@ static void vidxd_mmio_init_wqcfg(struct vdcm_idxd *vidxd)
 	wqcfg->wq_size = wq->size;
 	wqcfg->wq_thresh = wq->threshold;
 
-	wqcfg->mode = WQCFG_MODE_DEDICATED;
+	if (wq_dedicated(wq))
+		wqcfg->mode = WQCFG_MODE_DEDICATED;
+	else if (device_user_pasid_enabled(idxd))
+		wqcfg->pasid_en = 1;
 
 	wqcfg->bof = wq->wqcfg->bof;
 
@@ -254,7 +262,7 @@ void vidxd_init(struct vdcm_idxd *vidxd)
 
 	vidxd_mmio_init(vidxd);
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		idxd_wq_disable(wq, false);
 		wq->state = IDXD_WQ_LOCKED;
 	}
@@ -264,7 +272,7 @@ void vidxd_shutdown(struct vdcm_idxd *vidxd)
 {
 	struct idxd_wq *wq = vidxd->wq;
 
-	if (wq->state == IDXD_WQ_ENABLED) {
+	if (wq_dedicated(wq) && wq->state == IDXD_WQ_ENABLED) {
 		idxd_wq_disable(wq, false);
 		wq->state = IDXD_WQ_LOCKED;
 	}
@@ -317,6 +325,17 @@ static void vidxd_report_pci_error(struct vdcm_idxd *vidxd)
 	gensts->state = IDXD_DEVICE_STATE_HALT;
 
 	send_halt_interrupt(vidxd);
+}
+
+void vidxd_notify_revoked_handles (struct vdcm_idxd *vidxd)
+{
+	u8 *bar0 = vidxd->bar0;
+	u32 *intcause = (u32 *)(bar0 + IDXD_INTCAUSE_OFFSET);
+
+	*intcause |= IDXD_INTC_INT_HANDLE_REVOKED;
+
+	pr_info("informating guest about revoked handles\n");
+	vidxd_send_interrupt(vidxd, 0);
 }
 
 int vidxd_cfg_read(struct vdcm_idxd *vidxd, unsigned int pos, void *buf, unsigned int count)
@@ -752,4 +771,144 @@ int vidxd_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf, unsigned int si
 	dev_dbg(dev, "vidxd mmio R %d %x %x: %llx\n",
 		vidxd->wq->id, size, offset, get_reg_val(buf, size));
 	return 0;
+}
+
+int vidxd_portal_mmio_read(struct vdcm_idxd *vidxd, u64 pos, void *buf,
+                                unsigned int size)
+{
+	u32 offset = pos & (vidxd->bar_size[1] - 1);
+	struct device *dev = vidxd_dev(vidxd);
+
+	BUG_ON((size & (size - 1)) != 0);
+	BUG_ON(size > 8);
+	BUG_ON((offset & (size - 1)) != 0);
+
+	memset(buf, 0xff, size);
+
+	dev_dbg(dev, "vidxd portal mmio R %d %x %x: %llx\n",
+		vidxd->wq->id, size, offset, get_reg_val(buf, size));
+
+	return 0;
+}
+
+int vidxd_portal_mmio_write(struct vdcm_idxd *vidxd, u64 pos, void *buf,
+				unsigned int size)
+{
+	struct device *dev = vidxd_dev(vidxd);
+	u32 offset = pos & (vidxd->bar_size[1] - 1);
+	uint16_t wq_id = offset >> 14;
+	uint16_t portal_id, portal_offset;
+	struct idxd_virtual_wq *vwq;
+	struct idxd_wq *wq;
+	struct idxd_wq_portal *portal;
+	enum idxd_portal_prot portal_prot = IDXD_PORTAL_UNLIMITED;
+	int rc = 0;
+
+	BUG_ON((size & (size - 1)) != 0);
+	BUG_ON(size > 64);
+	BUG_ON((offset & (size - 1)) != 0);
+
+	dev_dbg(dev, "vidxd portal mmio W %d %x %x: %llx\n", vidxd->wq->id, size,
+			offset, get_reg_val(buf, size));
+
+	if (wq_id >= vidxd->num_wqs) {
+		printk("DSA portal write: Invalid wq  %d\n", wq_id);
+	}
+
+	vwq = &vidxd->vwq[0];
+	wq = vidxd->wq;
+
+	if (!wq_dedicated(wq) || (((offset >> PAGE_SHIFT) & 0x3) == 1))
+		portal_prot = IDXD_PORTAL_LIMITED;
+
+	portal_id = (offset & 0xFFF) >> 6;
+	portal_offset = offset & 0x3F;
+
+	portal = &vwq->portals[portal_id];
+
+	portal->count += size;
+	memcpy(&portal->data[portal_offset], buf, size);
+
+	if (portal->count == IDXD_DESC_SIZE) {
+		struct idxd_wq_desc_elem *elem;
+		u64 *p = (u64 *)portal->data;
+		printk("desc: %016llx %016llx  %016llx %016llx %016llx %016llx %016llx %016llx\n",
+				p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+
+		mutex_lock(&vidxd->mig_submit_lock);
+		if (vidxd->paused) {
+#if 0
+			if (wq_dedicated(wq)) {
+#endif
+				/* Queue the descriptor if submitted to DWQ */
+				if (vwq->ndescs == wq->size) {
+					printk("can't submit more descriptors than WQ size. Dropping.\n");
+					goto out_unlock;
+				}
+
+				elem = kmalloc(sizeof(struct idxd_wq_desc_elem),
+					GFP_KERNEL);
+
+				if (elem == NULL) {
+					printk("kmalloc failed\n");
+					rc = -ENOMEM;
+					goto out_unlock;
+				}
+				printk("queuing the desc\n");
+				memcpy(elem->work_desc, portal->data, IDXD_DESC_SIZE);
+				elem->portal_prot = portal_prot;
+				elem->portal_id = portal_id;
+
+				list_add_tail(&elem->link, &vwq->head);
+				vwq->ndescs++;
+#if 0
+			} else {
+				/* Return retry if submitted to SWQ */
+				rc = -EAGAIN;
+				goto out_unlock;
+			}
+#endif
+               } else {
+			void __iomem *wq_portal;
+
+			wq_portal = vidxd->idxd->portal_base +
+				idxd_get_wq_portal_offset(wq->id,
+						portal_prot, IDXD_IRQ_IMS);
+                        wq_portal += (portal_id << 6);
+
+			printk("submitting a desc to WQ %d ded %d\n", wq->id,
+					wq_dedicated(wq));
+			if (wq_dedicated(wq)) {
+				iosubmit_cmds512(wq_portal, (struct dsa_hw_desc *)p, 1);
+			} else {
+				int rc;
+				struct dsa_hw_desc *hw =
+					(struct dsa_hw_desc *)portal->data;
+				int hpasid, gpasid = hw->pasid;
+
+				/* Translate the gpasid in the descriptor */
+                                rc = vidxd_get_host_pasid(dev, gpasid, &hpasid);
+                                if (rc < 0) {
+                                        pr_info("gpasid->hpasid trans failed\n");
+					rc = -EINVAL;
+					goto out_unlock;
+                                }
+                                hw->pasid = hpasid;
+
+				/* FIXME: Allow enqcmds to retry a few times
+				 * before failing */
+				rc = enqcmds(wq_portal, hw);
+				if (rc < 0) {
+					pr_info("%s: enqcmds failed\n", __func__);
+					goto out_unlock;
+				}
+			}
+		}
+out_unlock:
+		mutex_unlock(&vidxd->mig_submit_lock);
+		memset(&portal->data, 0, IDXD_DESC_SIZE);
+		portal->count = 0;
+	}
+
+	return rc;
 }

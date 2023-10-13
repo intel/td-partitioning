@@ -112,6 +112,31 @@ static void idxd_prepare_desc(struct irq_domain *domain, msi_alloc_info_t *arg,
 	arg->hwirq = desc->msi_index;
 }
 
+void idxd_ims_set_pasid(struct device *dev, int irq, u32 pasid)
+{
+	struct irq_domain *domain;
+        struct irq_data *data;
+	struct msi_desc *desc;
+	struct ims_slot __iomem *slot;
+	u32 cval;
+
+	domain = dev_get_msi_domain(dev);
+	data = irq_domain_get_irq_data(domain, irq);
+	desc = irq_data_get_msi_desc(data);
+	slot = desc->data.dcookie.iobase;
+
+	if (pasid_valid((ioasid_t)desc->data.icookie.value)) {
+		u32 tmp = 0xfff;
+
+		pasid <<= CTRL_PASID_SHIFT;
+		desc->data.icookie.value &= tmp;
+		desc->data.icookie.value |= pasid;
+	}
+	cval = (u32)desc->data.icookie.value;
+	iowrite32_and_flush(cval, &slot->ctrl);
+}
+EXPORT_SYMBOL_GPL(idxd_ims_set_pasid);
+
 static const struct msi_domain_template idxd_ims_template = {
 	.chip = {
 		.name			= "PCI-IDXD",

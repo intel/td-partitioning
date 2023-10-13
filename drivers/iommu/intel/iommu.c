@@ -2950,10 +2950,12 @@ static void intel_vcmd_ioasid_free(ioasid_t ioasid, void *data)
 	 * Sanity check the ioasid owner is done at upper layer, e.g. VFIO
 	 * We can only free the PASID when all the devices are unbound.
 	 */
+#if 0
 	if (ioasid_find(NULL, ioasid, NULL)) {
 		pr_alert("Cannot free active IOASID %d\n", ioasid);
 		return;
 	}
+#endif
 	vcmd_free_pasid(iommu, ioasid);
 }
 

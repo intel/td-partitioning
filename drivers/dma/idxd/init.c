@@ -563,6 +563,7 @@ static struct idxd_device *idxd_alloc(struct pci_dev *pdev, struct idxd_driver_d
 	spin_lock_init(&idxd->dev_lock);
 	spin_lock_init(&idxd->cmd_lock);
 	mutex_init(&idxd->vdev_lock);
+	ida_init(&idxd->vdev_ida);
 	INIT_LIST_HEAD(&idxd->vdev_list);
 	ida_init(&idxd->vdev_ida);
 
@@ -663,7 +664,9 @@ static int idxd_probe(struct idxd_device *idxd)
 	if (IS_ENABLED(CONFIG_INTEL_IDXD_SVM) && sva) {
 		if (idxd_enable_sva(pdev)) {
 			dev_warn(dev, "Unable to turn on user SVA feature.\n");
+printk("%s: %d\n", __func__, __LINE__);
 		} else {
+printk("%s: %d\n", __func__, __LINE__);
 			set_bit(IDXD_FLAG_USER_PASID_ENABLED, &idxd->flags);
 
 			rc = idxd_enable_system_pasid(idxd);
@@ -751,6 +754,10 @@ static int idxd_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		rc = -ENOMEM;
 		goto err_iomap;
 	}
+
+	idxd->portal_base = pcim_iomap(pdev, IDXD_WQ_BAR, 0);
+	if (!idxd->portal_base)
+		return -ENOMEM;
 
 	dev_dbg(dev, "Set DMA masks\n");
 	rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));

@@ -332,6 +332,7 @@ struct idxd_device {
 
 	struct pci_dev *pdev;
 	void __iomem *reg_base;
+	void __iomem *portal_base;
 
 	spinlock_t dev_lock;	/* spinlock for device */
 	spinlock_t cmd_lock;	/* spinlock for device commands */
@@ -584,7 +585,8 @@ static inline bool device_user_pasid_enabled(struct idxd_device *idxd)
 static inline bool wq_pasid_enabled(struct idxd_wq *wq)
 {
 	return (is_idxd_wq_kernel(wq) && device_pasid_enabled(wq->idxd)) ||
-	       (is_idxd_wq_user(wq) && device_user_pasid_enabled(wq->idxd));
+	       (is_idxd_wq_user(wq) && device_user_pasid_enabled(wq->idxd)) ||
+	       (is_idxd_wq_vdev(wq) && device_user_pasid_enabled(wq->idxd));
 }
 
 static inline bool wq_shared_supported(struct idxd_wq *wq)

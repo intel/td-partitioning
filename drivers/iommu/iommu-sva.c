@@ -28,7 +28,7 @@ static int iommu_sva_alloc_pasid(struct mm_struct *mm, struct device *dev)
 		goto out;
 	}
 
-	pasid = ioasid_alloc(NULL, 0, dev->iommu->max_pasids, mm, 0);
+	pasid = ioasid_alloc(NULL, 1, dev->iommu->max_pasids, mm, 0);
 	if (!pasid_valid(pasid)) {
 		ret = -ENOSPC;
 		goto out;
