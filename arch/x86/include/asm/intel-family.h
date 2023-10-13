@@ -163,6 +163,9 @@
 #define INTEL_FAM6_CLEARWATERFOREST_X   0xDD
 #define INTEL_FAM6_CLEARWATERFOREST_D   0xDE
 
+#define INTEL_FAM6_ATOM_DARKMONT_X	0xDD /* ClearWater Forest */
+#define INTEL_FAM6_ATOM_DARKMONT	0xDE
+
 /* Xeon Phi */
 
 #define INTEL_FAM6_XEON_PHI_KNL		0x57 /* Knights Landing */
