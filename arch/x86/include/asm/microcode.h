@@ -48,6 +48,12 @@ struct microcode_intel {
 #define MC_HEADER_SIZE			(sizeof(struct microcode_header_intel))
 #define MC_HEADER_TYPE_MICROCODE	1
 #define MC_HEADER_TYPE_IFS		2
+#define MC_HEADER_META_TYPE_END		(0)
+
+struct metadata_header {
+	unsigned int	type;
+	unsigned int	blk_size;
+};
 
 static inline int intel_microcode_get_datasize(struct microcode_header_intel *hdr)
 {

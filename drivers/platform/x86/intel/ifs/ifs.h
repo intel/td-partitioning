@@ -131,18 +131,34 @@
 #include <linux/miscdevice.h>
 
 #define MSR_ARRAY_BIST				0x00000105
+
+#define MSR_COPY_SBFT_HASHES			0x000002b8
+#define MSR_SBFT_HASHES_STATUS			0x000002b9
+#define MSR_AUTHENTICATE_AND_COPY_SBFT_CHUNK	0x000002ba
+#define MSR_SBFT_CHUNKS_AUTHENTICATION_STATUS	0x000002bb
+#define MSR_ACTIVATE_SBFT			0x000002bc
+#define MSR_SBFT_STATUS				0x000002bd
+#define MSR_LAST_SBFT_WP			0x000002bf
+
 #define MSR_COPY_SCAN_HASHES			0x000002c2
 #define MSR_SCAN_HASHES_STATUS			0x000002c3
 #define MSR_AUTHENTICATE_AND_COPY_CHUNK		0x000002c4
 #define MSR_CHUNKS_AUTHENTICATION_STATUS	0x000002c5
 #define MSR_ACTIVATE_SCAN			0x000002c6
 #define MSR_SCAN_STATUS				0x000002c7
+#define MSR_LAST_SCAN_WP			0x000002c9
+#define MSR_ARRAY_TRIGGER			0x000002d6
+#define MSR_ARRAY_STATUS			0x000002d7
+#define MSR_SAF_CTRL				0x000004f0
+#define MSR_SBFT_CTRL				0x000004f8
+
 #define SCAN_NOT_TESTED				0
 #define SCAN_TEST_PASS				1
 #define SCAN_TEST_FAIL				2
 
 #define IFS_TYPE_SAF			0
 #define IFS_TYPE_ARRAY_BIST		1
+#define IFS_TYPE_SBFT			2
 
 /* MSR_SCAN_HASHES_STATUS bit fields */
 union ifs_scan_hashes_status {
@@ -153,6 +169,19 @@ union ifs_scan_hashes_status {
 		u32	rsvd1		:8;
 		u32	error_code	:8;
 		u32	rsvd2		:11;
+		u32	max_core_limit	:12;
+		u32	valid		:1;
+	};
+};
+
+union ifs_scan_hashes_status_gen2 {
+	u64	data;
+	struct {
+		u32	chunk_size	:16;
+		u32	num_chunks	:16;
+		u32	error_code	:8;
+		u32	chunks_in_stride :9;
+		u32	rsvd		:2;
 		u32	max_core_limit	:12;
 		u32	valid		:1;
 	};
@@ -170,6 +199,16 @@ union ifs_chunks_auth_status {
 	};
 };
 
+union ifs_chunks_auth_status_gen2 {
+	u64	data;
+	struct {
+		u32	valid_chunks	:16;
+		u32	total_chunks	:16;
+		u32	error_code	:8;
+		u32	rsvd		:24;
+	};
+};
+
 /* MSR_ACTIVATE_SCAN bit fields */
 union ifs_scan {
 	u64	data;
@@ -177,6 +216,16 @@ union ifs_scan {
 		u32	start	:8;
 		u32	stop	:8;
 		u32	rsvd	:16;
+		u32	delay	:31;
+		u32	sigmce	:1;
+	};
+};
+
+union ifs_scan_gen2 {
+	u64	data;
+	struct {
+		u32	start	:16;
+		u32	stop	:16;
 		u32	delay	:31;
 		u32	sigmce	:1;
 	};
@@ -196,6 +245,18 @@ union ifs_status {
 	};
 };
 
+union ifs_status_gen2 {
+	u64	data;
+	struct {
+		u32	chunk_num		:16;
+		u32	chunk_stop_index	:16;
+		u32	error_code		:8;
+		u32	rsvd2			:22;
+		u32	control_error		:1;
+		u32	signature_error		:1;
+	};
+};
+
 /* MSR_ARRAY_BIST bit fields */
 union ifs_array {
 	u64	data;
@@ -204,6 +265,60 @@ union ifs_array {
 		u16	array_bank;
 		u16	rsvd			:15;
 		u16	ctrl_result		:1;
+	};
+};
+
+/* MSR_SBFT_HASHES_STATUS bit fields */
+union ifs_sbft_hashes_status {
+	u64	data;
+	struct {
+		u32	chunk_size	:16;
+		u32	num_chunks	:16;
+		u32	error_code	:8;
+		u32	chunks_in_stride :9;
+		u32	rsvd		:2;
+		u32	max_core_limit	:12;
+		u32	valid		:1;
+	};
+};
+
+/* MSR_SBFT_CHUNKS_AUTH_STATUS bit fields */
+union ifs_sbft_chunks_auth_status {
+	u64	data;
+	struct {
+		u32	valid_chunks	:16;
+		u32	total_chunks	:16;
+		u32	error_code	:8;
+		u32	rsvd		:8;
+		u32	max_bundle	:16;
+	};
+};
+
+/* MSR_ACTIVATE_SBFT bit fields */
+union ifs_sbft {
+	u64	data;
+	struct {
+		u32	bundle_idx	:9;
+		u32	rsvd1		:5;
+		u32	pgm_idx		:2;
+		u32	rsvd2		:16;
+		u32	delay		:31;
+		u32	sigmce		:1;
+	};
+};
+
+/* MSR_SBFT_STATUS bit fields */
+union ifs_sbft_status {
+	u64	data;
+	struct {
+		u32	bundle_idx	:9;
+		u32	rsvd1		:5;
+		u32	pgm_idx		:2;
+		u32	rsvd2		:16;
+		u32	error_code	:8;
+		u32	rsvd3		:21;
+		u32	test_fail	:1;
+		u32	sbft_status	:2;
 	};
 };
 
@@ -229,6 +344,14 @@ struct ifs_test_caps {
  * @status: it holds simple status pass/fail/untested
  * @scan_details: opaque scan status code from h/w
  * @cur_batch: number indicating the currently loaded test file
+ * @test_gen: test generation revision
+ * @chunk_size: size of a test chunk
+ * @array_gen: test generation of array test
+ * @last_wp: additional details of activate test
+ * @max_bundle: maximum bundle index
+ * @dfs_dir: debugfs dentry pointer
+ * @dfs_start: starting range for test
+ * @dfs_stop: stopping range for test
  */
 struct ifs_data {
 	int	loaded_version;
@@ -238,6 +361,14 @@ struct ifs_data {
 	int	status;
 	u64	scan_details;
 	u32	cur_batch;
+	u32	test_gen;
+	u32	chunk_size;
+	u32	array_gen;
+	u32	last_wp;
+	u32	max_bundle;
+	struct dentry *dfs_dir;
+	u16	dfs_start;
+	u16	dfs_stop;
 };
 
 struct ifs_work {

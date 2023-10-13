@@ -127,6 +127,39 @@ int intel_find_matching_signature(void *mc, unsigned int csig, int cpf)
 EXPORT_SYMBOL_GPL(intel_find_matching_signature);
 
 /**
+ * intel_microcode_find_meta_data() - Find start of metadata in the microcode
+ * @mc: Pointer to the microcode file contents.
+ * @meta_type: Type of metadata block to locate
+ *
+ * Return: Return pointer to the start of metadata, or NULL if none is
+ */
+struct metadata_header *intel_microcode_find_meta_data(void *mc, unsigned int meta_type)
+{
+        struct metadata_header *meta_header;
+        unsigned long data_size, total_meta;
+        unsigned long meta_size = 0;
+
+        data_size = intel_microcode_get_datasize(mc);
+        total_meta = ((struct microcode_intel *)mc)->hdr.metasize;
+        if (!total_meta)
+                return NULL;
+
+        meta_header = (mc + MC_HEADER_SIZE + data_size) - total_meta;
+
+        while (meta_header->type != MC_HEADER_META_TYPE_END &&
+               meta_header->blk_size &&
+               meta_size < total_meta) {
+                if (meta_header->type == meta_type)
+                        return meta_header;
+
+                meta_size += meta_header->blk_size;
+                meta_header = (void *)meta_header + meta_header->blk_size;
+        }
+        return NULL;
+}
+EXPORT_SYMBOL_GPL(intel_microcode_find_meta_data);
+
+/**
  * intel_microcode_sanity_check() - Sanity check microcode file.
  * @mc: Pointer to the microcode file contents.
  * @print_err: Display failure reason if true, silent if false.

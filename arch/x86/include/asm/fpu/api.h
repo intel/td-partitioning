@@ -175,4 +175,11 @@ extern long fpu_xstate_prctl(int option, unsigned long arg2);
 
 extern void fpu_idle_fpregs(void);
 
+static inline void arch_stop_machine(void)
+{
+	fpu_idle_fpregs();
+}
+
+#define arch_stop_machine arch_stop_machine
+
 #endif /* _ASM_X86_FPU_API_H */
