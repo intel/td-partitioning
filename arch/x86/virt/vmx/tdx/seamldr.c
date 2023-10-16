@@ -173,6 +173,7 @@ static int tdx_module_update_end(int action, void *data)
 static bool can_preserve_td(const struct seam_sigstruct *sigstruct)
 {
 	int ret;
+	const struct tdx_features *features;
 
 	preempt_disable();
 	ret = cpu_vmxop_get();
@@ -202,7 +203,8 @@ static bool can_preserve_td(const struct seam_sigstruct *sigstruct)
 		return false;
 	}
 
-	if (!(tdx_features0 & TDX_FEATURES0_TD_PRES)) {
+	features = tdx_get_features(0);
+	if (!(features && features->features0.td_preserving)) {
 		pr_err("TD-preserving: TDX module doesn't support\n");
 		return false;
 	}

@@ -48,7 +48,8 @@ u32 tdx_global_keyid __ro_after_init;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 static u32 tdx_guest_keyid_start __ro_after_init;
 static u32 tdx_nr_guest_keyids __ro_after_init;
-u64 tdx_features0;
+static u16 num_tdx_features;
+static struct tdx_features *tdx_features;
 
 static bool tdx_global_initialized;
 static DEFINE_PER_CPU(bool, tdx_lp_initialized);
@@ -311,6 +312,35 @@ BUILD_TDX_READ_MD_HELPERS(u64)
 BUILD_TDX_READ_MD_HELPERS(u16)
 BUILD_TDX_READ_MD_HELPERS(bool)
 
+static int __tdx_get_features(void)
+{
+	int i, ret;
+
+	tdx_read_md_u16(TDX_MD_NUM_TDX_FEATURES, &num_tdx_features);
+	if (!num_tdx_features)
+		num_tdx_features = 1;
+
+	tdx_features = kcalloc(num_tdx_features, sizeof(struct tdx_features), GFP_KERNEL);
+	if (!tdx_features)
+		goto err;
+
+	for (i = 0; i < num_tdx_features; i++) {
+		ret = tdx_read_md_u64(TDX_MD_FEATURES(i), &(tdx_features[i].full));
+		if (ret)
+			goto free;
+
+		pr_info("TDX_FEATURES%d: 0x%llx\n", i, tdx_features[i].full);
+	}
+
+	return 0;
+free:
+	kfree(tdx_features);
+	tdx_features = NULL;
+err:
+	num_tdx_features = 0;
+	return -ENOMEM;
+}
+
 static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 			   struct cmr_info *cmr_array)
 {
@@ -335,13 +365,10 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 		sysinfo->major_version, sysinfo->minor_version,
 		sysinfo->build_date,	sysinfo->build_num);
 
-	tdx_read_md_u64(TDX_MD_FEATURES0, &tdx_features0);
-	pr_info("TDX module: features0: %llx\n", tdx_features0);
-
 	/* R9 contains the actual entries written to the CMR array. */
 	print_cmrs(cmr_array, args.r9);
 
-	return 0;
+	return __tdx_get_features();
 }
 
 struct tdsysinfo_struct *sysinfo;
@@ -357,6 +384,20 @@ const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 	return r;
 }
 EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
+
+const struct tdx_features *tdx_get_features(int index)
+{
+	const struct tdx_features *r = NULL;
+
+	tdx_module_lock();
+	if (tdx_module_status == TDX_MODULE_INITIALIZED) {
+		if (index < num_tdx_features)
+			r = &tdx_features[index];
+	}
+	tdx_module_unlock();
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_features);
 
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
@@ -2156,7 +2197,9 @@ arch_initcall(tdx_init_early);
 
 bool tdx_io_support(void)
 {
-	return !!(tdx_features0 & TDX_FEATURES0_IO);
+	const struct tdx_features *features = tdx_get_features(0);
+
+	return !!(features && features->features0.tdx_io);
 }
 EXPORT_SYMBOL_GPL(tdx_io_support);
 

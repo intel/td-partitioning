@@ -194,6 +194,26 @@ struct tdsysinfo_struct {
 	DECLARE_FLEX_ARRAY(struct tdx_cpuid_config, cpuid_configs);
 } __packed;
 
+struct tdx_features {
+	union {
+		struct {
+			u64 td_migration:1;
+			u64 td_preserving:1;
+			u64 service_td:1;
+			u64 enhanced_metadata:1;
+			u64 relaxed_mem_mng:1;
+			u64 cpuid_virt_guest_ctrl:1;
+			u64 tdx_io:1;
+			u64 td_partitioning:1;
+			u64 local_attestation:1;
+			u64 td_entry_enhancements:1;
+			u64 host_priority_locks:1;
+			u64 reserved:54;
+		} features0;
+		u64 full;
+	};
+};
+
 #include <linux/bug.h>
 static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
 {
@@ -208,6 +228,7 @@ static __always_inline u64 set_hkid_to_hpa(u64 pa, u16 hkid)
 }
 
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
+const struct tdx_features *tdx_get_features(int index);
 bool platform_tdx_enabled(void);
 int tdx_enable(void);
 void tdx_reset_memory(void);
@@ -1016,6 +1037,8 @@ static inline u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args) { r
 
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; }
+struct tdx_features;
+static inline const struct tdx_features *tdx_get_features(int index) { return NULL; }
 static inline bool platform_tdx_enabled(void) { return false; }
 static inline int tdx_enable(void)  { return -ENODEV; }
 static inline void tdx_reset_memory(void) { }
