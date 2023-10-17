@@ -426,6 +426,20 @@ static void add_l2sept_header(struct kvm *kvm, enum tdx_vm_index vm_index,
 	spin_unlock(&to_kvm_tdx(kvm)->l2sept_list[i].lock);
 }
 
+static void remove_l2sept_header(struct kvm *kvm, enum tdx_vm_index vm_index,
+				 struct l2sept_header *header)
+{
+	int i;
+
+	if (KVM_BUG_ON(!is_valid_l2_tdx_vm_index(kvm, vm_index), kvm))
+		return;
+
+	i = tdx_vm_index_to_index(vm_index);
+	spin_lock(&to_kvm_tdx(kvm)->l2sept_list[i].lock);
+	list_del(&header->node);
+	spin_unlock(&to_kvm_tdx(kvm)->l2sept_list[i].lock);
+}
+
 static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 {
 	lockdep_assert_irqs_disabled();
@@ -3032,6 +3046,93 @@ static int tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static int tdx_free_l2sept(struct kvm *kvm, enum tdx_vm_index vm_index,
+			   hpa_t l2sept_hpa, u16 hkid)
+{
+	struct page *l2sept_page;
+	struct l2sept_header *header;
+	u64 err;
+
+	if (!VALID_PAGE(l2sept_hpa))
+		return 0;
+
+	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(l2sept_hpa, hkid));
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		return -EIO;
+	}
+
+	tdx_set_page_present(l2sept_hpa);
+	tdx_clear_page(l2sept_hpa, PAGE_SIZE);
+
+	l2sept_page = pfn_to_page(__phys_to_pfn(l2sept_hpa));
+	header = (struct l2sept_header *)page_private(l2sept_page);
+
+	if (WARN_ON(header->hpa != l2sept_hpa))
+		return -EIO;
+
+	remove_l2sept_header(kvm, vm_index, header);
+	free_l2sept_header(header);
+
+	return 0;
+}
+
+static int tdx_sept_remove(struct kvm *kvm, gpa_t gpa, int level, void *l1sept_page)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	hpa_t l1sept_hpa = __pa(l1sept_page);
+	int parent_tdx_level = pg_level_to_tdx_sept_level(level + 1);
+	struct tdx_module_args out;
+	int i, ret = 0;
+	u64 err;
+
+	tdx_track(kvm);
+
+	if (!kvm_tdx->num_l2_vms)
+		err = tdh_mem_sept_remove_v0(kvm_tdx->tdr_pa, gpa, parent_tdx_level, &out);
+	else
+		err = tdh_mem_sept_remove_v1(kvm_tdx->tdr_pa, gpa, parent_tdx_level, &out);
+
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error(TDH_MEM_SEPT_REMOVE, err, &out);
+		return -EIO;
+	}
+	tdx_unaccount_sept_page(kvm, level);
+
+	/* tdx_module_out contains the HPA of the removed L1SEPT paging page. */
+	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(l1sept_hpa, kvm_tdx->hkid));
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		return -EIO;
+	}
+
+	tdx_set_page_present(l1sept_hpa);
+	tdx_clear_page(l1sept_hpa, PAGE_SIZE);
+
+	/*
+	 * Free each valid page returned in tdx_module_out represents the paging
+	 * pages of each L2 SEPT. The L2 SEPT paging pages are not operated by
+	 * host VMM but the TDX module so once these pages are removed from TDX
+	 * module, no software will access these pages. So it is safe to free
+	 * them.
+	 */
+	for (i = 0; i < kvm_tdx->num_l2_vms; i++) {
+		enum tdx_vm_index vm_index = index_to_tdx_vm_index(i);
+		hpa_t *out_hpa = tdx_module_output_for_vm(&out, vm_index);
+
+		if (KVM_BUG_ON(!out_hpa, kvm))
+			return -EIO;
+
+		/*
+		 * Free all the possible L2 SEPT paging pages one by one
+		 * even some of the free may encounter failure.
+		 */
+		ret |= tdx_free_l2sept(kvm, vm_index, *out_hpa, kvm_tdx->hkid);
+	}
+
+	return ret;
+}
+
 static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 				     enum pg_level level, void *private_spt)
 {
@@ -3041,14 +3142,13 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct tdx_module_args out;
 	u64 err;
+	int r;
 
 	/*
 	 * The HKID assigned to this TD was already freed and cache was
 	 * already flushed. We don't have to flush again.
 	 */
 	if (!is_hkid_assigned(kvm_tdx)) {
-		int r;
-
 		r = tdx_reclaim_page(__pa(private_spt), false, 0);
 		if (!r) {
 			tdx_unaccount_sept_page(kvm, level);
@@ -3077,27 +3177,12 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 		}
 	}
 
-	tdx_track(kvm);
+	r = tdx_sept_remove(kvm, parent_gpa, level, private_spt);
+	if (!r)
+		trace_kvm_tdx_sept_remove(kvm_tdx->tdr_pa, gfn,
+				__pa(private_spt) >> PAGE_SHIFT, level);
 
-	err = tdh_mem_sept_remove_v0(kvm_tdx->tdr_pa, parent_gpa,
-				     parent_tdx_level, &out);
-	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_SEPT_REMOVE, err, &out);
-		return -EIO;
-	}
-	tdx_unaccount_sept_page(kvm, level);
-
-	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(__pa(private_spt),
-						     kvm_tdx->hkid));
-	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
-		return -EIO;
-	}
-	tdx_set_page_present(__pa(private_spt));
-	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
-	trace_kvm_tdx_sept_remove(kvm_tdx->tdr_pa, gfn,
-				  __pa(private_spt) >> PAGE_SHIFT, level);
-	return 0;
+	return r;
 }
 
 int tdx_sept_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages)

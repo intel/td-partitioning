@@ -309,6 +309,11 @@ static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm)
 	return container_of(kvm, struct kvm_tdx, kvm);
 }
 
+static __always_inline enum tdx_vm_index index_to_tdx_vm_index(int i)
+{
+	return i + TDX_L2TD_1;
+}
+
 static inline void tdx_account_ctl_page(struct kvm *kvm)
 {
 #ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
