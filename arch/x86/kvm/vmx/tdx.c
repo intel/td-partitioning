@@ -5740,8 +5740,12 @@ static int tdx_module_setup(void)
 
 	WARN_ON(tdsysinfo->num_cpuid_config > TDX_MAX_NR_CPUID_CONFIGS);
 	features = tdx_get_features(0);
-	if (features)
+	if (features) {
 		max_num_l2_vms = features->features0.td_partitioning ? TDX_MAX_L2_VMS : 0;
+		if (features->features0.td_partitioning)
+			pr_info("tdx: td partitioning supported\n");
+	}
+
 	tdx_info = (struct tdx_info) {
 		.no_rbp_mod = no_rbp_mod ? TDX_CONTROL_FLAG_NO_BRP_MOD : 0,
 		.nr_tdcs_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,
