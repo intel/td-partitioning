@@ -4164,6 +4164,12 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
 	td_params->tsc_frequency = TDX_TSC_KHZ_TO_25MHZ(kvm->arch.default_tsc_khz);
+	if (init_vm->num_l2_vms > tdx_info.max_num_l2_vms) {
+		pr_err("TDX: Invalid num_l2_vms %d, maximum %d\n",
+		       init_vm->num_l2_vms, tdx_info.max_num_l2_vms);
+		return -EOPNOTSUPP;
+	}
+	td_params->num_l2_vms = init_vm->num_l2_vms;
 
 	ret = setup_tdparams_eptp_controls(cpuid, td_params);
 	if (ret)
@@ -4371,6 +4377,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	kvm_tdx->attributes = td_params->attributes;
 	kvm_tdx->xfam = td_params->xfam;
 	kvm_tdx->eptp_controls = td_params->eptp_controls;
+	kvm_tdx->num_l2_vms = td_params->num_l2_vms;
 
 	if ((td_params->attributes & TDX_TD_ATTRIBUTE_MIG) &&
 	    tdx_mig_state_create(to_kvm_tdx(kvm))) {

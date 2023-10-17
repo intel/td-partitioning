@@ -182,7 +182,8 @@ struct td_params {
 	u64 attributes;
 	u64 xfam;
 	u16 max_vcpus;
-	u8 reserved0[6];
+	u8  num_l2_vms;
+	u8 reserved0[5];
 
 	u64 eptp_controls;
 	u64 exec_controls;

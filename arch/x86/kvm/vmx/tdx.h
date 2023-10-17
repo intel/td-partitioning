@@ -179,6 +179,8 @@ struct kvm_tdx {
 
 	struct tdx_mig_state *mig_state;
 
+	int num_l2_vms;
+
 	/* tdxio stuff */
 	u64 eptp_controls;
 
