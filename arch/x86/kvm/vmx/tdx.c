@@ -2532,7 +2532,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	if (tdvmcall_exit_type(vcpu))
 		return tdx_emulate_vmcall(vcpu);
 
-	trace_kvm_tdx_hypercall(tdvmcall_leaf(vcpu), kvm_rcx_read(vcpu),
+	trace_kvm_tdx_hypercall(is_tdx_l2vmexit(vcpu), tdvmcall_leaf(vcpu), kvm_rcx_read(vcpu),
 				kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
 				kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
 				kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
@@ -2579,7 +2579,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	}
 
-	trace_kvm_tdx_hypercall_done(r, kvm_r11_read(vcpu), kvm_r10_read(vcpu),
+	trace_kvm_tdx_hypercall_done((u64)is_tdx_l2vmexit(vcpu) << 32 | r, kvm_r11_read(vcpu), kvm_r10_read(vcpu),
 				     kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
 				     kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
 				     kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
