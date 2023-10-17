@@ -235,12 +235,14 @@ struct td_params {
 union tdx_ext_exit_qualification {
 	struct {
 		u64 type		:  4;
-		u64 reserved0		: 28;
+		u64 reserved4_31	: 28;
 		u64 req_sept_level	:  3;
 		u64 err_sept_level	:  3;
 		u64 err_sept_state	:  8;
 		u64 err_sept_is_leaf	:  1;
-		u64 reserved1		: 17;
+		u64 reserved47_51	:  5;
+		u64 vm_index		:  2;
+		u64 reserved54_63	: 10;
 	};
 	u64 full;
 };
@@ -248,6 +250,7 @@ union tdx_ext_exit_qualification {
 enum tdx_ext_exit_qualification_type {
 	EXT_EXIT_QUAL_NONE = 0,
 	EXT_EXIT_QUAL_ACCEPT,
+	EXT_EXIT_QUAL_GPA_DETAILS,
 	NUM_EXT_EXIT_QUAL,
 };
 
@@ -315,6 +318,11 @@ enum tdx_vm_index {
 
 	TDX_MAX_L2_VMS = TDX_L2TD_3,
 };
+
+static inline bool is_l2_tdx_vm_index(enum tdx_vm_index vm_index)
+{
+	return (vm_index != TDX_L1TD) && (vm_index <= TDX_MAX_L2_VMS);
+}
 
 #define TDX_TDCS_PAGES_PER_L2			1
 #define TDX_TDVPS_PAGES_PER_L2			3
