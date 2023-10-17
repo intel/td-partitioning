@@ -306,6 +306,15 @@ union tdx_md_field_id {
 	u64 raw;
 };
 
+enum tdx_vm_index {
+	TDX_L1TD,
+	TDX_L2TD_1,
+	TDX_L2TD_2,
+	TDX_L2TD_3,
+
+	TDX_MAX_L2_VMS = TDX_L2TD_3,
+};
+
 #define TDX_MD_CLASS_GLOBAL_VERSION		8
 
 #define TDX_MD_FID_GLOBAL_FEATURES0		0x0A00000300000008

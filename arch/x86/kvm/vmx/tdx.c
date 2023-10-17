@@ -68,6 +68,7 @@ struct tdx_info {
 	u8 nr_tdcs_pages;
 	u8 nr_tdvpx_pages;
 	u32 max_servtds;
+	u8 max_num_l2_vms;
 };
 
 /* Info about the TDX module. */
@@ -3984,7 +3985,10 @@ static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 		(kvm_get_shadow_phys_bits() >= 52 &&
 		 cpu_has_vmx_ept_5levels()) ? TDX_CAP_GPAW_52 : 0,
 		.nr_cpuid_configs = tdsysinfo->num_cpuid_config,
-		.padding = 0,
+		.max_num_l2_vms = tdx_info.max_num_l2_vms,
+		.padding[0] = 0,
+		.padding[1] = 0,
+		.padding[2] = 0,
 	};
 
 	if (copy_to_user(user_caps, caps, sizeof(*caps))) {
@@ -5308,8 +5312,10 @@ static struct notifier_block tdx_mce_nb = {
 static int tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
+	const struct tdx_features *features;
 	struct tdx_module_args out;
 	bool no_rbp_mod = false;
+	u8 max_num_l2_vms = 0;
 	int ret = 0;
 	u64 err;
 
@@ -5352,6 +5358,9 @@ static int tdx_module_setup(void)
 	}
 
 	WARN_ON(tdsysinfo->num_cpuid_config > TDX_MAX_NR_CPUID_CONFIGS);
+	features = tdx_get_features(0);
+	if (features)
+		max_num_l2_vms = features->features0.td_partitioning ? TDX_MAX_L2_VMS : 0;
 	tdx_info = (struct tdx_info) {
 		.no_rbp_mod = no_rbp_mod ? TDX_CONTROL_FLAG_NO_BRP_MOD : 0,
 		.nr_tdcs_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,
@@ -5360,6 +5369,7 @@ static int tdx_module_setup(void)
 		 * -1 for TDVPR.
 		 */
 		.nr_tdvpx_pages = tdsysinfo->tdvps_base_size / PAGE_SIZE - 1,
+		.max_num_l2_vms = max_num_l2_vms,
 	};
 
 	pr_info("nr_tdcs %d nr_tdvpx %d\n",

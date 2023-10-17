@@ -638,7 +638,8 @@ struct kvm_tdx_capabilities {
 #define TDX_CAP_GPAW_48	(1 << 0)
 #define TDX_CAP_GPAW_52	(1 << 1)
 	__u32 supported_gpaw;
-	__u32 padding;
+	__u8  max_num_l2_vms;
+	__u8  padding[3];
 	__u64 reserved[251];
 
 	__u32 nr_cpuid_configs;
