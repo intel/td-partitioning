@@ -286,6 +286,8 @@ struct vcpu_tdx {
 	struct lbr_desc lbr_desc;
 
 	unsigned long dr6;
+
+	bool resume_l1;
 };
 
 static inline bool is_td(struct kvm *kvm)

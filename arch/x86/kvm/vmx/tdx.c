@@ -364,6 +364,13 @@ static inline bool is_valid_l2_tdx_vm_index(struct kvm *kvm, enum tdx_vm_index v
 	return (vm_index <= to_kvm_tdx(kvm)->num_l2_vms) ? is_l2_tdx_vm_index(vm_index) : false;
 }
 
+static inline bool is_tdx_l2vmexit(struct kvm_vcpu *vcpu)
+{
+	union tdx_exit_info exit_info = { .full = tdexit_exit_qual(vcpu) };
+
+	return is_valid_l2_tdx_vm_index(vcpu->kvm, exit_info.vm);
+}
+
 static inline bool is_tdx_l2sept_walking_failure(struct kvm_vcpu *vcpu, int *level,
 						 enum tdx_vm_index *vm_index)
 {
@@ -1283,6 +1290,7 @@ static void tdx_switch_perf_msrs(struct kvm_vcpu *vcpu)
 
 static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 {
+	union tdx_vpenter_handle_flags handle_flags = { .full = tdx->tdvpr_pa };
 	u64 err, retries = 0;
 
 	/*
@@ -1290,6 +1298,11 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 	 * should call to_tdx().
 	 */
 	struct kvm_vcpu *vcpu = &tdx->vcpu;
+
+	if (tdx->resume_l1) {
+		handle_flags.resume_l1 = 1;
+		tdx->resume_l1 = false;
+	}
 
 	guest_state_enter_irqoff();
 
@@ -1327,7 +1340,7 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 	 * copyin/copyout registers only if (tdx->tdvmvall.regs_mask != 0)
 	 * which means TDG.VP.VMCALL.
 	 */
-	vcpu->arch.regs[VCPU_REGS_RCX] = tdx->tdvpr_pa;
+	vcpu->arch.regs[VCPU_REGS_RCX] = handle_flags.full;
 	do {
 		tdx->exit_reason.full = __seamcall_saved_ret(TDH_VP_ENTER,
 							     (struct tdx_module_args*)vcpu->arch.regs);
@@ -3416,6 +3429,16 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 	} else if (ext_exit_qual.type == EXT_EXIT_QUAL_ACCEPT) {
 		err_page_level = tdx_sept_level_to_pg_level(ext_exit_qual.req_sept_level);
 	}
+
+	if (is_tdx_l2vmexit(vcpu))
+		/*
+		 * For EPT violation caused by accessing private memory, after handled
+		 * in L1 SEPT, resume L1 to accept the page.
+		 *
+		 * For EPT violation caused by accessing shared memory, no need to
+		 * resume L1.
+		 */
+		to_tdx(vcpu)->resume_l1 = kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu));
 
 	if (kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu))) {
 		/*
