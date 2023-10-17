@@ -360,6 +360,10 @@ static inline bool is_l2_tdx_vm_index(enum tdx_vm_index vm_index)
 #define TDX_TDCS_PAGES_PER_L2			1
 #define TDX_TDVPS_PAGES_PER_L2			3
 
+#define TDVPS_L2VMCS_1_CLASS_CODE	36
+#define L2VMCS_CLASS(vm)		(TDVPS_L2VMCS_1_CLASS_CODE + vm * 8)
+#define L2VMCS_FIELD(vm, field)		BUILD_TDX_FIELD(L2VMCS_CLASS(vm), field)
+
 #define TDX_MD_CLASS_GLOBAL_VERSION		8
 
 #define TDX_MD_FID_GLOBAL_FEATURES0		0x0A00000300000008
