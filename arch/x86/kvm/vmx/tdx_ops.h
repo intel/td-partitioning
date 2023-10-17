@@ -399,6 +399,43 @@ static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,
 			    out);
 }
 
+#define DEMOTE_ADD_ON_ALIAS			1
+#define DEMOTE_L2SEPT_HPA_CONSUMED		BIT(63)
+static inline u64 tdh_mem_page_demote_with_tdpart(hpa_t tdr, gpa_t gpa, int level,
+						  hpa_t l1sept_page, hpa_t l2sept1_page,
+						  hpa_t l2sept2_page, hpa_t l2sept3_page,
+						  struct tdx_module_args *out)
+{
+	hpa_t pages[TDX_MAX_L2_VMS] = {l2sept1_page, l2sept2_page, l2sept3_page};
+	int i;
+	u64 r;
+
+	tdx_clflush_page(l1sept_page, PG_LEVEL_4K);
+	for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+		if (VALID_PAGE(pages[i]))
+			tdx_clflush_page(pages[i], PG_LEVEL_4K);
+	}
+
+	r = tdx_seamcall(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr | DEMOTE_ADD_ON_ALIAS,
+			 l1sept_page, l2sept1_page, l2sept2_page, l2sept3_page, out);
+	if (r)
+		return r;
+
+	tdx_set_page_np(l1sept_page);
+
+	for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+		if (VALID_PAGE(pages[i]))
+			tdx_set_page_np(pages[i]);
+	}
+
+	return 0;
+}
+
+static inline bool tdh_mem_page_demote_consumed(hpa_t in_hpa, hpa_t out_hpa)
+{
+	return !(out_hpa & DEMOTE_L2SEPT_HPA_CONSUMED) && (in_hpa == out_hpa);
+}
+
 static inline u64 tdh_mr_extend(hpa_t tdr, gpa_t gpa,
 				struct tdx_module_args *out)
 {
