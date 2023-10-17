@@ -3440,7 +3440,8 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 			tdexit_gpa(vcpu), ext_exit_qual.type);
 		kvm_vm_bugged(vcpu->kvm);
 		return 0;
-	} else if (ext_exit_qual.type == EXT_EXIT_QUAL_ACCEPT) {
+	} else if (ext_exit_qual.type == EXT_EXIT_QUAL_ACCEPT ||
+		   ext_exit_qual.type == EXT_EXIT_ATTR_WR) {
 		err_page_level = tdx_sept_level_to_pg_level(ext_exit_qual.req_sept_level);
 	}
 
