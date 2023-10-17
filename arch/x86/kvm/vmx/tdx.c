@@ -2537,6 +2537,16 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 				kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
 				kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
 
+	if (is_tdx_l2vmexit(vcpu)) {
+		switch (tdvmcall_leaf(vcpu)) {
+		case EXIT_REASON_EPT_VIOLATION:
+			break;
+		default:
+			to_tdx(vcpu)->resume_l1 = true;
+			return 1;
+		}
+	}
+
 	switch (tdvmcall_leaf(vcpu)) {
 	case EXIT_REASON_CPUID:
 		r = tdx_emulate_cpuid(vcpu);
