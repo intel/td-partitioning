@@ -3430,7 +3430,18 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		err_page_level = tdx_sept_level_to_pg_level(ext_exit_qual.req_sept_level);
 	}
 
-	if (is_tdx_l2vmexit(vcpu))
+	if (is_tdx_l2vmexit(vcpu)) {
+		gfn_t gfn = gpa_to_gfn(tdexit_gpa(vcpu)) & ~kvm_gfn_shared_mask(vcpu->kvm);
+		struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+
+		if (!slot || (slot->flags & KVM_MEMSLOT_INVALID)) {
+			/*
+			 * An SEPT violation caused by L2 GPA without backing memory
+			 * means this is for L2 MMIO. Let L1 VMM to handle.
+			 */
+			to_tdx(vcpu)->resume_l1 = true;
+			return 1;
+		}
 		/*
 		 * For EPT violation caused by accessing private memory, after handled
 		 * in L1 SEPT, resume L1 to accept the page.
@@ -3439,6 +3450,7 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		 * resume L1.
 		 */
 		to_tdx(vcpu)->resume_l1 = kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu));
+	}
 
 	if (kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu))) {
 		/*
