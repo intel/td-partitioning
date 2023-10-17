@@ -4523,6 +4523,9 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		return -EOPNOTSUPP;
 	}
 	td_params->num_l2_vms = init_vm->num_l2_vms;
+	/* TDP current doesn't support large page */
+	if (td_params->num_l2_vms)
+		kvm->arch.tdp_max_page_level = PG_LEVEL_4K;
 
 	ret = setup_tdparams_eptp_controls(cpuid, td_params);
 	if (ret)
