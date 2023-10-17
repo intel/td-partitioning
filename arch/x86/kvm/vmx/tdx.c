@@ -2695,7 +2695,7 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	struct tdx_module_args out;
 	u64 err;
 
-	err = tdh_mem_sept_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
+	err = tdh_mem_sept_add_v0(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 	if (unlikely(err == (TDX_EPT_ENTRY_NOT_FREE | TDX_OPERAND_ID_RCX))) {
 		err = tdh_mem_sept_rd(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
 		if (KVM_BUG_ON(err, kvm)) {
