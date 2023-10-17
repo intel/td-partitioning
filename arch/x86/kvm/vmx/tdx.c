@@ -4707,6 +4707,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	}
 
 	if (!post_init) {
+		int i;
+
 		err = tdh_mng_init(kvm_tdx->tdr_pa, __pa(td_params), &out);
 		if (seamcall_masked_status(err) == TDX_OPERAND_INVALID) {
 			/*
@@ -4724,6 +4726,22 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 			ret = -EIO;
 			goto teardown;
 		}
+
+		for (i = 0; i < td_params->num_l2_vms; i++) {
+			enum tdx_vm_index vm_index = index_to_tdx_vm_index(i);
+			union tdx_tdcs_exec_vm_ctls vm_ctls = { .full = 0 };
+
+			vm_ctls.ept_violation_on_l2sept = 1;
+			err = tdh_mng_wr(kvm_tdx->tdr_pa,
+					 TDCS_EXEC_NON_ARCH(TD_TDCS_EXEC_VM_CTLS + vm_index),
+					 vm_ctls.full, TDX_TDCS_EXEC_VM_CTLS_VALID_MASK, &out);
+			if (WARN_ON_ONCE(err)) {
+				pr_tdx_error(TDH_MNG_WR, err, &out);
+				ret = -EIO;
+				goto teardown;
+			}
+		}
+
 		tdx_td_post_init(kvm_tdx);
 	}
 
