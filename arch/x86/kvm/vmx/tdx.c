@@ -28,6 +28,12 @@ static struct kvm_firmware *tdx_module;
 #define pr_err_skip_ud(_x) \
 	pr_err_once("Skip #UD injection for " _x " due to it's not supported in TDX 1.0\n")
 
+static struct kmem_cache *l2sept_header_cache;
+struct l2sept_header {
+	struct list_head node;
+	hpa_t hpa;
+};
+
 #define TDX_MAX_NR_CPUID_CONFIGS					\
 	((TDSYSINFO_STRUCT_SIZE -					\
 		offsetof(struct tdsysinfo_struct, cpuid_configs))	\
@@ -736,6 +742,16 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	return 0;
 }
 
+static void tdx_tdpart_init(struct kvm_tdx *kvm_tdx)
+{
+	int i;
+
+	for (i = 0; i < TDX_MAX_L2_VMS; i++) {
+		INIT_LIST_HEAD(&kvm_tdx->l2sept_list[i].head);
+		spin_lock_init(&kvm_tdx->l2sept_list[i].lock);
+	}
+}
+
 int tdx_vm_init(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -775,6 +791,9 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm->max_vcpus = min(kvm->max_vcpus, TDX_MAX_VCPUS);
 
 	spin_lock_init(&kvm_tdx->binding_slot_lock);
+
+	tdx_tdpart_init(kvm_tdx);
+
 	return 0;
 }
 
@@ -5850,6 +5869,22 @@ static struct notifier_block tdx_update_nb = {
 	.notifier_call = tdx_update_notifier,
 };
 
+static int kvm_tdx_tdpart_setup(void)
+{
+	l2sept_header_cache = kmem_cache_create("l2sept_header",
+						sizeof(struct l2sept_header),
+						0, SLAB_ACCOUNT, NULL);
+	if (!l2sept_header_cache)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void kvm_tdx_tdpart_unsetup(void)
+{
+	kmem_cache_destroy(l2sept_header_cache);
+}
+
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	int max_pkgs;
@@ -5953,6 +5988,13 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		pr_err("%s: failed to init tdx mig, %d\n", __func__, r);
 		return r;
 	}
+
+	r = kvm_tdx_tdpart_setup();
+	if (r) {
+		pr_err("%s: failed to setup tdpart, %d\n", __func__, r);
+		return r;
+	}
+
 	return 0;
 
 unregister:
@@ -5967,6 +6009,7 @@ out:
 
 void tdx_hardware_unsetup(void)
 {
+	kvm_tdx_tdpart_unsetup();
 	kvm_tdx_mig_stream_ops_exit();
 	intel_release_lbr_buffers();
 	mce_unregister_decode_chain(&tdx_mce_nb);

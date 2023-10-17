@@ -180,6 +180,15 @@ struct kvm_tdx {
 	struct tdx_mig_state *mig_state;
 
 	int num_l2_vms;
+	struct {
+		struct list_head head;
+		/*
+		 * The lock is to protect the head as it is possible multiple
+		 * CPU can access the head at the same time with adding or deling
+		 * entries.
+		 */
+		spinlock_t lock;
+	} l2sept_list[TDX_MAX_L2_VMS];
 
 	/* tdxio stuff */
 	u64 eptp_controls;
