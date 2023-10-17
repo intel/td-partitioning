@@ -2824,6 +2824,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	tdx_set_page_present_level(hpa, level);
 	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
+		tdx_clear_page(hpa, PAGE_SIZE);
 		tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
 		hpa += PAGE_SIZE;
 	}
