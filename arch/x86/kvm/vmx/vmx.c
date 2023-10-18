@@ -2570,6 +2570,7 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	u32 _vmentry_control = 0;
 	u64 basic_msr;
 	u64 misc_msr;
+	u32 required;
 	int i;
 
 	/*
@@ -2591,8 +2592,16 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 
 	memset(vmcs_conf, 0, sizeof(*vmcs_conf));
 
-	if (adjust_vmx_controls(KVM_REQUIRED_VMX_CPU_BASED_VM_EXEC_CONTROL,
+	required = KVM_REQUIRED_VMX_CPU_BASED_VM_EXEC_CONTROL;
+
+	if (enable_td_part)
+		required &= ~(CPU_BASED_MWAIT_EXITING |
+				CPU_BASED_MONITOR_EXITING |
+				CPU_BASED_RDPMC_EXITING);
+
+	if (adjust_vmx_controls(required,
 				KVM_OPTIONAL_VMX_CPU_BASED_VM_EXEC_CONTROL,
+				enable_td_part ? MSR_IA32_VMX_TRUE_PROCBASED_CTLS :
 				MSR_IA32_VMX_PROCBASED_CTLS,
 				&_cpu_based_exec_control))
 		return -EIO;
@@ -2656,12 +2665,14 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 
 	if (adjust_vmx_controls(KVM_REQUIRED_VMX_VM_EXIT_CONTROLS,
 				KVM_OPTIONAL_VMX_VM_EXIT_CONTROLS,
+				enable_td_part ? MSR_IA32_VMX_TRUE_EXIT_CTLS :
 				MSR_IA32_VMX_EXIT_CTLS,
 				&_vmexit_control))
 		return -EIO;
 
 	if (adjust_vmx_controls(KVM_REQUIRED_VMX_PIN_BASED_VM_EXEC_CONTROL,
 				KVM_OPTIONAL_VMX_PIN_BASED_VM_EXEC_CONTROL,
+				enable_td_part ? MSR_IA32_VMX_TRUE_PINBASED_CTLS :
 				MSR_IA32_VMX_PINBASED_CTLS,
 				&_pin_based_exec_control))
 		return -EIO;
@@ -2674,6 +2685,7 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 
 	if (adjust_vmx_controls(KVM_REQUIRED_VMX_VM_ENTRY_CONTROLS,
 				KVM_OPTIONAL_VMX_VM_ENTRY_CONTROLS,
+				enable_td_part ? MSR_IA32_VMX_TRUE_ENTRY_CTLS :
 				MSR_IA32_VMX_ENTRY_CTLS,
 				&_vmentry_control))
 		return -EIO;
