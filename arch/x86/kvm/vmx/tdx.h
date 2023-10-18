@@ -2,6 +2,24 @@
 #ifndef __KVM_X86_TDX_H
 #define __KVM_X86_TDX_H
 
+#include "mmu.h"
+
+static u8 __maybe_unused tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
+{
+#if defined(CONFIG_INTEL_TDX_HOST) || defined(CONFIG_INTEL_TD_PART_GUEST)
+	if (is_mmio)
+		return MTRR_TYPE_UNCACHABLE << VMX_EPT_MT_EPTE_SHIFT;
+
+	if (!kvm_arch_has_noncoherent_dma(vcpu->kvm))
+		return (MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT) | VMX_EPT_IPAT_BIT;
+
+	/* TDX enforces CR0.CD = 0 and KVM MTRR emulation enforces writeback. */
+	return MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT;
+#else
+	return 0;
+#endif
+}
+
 #ifdef CONFIG_INTEL_TDX_HOST
 
 #include <asm/tdx.h>
