@@ -17,6 +17,8 @@ int td_part_vm_init(struct kvm *kvm)
 {
 	u16 vm_id;
 
+	kvm->arch.gfn_shared_mask = gpa_to_gfn(tdx_get_cc_mask());
+
 	vm_id = find_first_zero_bit(td_part_vm_id_bitmap, TD_PART_MAX_NUM_VMS);
 	if (!vm_id || (vm_id >= TD_PART_MAX_NUM_VMS) || (vm_id > num_l2_vms)) {
 		pr_err("%s: no valid VM ID (%d/%d) available for L2 VM\n",
