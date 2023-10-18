@@ -287,9 +287,62 @@ static inline bool vmx_guest_state_valid(struct kvm_vcpu *vcpu)
 	return is_unrestricted_guest(vcpu) || __vmx_guest_state_valid(vcpu);
 }
 
+static inline u64 vmx_get_faulting_gpa(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_3)) {
+		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_3);
+		vmx->faulting_gpa = vmread64(vcpu, GUEST_PHYSICAL_ADDRESS);
+	}
+	return vmx->faulting_gpa;
+}
+
+static inline u32 vmx_get_idt_info(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_4)) {
+		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_4);
+		vmx->idt_vectoring_info = vmread32(vcpu, IDT_VECTORING_INFO_FIELD);
+	}
+	return vmx->idt_vectoring_info;
+}
+
+static inline u32 vmx_get_instr_len(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_5)) {
+		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_5);
+		vmx->instr_len = vmread32(vcpu, VM_EXIT_INSTRUCTION_LEN);
+	}
+	return vmx->instr_len;
+}
+
+static inline u16 vmx_get_intr_status(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_6)) {
+		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_6);
+		vmx->intr_status = vmread16(vcpu, GUEST_INTR_STATUS);
+	}
+	return vmx->intr_status;
+}
+
+static inline void vmx_set_intr_status(struct kvm_vcpu *vcpu, u16 status)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	vmwrite16(vcpu, GUEST_INTR_STATUS, status);
+	kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_6);
+	vmx->intr_status = status;
+}
+
 static inline u8 vmx_get_rvi(struct kvm_vcpu *vcpu)
 {
-	return vmread16(vcpu, GUEST_INTR_STATUS) & 0xff;
+	return vmx_get_intr_status(vcpu) & 0xff;
 }
 
 static __always_inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)

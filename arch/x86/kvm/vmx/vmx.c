@@ -1673,7 +1673,7 @@ static int skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	 */
 	if (!static_cpu_has(X86_FEATURE_HYPERVISOR) ||
 	    exit_reason.basic != EXIT_REASON_EPT_MISCONFIG) {
-		instr_len = vmread32(vcpu, VM_EXIT_INSTRUCTION_LEN);
+		instr_len = vmx_get_instr_len(vcpu);
 
 		/*
 		 * Emulating an enclave's instructions isn't supported as KVM
@@ -4683,7 +4683,7 @@ static void init_vmcs(struct vcpu_vmx *vmx)
 		vmwrite64(vcpu, EOI_EXIT_BITMAP2, 0);
 		vmwrite64(vcpu, EOI_EXIT_BITMAP3, 0);
 
-		vmwrite16(vcpu, GUEST_INTR_STATUS, 0);
+		vmx_set_intr_status(vcpu, 0);
 
 		vmwrite16(vcpu, POSTED_INTR_NV, POSTED_INTR_VECTOR);
 		vmwrite64(vcpu, POSTED_INTR_DESC_ADDR, __pa((&vmx->pi_desc)));
@@ -5061,7 +5061,7 @@ static bool rmode_exception(struct kvm_vcpu *vcpu, int vec)
 		 * from user space while in guest debugging mode.
 		 */
 		to_vmx(vcpu)->vcpu.arch.event_exit_inst_len =
-			vmread32(vcpu, VM_EXIT_INSTRUCTION_LEN);
+			vmx_get_instr_len(vcpu);
 		if (vcpu->guest_debug & KVM_GUESTDBG_USE_SW_BP)
 			return false;
 		fallthrough;
@@ -5276,7 +5276,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		 * #DB as well causes no harm, it is not used in that case.
 		 */
 		vmx->vcpu.arch.event_exit_inst_len =
-			vmread32(vcpu, VM_EXIT_INSTRUCTION_LEN);
+			vmx_get_instr_len(vcpu);
 		kvm_run->exit_reason = KVM_EXIT_DEBUG;
 		kvm_run->debug.arch.pc = kvm_get_linear_rip(vcpu);
 		kvm_run->debug.arch.exception = ex_no;
@@ -5719,7 +5719,7 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 			(exit_qualification & INTR_INFO_UNBLOCK_NMI))
 		vmcs_set_bits(vcpu, GUEST_INTERRUPTIBILITY_INFO, GUEST_INTR_STATE_NMI);
 
-	gpa = vmread64(vcpu, GUEST_PHYSICAL_ADDRESS);
+	gpa = vmx_get_faulting_gpa(vcpu);
 	trace_kvm_page_fault(vcpu, gpa, exit_qualification);
 	vcpu->arch.exit_qualification = exit_qualification;
 
@@ -5748,7 +5748,7 @@ static int handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	 * A nested guest cannot optimize MMIO vmexits, because we have an
 	 * nGPA here instead of the required GPA.
 	 */
-	gpa = vmread64(vcpu, GUEST_PHYSICAL_ADDRESS);
+	gpa = vmx_get_faulting_gpa(vcpu);
 	if (!is_guest_mode(vcpu) &&
 	    !kvm_io_bus_write(vcpu, KVM_FAST_MMIO_BUS, gpa, 0, NULL)) {
 		trace_kvm_fast_mmio(gpa);
@@ -6281,8 +6281,7 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 	       vmread32(vcpu, GUEST_INTERRUPTIBILITY_INFO),
 	       vmread32(vcpu, GUEST_ACTIVITY_STATE));
 	if (secondary_exec_control & SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY)
-		pr_err("InterruptStatus = %04x\n",
-		       vmread16(vcpu, GUEST_INTR_STATUS));
+		pr_err("InterruptStatus = %04x\n", vmx_get_intr_status(vcpu));
 	if (vmread32(vcpu, VM_ENTRY_MSR_LOAD_COUNT) > 0)
 		vmx_dump_msrs("guest autoload", &vmx->msr_autoload.guest);
 	if (vmread32(vcpu, VM_EXIT_MSR_STORE_COUNT) > 0)
@@ -6339,21 +6338,19 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 	       vmread32(vcpu, VM_ENTRY_EXCEPTION_ERROR_CODE),
 	       vmread32(vcpu, VM_ENTRY_INSTRUCTION_LEN));
 	pr_err("VMExit: intr_info=%08x errcode=%08x ilen=%08x\n",
-	       vmread32(vcpu, VM_EXIT_INTR_INFO),
-	       vmread32(vcpu, VM_EXIT_INTR_ERROR_CODE),
-	       vmread32(vcpu, VM_EXIT_INSTRUCTION_LEN));
+	       vmx_get_intr_info(vcpu), vmread32(vcpu, VM_EXIT_INTR_ERROR_CODE),
+	       vmx_get_instr_len(vcpu));
 	pr_err("        reason=%08x qualification=%016lx\n",
 	       vmread32(vcpu, VM_EXIT_REASON), vmreadl(vcpu, EXIT_QUALIFICATION));
 	pr_err("IDTVectoring: info=%08x errcode=%08x\n",
-	       vmread32(vcpu, IDT_VECTORING_INFO_FIELD),
-	       vmread32(vcpu, IDT_VECTORING_ERROR_CODE));
+	       vmx_get_idt_info(vcpu), vmread32(vcpu, IDT_VECTORING_ERROR_CODE));
 	pr_err("TSC Offset = 0x%016llx\n", vmread64(vcpu, TSC_OFFSET));
 	if (secondary_exec_control & SECONDARY_EXEC_TSC_SCALING)
 		pr_err("TSC Multiplier = 0x%016llx\n",
 		       vmread64(vcpu, TSC_MULTIPLIER));
 	if (cpu_based_exec_ctrl & CPU_BASED_TPR_SHADOW) {
 		if (secondary_exec_control & SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY) {
-			u16 status = vmread16(vcpu, GUEST_INTR_STATUS);
+			u16 status = vmx_get_intr_status(vcpu);
 			pr_err("SVI|RVI = %02x|%02x ", status >> 8, status & 0xff);
 		}
 		pr_cont("TPR Threshold = 0x%02x\n", vmread32(vcpu, TPR_THRESHOLD));
@@ -6508,7 +6505,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 		vcpu->run->internal.data[2] = vcpu->arch.exit_qualification;
 		if (exit_reason.basic == EXIT_REASON_EPT_MISCONFIG) {
 			vcpu->run->internal.data[ndata++] =
-				vmread64(vcpu, GUEST_PHYSICAL_ADDRESS);
+				vmx_get_faulting_gpa(vcpu);
 		}
 		vcpu->run->internal.data[ndata++] = vcpu->arch.last_vmentry_cpu;
 		vcpu->run->internal.ndata = ndata;
@@ -6809,12 +6806,12 @@ void vmx_hwapic_isr_update(struct kvm_vcpu *vcpu, int max_isr)
 	if (max_isr == -1)
 		max_isr = 0;
 
-	status = vmread16(vcpu, GUEST_INTR_STATUS);
+	status = vmx_get_intr_status(vcpu);
 	old = status >> 8;
 	if (max_isr != old) {
 		status &= 0xff;
 		status |= max_isr << 8;
-		vmwrite16(vcpu, GUEST_INTR_STATUS, status);
+		vmx_set_intr_status(vcpu, status);
 	}
 }
 
@@ -6826,12 +6823,12 @@ static void vmx_set_rvi(struct kvm_vcpu *vcpu, int vector)
 	if (vector == -1)
 		vector = 0;
 
-	status = vmread16(vcpu, GUEST_INTR_STATUS);
+	status = vmx_get_intr_status(vcpu);
 	old = (u8)status & 0xff;
 	if ((u8)vector != old) {
 		status &= ~0xff;
 		status |= (u8)vector;
-		vmwrite16(vcpu, GUEST_INTR_STATUS, status);
+		vmx_set_intr_status(vcpu, status);
 	}
 }
 
@@ -7075,7 +7072,10 @@ static void __vmx_complete_interrupts(struct kvm_vcpu *vcpu,
 		vmx_set_nmi_mask(vcpu, false);
 		break;
 	case INTR_TYPE_SOFT_EXCEPTION:
-		vcpu->arch.event_exit_inst_len = vmread32(vcpu, instr_len_field);
+		if (instr_len_field == VM_EXIT_INSTRUCTION_LEN)
+			vcpu->arch.event_exit_inst_len = vmx_get_instr_len(vcpu);
+		else
+			vcpu->arch.event_exit_inst_len = vmread32(vcpu, instr_len_field);
 		fallthrough;
 	case INTR_TYPE_HARD_EXCEPTION:
 		if (idt_vectoring_info & VECTORING_INFO_DELIVER_CODE_MASK) {
@@ -7085,7 +7085,10 @@ static void __vmx_complete_interrupts(struct kvm_vcpu *vcpu,
 			kvm_requeue_exception(vcpu, vector);
 		break;
 	case INTR_TYPE_SOFT_INTR:
-		vcpu->arch.event_exit_inst_len = vmread32(vcpu, instr_len_field);
+		if (instr_len_field == VM_EXIT_INSTRUCTION_LEN)
+			vcpu->arch.event_exit_inst_len = vmx_get_instr_len(vcpu);
+		else
+			vcpu->arch.event_exit_inst_len = vmread32(vcpu, instr_len_field);
 		fallthrough;
 	case INTR_TYPE_EXT_INTR:
 		kvm_queue_interrupt(vcpu, vector, type == INTR_TYPE_SOFT_INTR);
@@ -7248,7 +7251,7 @@ static noinstr void vmx_vcpu_enter_exit(struct vcpu_vmx *vmx,
 
 	vmx->exit_reason.full = vmread32(vcpu, VM_EXIT_REASON);
 	if (likely(!vmx->exit_reason.failed_vmentry))
-		vmx->idt_vectoring_info = vmread32(vcpu, IDT_VECTORING_INFO_FIELD);
+		vmx_get_idt_info(vcpu);
 
 	if ((u16)vmx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI &&
 	    is_nmi(__vmx_get_intr_info(vcpu))) {

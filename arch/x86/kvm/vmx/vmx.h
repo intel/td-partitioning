@@ -275,6 +275,9 @@ struct vcpu_vmx {
 	unsigned long         exit_qualification;
 	u32                   exit_intr_info;
 	u32                   idt_vectoring_info;
+	u32                   instr_len;
+	u16                   intr_status;
+	unsigned long         faulting_gpa;
 	ulong                 rflags;
 
 	/*
@@ -608,7 +611,11 @@ BUILD_VMX_MSR_BITMAP_HELPERS(void, set, __set)
 				(1 << VCPU_EXREG_CR3) |         \
 				(1 << VCPU_EXREG_CR4) |         \
 				(1 << VCPU_EXREG_EXIT_INFO_1) | \
-				(1 << VCPU_EXREG_EXIT_INFO_2))
+				(1 << VCPU_EXREG_EXIT_INFO_2) | \
+				(1 << VCPU_EXREG_EXIT_INFO_3) | \
+				(1 << VCPU_EXREG_EXIT_INFO_4) | \
+				(1 << VCPU_EXREG_EXIT_INFO_5) | \
+				(1 << VCPU_EXREG_EXIT_INFO_6))
 
 static inline unsigned long vmx_l1_guest_owned_cr0_bits(void)
 {
