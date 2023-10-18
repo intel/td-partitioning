@@ -6,6 +6,7 @@
 
 #include "capabilities.h"
 #include "vmx_ops.h"
+#include "common.h"
 
 #ifdef CONFIG_X86_SGX_KVM
 extern bool __read_mostly enable_sgx;
@@ -27,7 +28,7 @@ static inline void vmx_write_encls_bitmap(struct kvm_vcpu *vcpu,
 {
 	/* Nothing to do if hardware doesn't support SGX */
 	if (cpu_has_vmx_encls_vmexit())
-		vmcs_write64(ENCLS_EXITING_BITMAP, -1ull);
+		vmwrite64(vcpu, ENCLS_EXITING_BITMAP, -1ull);
 }
 #endif
 

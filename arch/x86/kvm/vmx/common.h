@@ -287,4 +287,35 @@ static inline bool vmx_guest_state_valid(struct kvm_vcpu *vcpu)
 	return is_unrestricted_guest(vcpu) || __vmx_guest_state_valid(vcpu);
 }
 
+static inline u8 vmx_get_rvi(struct kvm_vcpu *vcpu)
+{
+	return vmread16(vcpu, GUEST_INTR_STATUS) & 0xff;
+}
+
+static __always_inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_test_and_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1))
+		vmx->exit_qualification = vmreadl(vcpu, EXIT_QUALIFICATION);
+
+	return vmx->exit_qualification;
+}
+
+/* For noinstr vmx_vcpu_enter_exit(). See the comment on it. */
+static __always_inline u32 __vmx_get_intr_info(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!kvm_register_test_and_mark_available(&vmx->vcpu, VCPU_EXREG_EXIT_INFO_2))
+		vmx->exit_intr_info = vmread32(vcpu, VM_EXIT_INTR_INFO);
+
+	return vmx->exit_intr_info;
+}
+
+static __always_inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
+{
+	return __vmx_get_intr_info(vcpu);
+}
+
 #endif /* __KVM_X86_VMX_COMMON_H */

@@ -20,6 +20,7 @@
 #include "nested.h"
 #include "pmu.h"
 #include "tdx.h"
+#include "common.h"
 
 #define MSR_PMC_FULL_WIDTH_BIT      (MSR_IA32_PMC0 - MSR_IA32_PERFCTR0)
 
@@ -625,13 +626,13 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 		if (pmu->version >= 4 && !msr_info->host_initiated &&
 		    (data & MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE)) {
-			u64 debug_ctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
+			u64 debug_ctl = vmread64(vcpu, GUEST_IA32_DEBUGCTL);
 			struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
 
 			if (!(debug_ctl & DEBUGCTLMSR_LBR) &&
 			    lbr_desc->freeze_on_pmi) {
 				debug_ctl |= DEBUGCTLMSR_LBR;
-				vmcs_write64(GUEST_IA32_DEBUGCTL, debug_ctl);
+				vmwrite64(vcpu, GUEST_IA32_DEBUGCTL, debug_ctl);
 				lbr_desc->freeze_on_pmi = false;
 			}
 		}
@@ -953,18 +954,18 @@ static void intel_pmu_reset(struct kvm_vcpu *vcpu)
  */
 static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 {
-	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	u64 data = vmread64(vcpu, GUEST_IA32_DEBUGCTL);
 
 	if (data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) {
 		data &= ~DEBUGCTLMSR_LBR;
-		vmcs_write64(GUEST_IA32_DEBUGCTL, data);
+		vmwrite64(vcpu, GUEST_IA32_DEBUGCTL, data);
 		vcpu_to_lbr_desc(vcpu)->freeze_on_pmi = true;
 	}
 }
 
 static void intel_pmu_streamlined_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 {
-	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	u64 data = vmread64(vcpu, GUEST_IA32_DEBUGCTL);
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 
 	/*
@@ -1049,7 +1050,7 @@ void vmx_passthrough_lbr_msrs(struct kvm_vcpu *vcpu)
 
 	if (!lbr_desc->event) {
 		vmx_disable_lbr_msrs_passthrough(vcpu);
-		if (vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR)
+		if (vmread64(vcpu, GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR)
 			goto warn;
 		if (test_bit(INTEL_PMC_IDX_FIXED_VLBR, pmu->pmc_in_use))
 			goto warn;
@@ -1071,7 +1072,7 @@ warn:
 
 static void intel_pmu_cleanup(struct kvm_vcpu *vcpu)
 {
-	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR) &&
+	if (!(vmread64(vcpu, GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR) &&
 	    !vcpu_to_lbr_desc(vcpu)->freeze_on_pmi)
 		intel_pmu_release_guest_lbr_event(vcpu);
 }

@@ -406,10 +406,12 @@ void vt_hwapic_irr_update(struct kvm_vcpu *vcpu, int max_irr)
 
 void vt_hwapic_isr_update(int max_isr)
 {
-	if (is_td_vcpu(kvm_get_running_vcpu()))
+	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
+
+	if (is_td_vcpu(vcpu))
 		return;
 
-	return vmx_hwapic_isr_update(max_isr);
+	return vmx_hwapic_isr_update(vcpu, max_isr);
 }
 
 bool vt_guest_apic_has_interrupt(struct kvm_vcpu *vcpu)
