@@ -4828,6 +4828,8 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 			r |= BIT(KVM_X86_TDX_VM);
 		if (kvm_is_vm_type_supported(KVM_X86_SNP_VM))
 			r |= BIT(KVM_X86_SNP_VM);
+		if (kvm_is_vm_type_supported(KVM_X86_TD_PART_VM))
+			r |= BIT(KVM_X86_TD_PART_VM);
 		break;
 	case KVM_CAP_READONLY_MEM:
 		if (kvm)

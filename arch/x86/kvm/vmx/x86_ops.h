@@ -476,4 +476,10 @@ int vt_tdi_get_info(struct kvm *kvm, struct kvm_tdi_info *info);
 int vt_tdi_user_request(struct kvm *kvm, struct kvm_tdi_user_request *req);
 /* tdx connect stuff end */
 
+#ifdef CONFIG_INTEL_TD_PART_GUEST
+bool td_part_is_vm_type_supported(unsigned long type);
+#else /* CONFIG_INTEL_TD_PART_GUEST */
+static inline bool td_part_is_vm_type_supported(unsigned long type) { return false; }
+#endif /* CONFIG_INTEL_TD_PART_GUEST */
+
 #endif /* __KVM_X86_VMX_X86_OPS_H */
