@@ -194,3 +194,9 @@ __init void cc_set_mask(u64 mask)
 {
 	cc_mask = mask;
 }
+
+u64 cc_get_mask(void)
+{
+	return cc_mask;
+}
+EXPORT_SYMBOL_GPL(cc_get_mask);

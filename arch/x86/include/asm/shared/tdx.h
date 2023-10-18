@@ -221,10 +221,8 @@ static __always_inline u64 hcall_func(u64 exit_reason)
 }
 
 #ifdef CONFIG_INTEL_TDX_GUEST
-u64 tdx_get_cc_mask(void);
 bool is_td_partitioning_supported(void);
 #else
-static inline u64 tdx_get_cc_mask(void) { return 0; }
 static inline bool is_td_partitioning_supported(void) { return false; }
 #endif
 

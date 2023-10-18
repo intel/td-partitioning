@@ -14,6 +14,7 @@ extern enum cc_vendor cc_vendor;
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM
 void cc_set_mask(u64 mask);
+u64 cc_get_mask(void);
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
 void cc_set_filter_status(bool status);
@@ -27,6 +28,10 @@ static inline u64 cc_mkenc(u64 val)
 static inline u64 cc_mkdec(u64 val)
 {
 	return val;
+}
+static inline u64 cc_get_mask(void)
+{
+	return 0;
 }
 #endif
 
