@@ -1015,6 +1015,14 @@ void vt_write_tsc_multiplier(struct kvm_vcpu *vcpu)
 	vmx_write_tsc_multiplier(vcpu);
 }
 
+bool vt_is_l1_tsc_adjustable(struct kvm_vcpu *vcpu)
+{
+	if (unlikely(is_td_part_vcpu(vcpu)))
+		return false;
+
+	return true;
+}
+
 void vt_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 {
 	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))

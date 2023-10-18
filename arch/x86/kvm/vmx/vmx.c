@@ -8718,6 +8718,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.get_l2_tsc_multiplier = vt_get_l2_tsc_multiplier,
 	.write_tsc_offset = vt_write_tsc_offset,
 	.write_tsc_multiplier = vt_write_tsc_multiplier,
+	.is_l1_tsc_adjustable = vt_is_l1_tsc_adjustable,
 
 	.load_mmu_pgd = vt_load_mmu_pgd,
 

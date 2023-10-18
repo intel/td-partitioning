@@ -419,6 +419,7 @@ u64 vt_get_l2_tsc_offset(struct kvm_vcpu *vcpu);
 u64 vt_get_l2_tsc_multiplier(struct kvm_vcpu *vcpu);
 void vt_write_tsc_offset(struct kvm_vcpu *vcpu);
 void vt_write_tsc_multiplier(struct kvm_vcpu *vcpu);
+bool vt_is_l1_tsc_adjustable(struct kvm_vcpu *vcpu);
 
 void vt_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level);
 
