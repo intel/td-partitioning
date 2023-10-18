@@ -155,6 +155,15 @@ static bool __td_part_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 	vm_flags = ((u64)vcpu->kvm->arch.vm_id << 52);
 	ret = tdg_vp_enter(vm_flags, virt_to_phys(&vcpu->arch.l2_guest_state), &out);
 
+	/* Only logs tdg_vp_enter specific stuff here: ret/rflags/qualification/rip for now
+	 * Use trace_kvm_td_part_guest_tdcall() to trace tdg_vp_enter's out!
+	 * Use "sudo trace-cmd stream -e kvm:kvm_td_part_tdg_vp_enter -e kvm:kvm_exit" to
+	 * trace tdg_vp_enter and vmexits
+	 */
+	trace_kvm_td_part_tdg_vp_enter(ret, out.rcx,
+		vcpu->arch.l2_guest_state.rflags,
+		vcpu->arch.l2_guest_state.rip);
+
 	/* TDG.VP.ENTER has special error checking */
 	if (is_tdg_enter_error(ret)) {
 		pr_err_ratelimited("TDG_VP_ENTER failed: 0x%llx\n", ret);

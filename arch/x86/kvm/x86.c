@@ -14431,6 +14431,8 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_page_add);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_page_remove);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_page_promote);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdx_page_demote);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_td_part_guest_tdcall);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_td_part_tdg_vp_enter);
 
 static int __init kvm_x86_init(void)
 {
