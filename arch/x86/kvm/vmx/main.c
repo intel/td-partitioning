@@ -13,10 +13,14 @@
 static bool enable_tdx __ro_after_init = IS_ENABLED(CONFIG_INTEL_TDX_HOST);
 module_param_named(tdx, enable_tdx, bool, 0444);
 
+bool __read_mostly enable_td_part = IS_ENABLED(CONFIG_INTEL_TD_PART_GUEST);
+module_param_named(td_part, enable_td_part, bool, 0444);
+
 bool vt_is_vm_type_supported(unsigned long type)
 {
 	return __kvm_is_vm_type_supported(type) ||
-		(enable_tdx && tdx_is_vm_type_supported(type));
+		(enable_tdx && tdx_is_vm_type_supported(type)) ||
+		(enable_td_part && td_part_is_vm_type_supported(type));
 }
 
 int vt_max_vcpus(struct kvm *kvm)
@@ -35,11 +39,17 @@ static int vt_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages
 
 int vt_hardware_enable(void)
 {
+	if (enable_td_part)
+		return 0;
+
 	return vmx_hardware_enable();
 }
 
 void vt_hardware_disable(void)
 {
+	if (enable_td_part)
+		return;
+
 	/* Note, TDX *and* VMX need to be disabled if TDX is enabled. */
 	if (enable_tdx)
 		tdx_hardware_disable();
@@ -53,6 +63,8 @@ __init int vt_hardware_setup(void)
 	/* Need to be set before vmx_hardware setup */
 	if (enable_tdx)
 		enable_pml = false;
+
+	enable_td_part = enable_td_part && !td_part_hardware_setup(&vt_x86_ops);
 
 	ret = vmx_hardware_setup();
 	if (ret)

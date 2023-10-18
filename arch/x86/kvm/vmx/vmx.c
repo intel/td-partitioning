@@ -2727,6 +2727,9 @@ static bool __kvm_is_vmx_supported(void)
 {
 	int cpu = smp_processor_id();
 
+	if (enable_td_part)
+		return true;
+
 	if (!(cpuid_ecx(1) & feature_bit(VMX))) {
 		pr_err("VMX not supported by CPU %d\n", cpu);
 		return false;

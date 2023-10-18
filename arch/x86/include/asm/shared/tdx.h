@@ -18,6 +18,8 @@
 #define TDG_MR_REPORT			4
 #define TDG_MEM_PAGE_ACCEPT		6
 #define TDG_VM_WR			8
+#define TDG_SYS_RD			11
+#define TDG_SYS_RDALL			12
 #define TDG_VERIFYREPORT		22
 #define TDG_DEVIF_VALIDATE		66
 #define TDG_DEVIF_READ			67
@@ -25,6 +27,13 @@
 #define TDG_DEVIF_RESPONSE		69
 #define TDG_DMAR_ACCEPT			70
 #define TDG_MMIO_ACCEPT			71
+
+#define TDG_SYS_RD_SUPPORTED   BIT(0)
+/*
+ * TDX module metadata identifiers
+ */
+#define TDX_MD_FEATURES0		0x0A00000300000008
+#define TDX_FEATURES0_TD_PART		BIT(7)
 
 /* TDCS fields. To be used by TDG.VM.WR and TDG.VM.RD module calls */
 #define TDCS_NOTIFY_ENABLES		0x9100000000000010
@@ -202,6 +211,12 @@ static __always_inline u64 hcall_func(u64 exit_reason)
 {
         return exit_reason;
 }
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+bool is_td_partitioning_supported(void);
+#else
+static inline bool is_td_partitioning_supported(void) { return false; }
+#endif
 
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_SHARED_TDX_H */
