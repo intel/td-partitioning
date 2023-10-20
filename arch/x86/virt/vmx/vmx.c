@@ -28,7 +28,7 @@ EXPORT_PER_CPU_SYMBOL_GPL(vmx_basic);
 static DEFINE_PER_CPU(struct vmcs *, vmxon_region);
 static DEFINE_PER_CPU(int, vmxop_count);
 
-static bool vmx_basic_valid(u64 _vmx_basic)
+static bool vmx_basic_valid(u64 _vmx_basic, bool td_part_supported)
 {
 	/* ia-32 sdm vol 3b: vmcs size is never greater than 4kb. */
 	if (vmx_basic_vmcs_size(_vmx_basic) > PAGE_SIZE)
@@ -44,7 +44,8 @@ static bool vmx_basic_valid(u64 _vmx_basic)
 	 * KVM requires write-back (wb) memory type for vmcs accesses.
 	 * no reason not to make it unversial.
 	 */
-	if (((_vmx_basic & VMX_BASIC_MEM_TYPE_MASK) >> VMX_BASIC_MEM_TYPE_SHIFT)
+	if (!td_part_supported &&
+			((_vmx_basic & VMX_BASIC_MEM_TYPE_MASK) >> VMX_BASIC_MEM_TYPE_SHIFT)
 			!= VMX_BASIC_MEM_TYPE_WB)
 		return false;
 
@@ -57,6 +58,7 @@ static void prepare_vmxon_region(struct cpuinfo_x86 *c)
 	struct page *page;
 	u64 _vmx_basic;
 	int cpu;
+	bool td_part_supported = is_td_partitioning_supported();
 
 	cpu = smp_processor_id();
 	WARN_ON_ONCE(cpu != c->cpu_index);
@@ -66,12 +68,12 @@ static void prepare_vmxon_region(struct cpuinfo_x86 *c)
 	 * VMX is not supported.  This is done when the cpu goes offline.
 	 * Just need to return here.
 	 */
-	if (!cpu_has(c, X86_FEATURE_VMX))
+	if (!cpu_has(c, X86_FEATURE_VMX) && !td_part_supported)
 		return;
 
 	rdmsrl(MSR_IA32_VMX_BASIC, _vmx_basic);
 
-	if (!vmx_basic_valid(_vmx_basic)) {
+	if (!vmx_basic_valid(_vmx_basic, td_part_supported)) {
 		pr_err("CPU %d: invalid MSR_IA32_VMX_BASIC: 0x%llx\n", cpu,
 				_vmx_basic);
 		return;
