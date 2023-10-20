@@ -2539,8 +2539,8 @@ static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
 	}
 }
 
-static int kvm_vm_set_mem_attributes(struct kvm *kvm, unsigned long attributes,
-				     gfn_t start, gfn_t end)
+int kvm_vm_set_mem_attributes(struct kvm *kvm, unsigned long attributes,
+				     gfn_t start, gfn_t end, bool slots_lock)
 {
 	struct kvm_mmu_notifier_range unmap_range = {
 		.start = start,
@@ -2568,7 +2568,8 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, unsigned long attributes,
 
 	entry = attributes ? xa_mk_value(attributes) : NULL;
 
-	mutex_lock(&kvm->slots_lock);
+	if (slots_lock)
+		mutex_lock(&kvm->slots_lock);
 
 	/*
 	 * Reserve memory ahead of time to avoid having to deal with failures
@@ -2591,7 +2592,8 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, unsigned long attributes,
 	kvm_handle_gfn_range(kvm, &post_set_range);
 
 out_unlock:
-	mutex_unlock(&kvm->slots_lock);
+	if (slots_lock)
+		mutex_unlock(&kvm->slots_lock);
 
 	return r;
 }
@@ -2623,7 +2625,7 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 	 */
 	BUILD_BUG_ON(sizeof(attrs->attributes) != sizeof(unsigned long));
 
-	return kvm_vm_set_mem_attributes(kvm, attrs->attributes, start, end);
+	return kvm_vm_set_mem_attributes(kvm, attrs->attributes, start, end, true);
 }
 #endif /* CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES */
 
