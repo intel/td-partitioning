@@ -485,7 +485,8 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 				    shared);
 	}
 
-	KVM_BUG_ON(is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
+	KVM_BUG_ON(!kvm_mmu_page_role_is_td_part(sp->role) &&
+		   is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
 	if (is_private_sp(sp) &&
 	    WARN_ON(static_call(kvm_x86_free_private_spt)(kvm, sp->gfn, sp->role.level,
 							  kvm_mmu_private_spt(sp)))) {
@@ -500,18 +501,22 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
 }
 
-static void *get_private_spt(gfn_t gfn, u64 new_spte, int level)
+static void *get_private_spt(gfn_t gfn, u64 new_spte, int level,
+			     struct kvm_mmu_page **spp)
 {
 	if (is_shadow_present_pte(new_spte) && !is_last_spte(new_spte, level)) {
 		struct kvm_mmu_page *sp = to_shadow_page(pfn_to_hpa(spte_to_pfn(new_spte)));
 		void *private_spt = kvm_mmu_private_spt(sp);
 
-		WARN_ON_ONCE(!private_spt);
+		WARN_ON_ONCE(!kvm_mmu_page_role_is_td_part(sp->role) &&
+			     !private_spt);
 		WARN_ON_ONCE(sp->role.level + 1 != level);
 		WARN_ON_ONCE(sp->gfn != gfn);
+		*spp = sp;
 		return private_spt;
 	}
 
+	*spp = NULL;
 	return NULL;
 }
 
@@ -757,6 +762,7 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	void *private_spt;
+	struct kvm_mmu_page *sp;
 	int ret = 0;
 
 	lockdep_assert_held(&kvm->mmu_lock);
@@ -818,8 +824,10 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 		 * splitting large page into 4KB.
 		 * tdp_mmu_split_huage_page() => tdp_mmu_link_sp()
 		 */
-		private_spt = get_private_spt(gfn, new_spte, level);
-		KVM_BUG_ON(!private_spt, kvm);
+		private_spt = get_private_spt(gfn, new_spte, level, &sp);
+		KVM_BUG_ON(!sp ||
+			(!kvm_mmu_page_role_is_td_part(sp->role) &&
+			 !private_spt), kvm);
 		ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
 		kvm_flush_remote_tlbs(kvm);
 		if (!ret)
@@ -839,8 +847,10 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 		ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level,
 				new_pfn, access);
 	} else {
-		private_spt = get_private_spt(gfn, new_spte, level);
-		KVM_BUG_ON(!private_spt, kvm);
+		private_spt = get_private_spt(gfn, new_spte, level, &sp);
+		KVM_BUG_ON(!sp ||
+			(!kvm_mmu_page_role_is_td_part(sp->role) &&
+			 !private_spt), kvm);
 		ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
 	}
 
@@ -1895,12 +1905,23 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	raw_gfn = gpa_to_gfn(fault->addr);
 
-	if (!fault->nonleaf &&
-	    (is_error_noslot_pfn(fault->pfn) ||
-	    !kvm_pfn_to_refcounted_page(fault->pfn))) {
-		if (is_private && !kvm_is_mmio_pfn(fault->pfn)) {
+	if (!kvm_mmu_page_role_is_td_part(mmu->root_role)) {
+		if (!fault->nonleaf &&
+			(is_error_noslot_pfn(fault->pfn) ||
+			 !kvm_pfn_to_refcounted_page(fault->pfn))) {
+			if (is_private && !kvm_is_mmio_pfn(fault->pfn)) {
+				rcu_read_unlock();
+				return -EFAULT;
+			}
+		}
+	} else {
+		if (!fault->nonleaf && is_private &&
+			is_error_noslot_pfn(fault->pfn)) {
 			rcu_read_unlock();
-			return -EFAULT;
+			if (is_error_pfn(fault->pfn))
+				return -EFAULT;
+			else
+				return RET_PF_EMULATE;
 		}
 	}
 
