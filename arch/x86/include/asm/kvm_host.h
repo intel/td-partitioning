@@ -2409,8 +2409,12 @@ enum {
 #define HF_SMM_INSIDE_NMI_MASK	(1 << 2)
 
 # define KVM_MAX_NR_ADDRESS_SPACES	2
-/* SMM is currently unsupported for guests with private memory. */
-# define kvm_arch_nr_memslot_as_ids(kvm) (kvm_arch_has_private_mem(kvm) ? 1 : 2)
+/*
+ * SMM is currently unsupported for guests with private memory, while it can
+ * be supported in TD partition guest
+ */
+# define kvm_arch_nr_memslot_as_ids(kvm) ((kvm_arch_has_private_mem(kvm) && \
+		(kvm)->arch.vm_type != KVM_X86_TD_PART_VM) ? 1 : 2)
 # define kvm_arch_vcpu_memslots_id(vcpu) ((vcpu)->arch.hflags & HF_SMM_MASK ? 1 : 0)
 # define kvm_memslots_for_spte_role(kvm, role) __kvm_memslots(kvm, (role).smm)
 #else
