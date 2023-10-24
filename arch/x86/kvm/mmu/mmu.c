@@ -4860,7 +4860,8 @@ static int __kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	if (kvm_is_faultin_private(fault))
 		return kvm_faultin_pfn_private(vcpu, fault);
 
-	if (fault->is_private && !kvm_slot_can_be_private(fault->slot))
+	if (fault->is_private && !kvm_slot_can_be_private(fault->slot) &&
+			vcpu->kvm->arch.vm_type != KVM_X86_TD_PART_VM)
 		return kvm_do_memory_fault_exit(vcpu, fault);
 
 	async = false;
