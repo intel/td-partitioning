@@ -68,6 +68,15 @@ struct ve_info {
 	u32 instr_info;
 };
 
+#if defined(CONFIG_INTEL_TDX_HOST) || defined(CONFIG_INTEL_TD_PART_GUEST)
+#include <linux/bug.h>
+static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
+{
+	WARN_ON_ONCE(level == PG_LEVEL_NONE);
+	return level - 1;
+}
+#endif
+
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 extern int tdx_notify_irq;
@@ -216,13 +225,6 @@ struct tdx_features {
 		u64 full;
 	};
 };
-
-#include <linux/bug.h>
-static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
-{
-	WARN_ON_ONCE(level == PG_LEVEL_NONE);
-	return level - 1;
-}
 
 #include <asm/processor.h>
 static __always_inline u64 set_hkid_to_hpa(u64 pa, u16 hkid)
